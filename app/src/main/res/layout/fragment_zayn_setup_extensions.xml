@@ -27,7 +27,7 @@
         android:layout_marginEnd="20dp"
         android:layout_marginTop="5dp"
         android:text="@string/setup_extensions_subtext"
-        android:textColor="?attr/textColorSecondary" />
+        android:textColor="?attr/grayTextColor" />
 
     <ProgressBar
         android:layout_width="match_parent"
@@ -51,7 +51,7 @@
         android:background="@drawable/zayn_search_pill_bg"
         android:drawableStart="@drawable/search_icon"
         android:drawablePadding="10dp"
-        android:drawableTint="?attr/textColorSecondary"
+        android:drawableTint="?attr/grayTextColor"
         android:hint="@string/zayn_repos_search_hint"
         android:paddingStart="16dp"
         android:paddingTop="11dp"
@@ -59,7 +59,7 @@
         android:paddingBottom="11dp"
         android:singleLine="true"
         android:textColor="?attr/textColor"
-        android:textColorHint="?attr/textColorSecondary" />
+        android:textColorHint="?attr/grayTextColor" />
 
     <LinearLayout
         android:id="@+id/blank_repo_screen"
@@ -119,7 +119,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical|end"
-            android:textColor="?attr/textColorSecondary"
+            android:textColor="?attr/grayTextColor"
             android:text="@string/previous" />
     </LinearLayout>
 
