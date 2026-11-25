@@ -40,6 +40,7 @@
             android:layout_width="0dp"
             app:labelVisibilityMode="labeled"
             android:background="?attr/primaryGrayBackground"
+            app:itemPaddingBottom="12dp"
 
             app:itemIconTint="@color/item_select_color"
             app:itemTextColor="@color/item_select_color"
