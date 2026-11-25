@@ -62,7 +62,6 @@ fun ZaynReposSection() {
     val installedUrls = remember(tick) {
         RepositoryManager.getRepositories().map { it.url }.toSet()
     }
-    val enabled = remember(tick) { ZaynProviders.getEnabledProviders() }
 
     val filtered = remember(query, allRepos) {
         val q = query.trim().lowercase()
@@ -104,7 +103,10 @@ fun ZaynReposSection() {
 
         for (repo in filtered) {
             val installed = installedUrls.contains(repo.url)
-            val onCount = repo.plugins.count { enabled.contains(it) }
+            // Normalised match: a provider ON under its runtime spelling
+            // (e.g. "Disney Plus") still counts for its repo-JSON name
+            // ("Disney+"), and vice versa.
+            val onCount = ZaynProviders.onCountForRepo(repo)
             val expanded = expandedIds.contains(repo.id)
             Column(
                 modifier = Modifier
@@ -238,15 +240,11 @@ fun ZaynReposSection() {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WhiteButton(text = context.getString(R.string.zayn_repos_enable_all)) {
-                            val current = ZaynProviders.getEnabledProviders().toMutableSet()
-                            current.addAll(repo.plugins)
-                            ZaynProviders.setEnabledProviders(current)
+                            ZaynProviders.setProvidersEnabled(repo.plugins, true)
                             version++
                         }
                         BlackButton(text = context.getString(R.string.zayn_repos_disable_all)) {
-                            val current = ZaynProviders.getEnabledProviders().toMutableSet()
-                            current.removeAll(repo.plugins.toSet())
-                            ZaynProviders.setEnabledProviders(current)
+                            ZaynProviders.setProvidersEnabled(repo.plugins, false)
                             version++
                         }
                     }
@@ -282,7 +280,7 @@ fun ZaynReposSection() {
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             Switch(
-                                checked = enabled.contains(providerName),
+                                checked = ZaynProviders.isProviderEnabled(providerName),
                                 onCheckedChange = { checked ->
                                     ZaynProviders.setProviderEnabled(providerName, checked)
                                     version++
