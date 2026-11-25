@@ -62,6 +62,7 @@
 
         <attr name="primaryGrayBackground" format="color" />
         <attr name="primaryBlackBackground" format="color" />
+        <attr name="splashBackground" format="color" />
         <attr name="iconGrayBackground" format="color" />
         <attr name="boxItemBackground" format="color" />
 
