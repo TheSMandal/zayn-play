@@ -662,7 +662,8 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
      * loading, when returning to Home, and when the current provider changes.
      * Tapping a tab switches the feed via loadAndCancel, the same call the old
      * provider picker used. Long-press pins/unpins a provider (pinned first).
-     * The trailing "All providers" tab keeps the full picker reachable.
+     * The trailing grid button keeps the full picker reachable (preview
+ * .prov-all: provider names only, no "All providers" tab).
      */
     private fun rebuildProviderTabs(success: Boolean = false) {
         // Keep the appbar Random button in sync (the header may have rebound).
@@ -686,9 +687,9 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
         val current = currentApiName
         // When nothing is ON, the designed empty state (home_empty_state)
         // is shown instead — hide the whole tabs row so its hint text
-        // ("Turn providers ON in Extensions…") and the trailing
-        // "All providers" chip don't duplicate it. The row is rebuilt (and
-        // shown again) as soon as a provider is ON.
+        // ("Turn providers ON in Extensions…") and the trailing grid
+        // button don't duplicate it. The row is rebuilt (and shown again)
+        // as soon as a provider is ON.
         scrollView?.isVisible = providers.isNotEmpty()
         tabsHolder.removeAllViews()
         val density = context.resources.displayMetrics.density
@@ -801,14 +802,27 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
             )
         }
 
-        // Trailing entry point for the full provider picker (all providers,
-        // including ones that are OFF or have no homepage).
-        addTab(
-            name = context.getString(R.string.zayn_provider_tabs_all),
-            tileColor = Color.parseColor("#6C63FF"),
-            selected = false,
-            onClick = { apiChangeClickListener.onClick(tabsHolder) }
-        )
+        // Trailing grid button for the full provider picker (preview
+        // .prov-all: provider names only, no "All providers" tab). Opens
+        // the same picker as before (all providers, including ones that
+        // are OFF or have no homepage).
+        ImageView(context).apply {
+            setImageResource(R.drawable.baseline_grid_view_24)
+            setColorFilter(Color.parseColor("#9AA5B5"))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(11).toFloat()
+                setColor(Color.argb(26, 127, 127, 127))
+                setStroke(dp(1), Color.argb(56, 127, 127, 127))
+            }
+            setPadding(dp(7), dp(7), dp(7), dp(7))
+            layoutParams = LinearLayout.LayoutParams(dp(34), dp(34)).apply {
+                marginEnd = dp(6)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { apiChangeClickListener.onClick(tabsHolder) }
+        }.also { tabsHolder.addView(it) }
 
         // Zayn Play profile avatar in the home header (setup Profile step).
         // The header ImageView is home_head_profile_pic; when no profile
@@ -880,7 +894,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
         binding.apply {
             // Zayn Play: the provider FAB is gone, replaced by the provider-name
             // tabs row in the header. The picker is still reachable from the
-            // trailing "All providers" tab and from homeChangeApi (TV).
+            // trailing grid button and from homeChangeApi (TV).
             homeChangeApi.setOnClickListener(apiChangeClickListener)
             homeSwitchAccount.setOnClickListener {
                 activity?.showAccountSelectLinear()
