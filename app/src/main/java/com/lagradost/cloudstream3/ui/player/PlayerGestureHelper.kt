@@ -999,7 +999,9 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
         pill.animate().cancel()
         pill.isVisible = false
         pill.alpha = 1f
-        for (i in 0 until pill.childCount) pill.getChildAt(i).alpha = 1f
+        (pill as? ViewGroup)?.let { group ->
+            for (i in 0 until group.childCount) group.getChildAt(i).alpha = 1f
+        }
     }
 
     /** Seeks back by [fastForwardTime], showing the left seek pill. */
