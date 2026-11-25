@@ -1,4 +1,5 @@
 import com.android.build.gradle.internal.cxx.configure.gradleLocalProperties
+import java.util.Properties
 import org.jetbrains.dokka.gradle.engine.parameters.KotlinPlatform
 import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
@@ -103,7 +104,7 @@ android {
         // or the ZAYN_STORE_FILE / ZAYN_STORE_PASSWORD / ZAYN_KEY_ALIAS /
         // ZAYN_KEY_PASSWORD env vars. The keystore lives outside the repo.
         create("zaynplay") {
-            val props = java.util.Properties()
+            val props = Properties()
             val propsFile = rootDir.resolve("keystore.properties")
             if (propsFile.exists()) propsFile.inputStream().use { props.load(it) }
             storeFile = (System.getenv("ZAYN_STORE_FILE") ?: props.getProperty("storeFile"))?.let { file(it) }
