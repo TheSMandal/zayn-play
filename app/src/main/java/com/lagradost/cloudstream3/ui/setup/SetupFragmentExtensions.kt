@@ -145,10 +145,7 @@ class SetupFragmentExtensions : BaseFragment<FragmentSetupExtensionsBinding>(
                         )
                     },
                     onToggleAll = { repo, on ->
-                        val current = ZaynProviders.getEnabledProviders().toMutableSet()
-                        if (on) current.addAll(repo.plugins)
-                        else current.removeAll(repo.plugins.toSet())
-                        ZaynProviders.setEnabledProviders(current)
+                        ZaynProviders.setProvidersEnabled(repo.plugins, on)
                         zaynAdapter?.refresh()
                     },
                 ).also { binding?.repoRecyclerView?.adapter = it }
