@@ -8,6 +8,7 @@
 
 package com.lagradost.cloudstream3.ui.setup
 
+import android.util.TypedValue
 import android.view.View
 import android.widget.AbsListView
 import android.widget.ArrayAdapter
@@ -21,6 +22,7 @@ import com.lagradost.cloudstream3.databinding.FragmentZaynSetupProviderLanguages
 import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.ui.BaseFragment
+import com.lagradost.cloudstream3.ui.settings.providerLanguageTagsInOrder
 import com.lagradost.cloudstream3.utils.AppContextUtils.getApiProviderLangSettings
 import com.lagradost.cloudstream3.utils.SubtitleHelper.getNameNextToFlagEmoji
 import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
@@ -39,22 +41,41 @@ class ZaynSetupProviderLanguageFragment : BaseFragment<FragmentZaynSetupProvider
 
             val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
 
+            val subColor = TypedValue().let { tv ->
+                ctx.theme.resolveAttribute(R.attr.grayTextColor, tv, true)
+                tv.data
+            }
             val arrayAdapter =
-                ArrayAdapter<String>(ctx, R.layout.zayn_setup_option_multi)
+                ArrayAdapter<CharSequence>(ctx, R.layout.zayn_setup_option_multi)
 
             val currentLangTags = ctx.getApiProviderLangSettings()
 
-            val languagesTagName = APIHolder.apis.withLock {
-                listOf(Pair(AllLanguagesName, getString(R.string.all_languages_preference))) +
-                APIHolder.apis.map { Pair(it.lang, getNameNextToFlagEmoji(it.lang) ?: it.lang) }
-                    .toSet().sortedBy { it.second.substringAfter("\u00a0").lowercase() } // name ignoring flag emoji
+            // Zayn Play: always All + the 11 languages in the user's order,
+            // then any extra installed-provider tags — never only the installed
+            // providers' languages (with no repos installed, Bengali/Hindi
+            // would never appear and could never be ticked).
+            val installedLangs = APIHolder.apis.withLock {
+                APIHolder.apis.map { it.lang }.distinct()
+            }
+            val languagesTagName = providerLanguageTagsInOrder(installedLangs).map { tag ->
+                if (tag == AllLanguagesName) {
+                    Pair(tag, getString(R.string.all_languages_preference))
+                } else {
+                    Pair(tag, getNameNextToFlagEmoji(tag) ?: tag)
+                }
             }
 
             val currentIndexList = currentLangTags.map { langTag ->
                 languagesTagName.indexOfFirst { lang -> lang.first == langTag }
             }.filter { it > -1 }
 
-            arrayAdapter.addAll(languagesTagName.map { it.second })
+            arrayAdapter.addAll(languagesTagName.map { (tag, display) ->
+                val sub = when (tag) {
+                    AllLanguagesName -> getString(R.string.zayn_setup_all_languages_sub)
+                    else -> zaynLanguageEnglishNames[tag]
+                }
+                zaynSetupOptionText(display, sub, subColor)
+            })
             binding.apply {
                 listview1.adapter = arrayAdapter
                 listview1.choiceMode = AbsListView.CHOICE_MODE_MULTIPLE
