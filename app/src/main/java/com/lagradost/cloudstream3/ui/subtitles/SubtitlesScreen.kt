@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -38,6 +39,7 @@ import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.player.CustomDecoder
 import com.lagradost.cloudstream3.ui.settings.SettingsFragmentScreen.launchSafe
+import com.lagradost.cloudstream3.ui.settings.ZaynSearchableContent
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.applyStyleEvent
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.defaultSubtitleStyle
@@ -60,6 +62,18 @@ import java.io.File
 object SubtitlesScreen : SearchableSettings {
     @Composable
     override fun getTitleRes(): String = stringResource(R.string.subtitles_settings)
+
+    // Zayn Play: render with the Zayn rows (same as the five inner Settings
+    // screens) instead of Mihon's default old PreferenceScaffold. The undo /
+    // reset buttons stay in the top bar via actions — same behaviour as before.
+    @Composable
+    override fun Content() {
+        ZaynSearchableContent(
+            title = getTitleRes(),
+            actions = { AppBarAction() },
+            itemsProvider = { getPreferences() },
+        )
+    }
 
     // For ux purposes we also want to show a diff of what will be reset
     private val diff = arrayOf<Pair<Int, (SaveCaptionStyle) -> Any?>>(
@@ -251,6 +265,7 @@ object SubtitlesScreen : SearchableSettings {
                     Preference.PreferenceItem.ListPreference(
                         preference = store.field(SaveCaptionStyle::font) { newValue -> copy(font = newValue, typefaceFilePath = null) },
                         icon = painterResource(R.drawable.font_download_24px),
+                        iconTileColor = Color(0xFF2563EB),
                         title = stringResource(R.string.subs_font),
                         entries = mapOf(null to stringResource(R.string.normal)) + SubtitleFont.entries.associateWith { it.label },
                         onValueChanged = { value ->
@@ -272,6 +287,7 @@ object SubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_text_color),
                         icon = painterResource(R.drawable.format_color_text_24px),
+                        iconTileColor = Color(0xFF2563EB),
                     ),
                     Preference.PreferenceItem.SliderPreference(
                         preference = store.field(
@@ -279,6 +295,7 @@ object SubtitlesScreen : SearchableSettings {
                             set = { newValue -> copy(fixedTextSize = newValue.toFloat()) }
                         ),
                         icon = painterResource(R.drawable.text_fields_24px),
+                        iconTileColor = Color(0xFF2563EB),
                         title = stringResource(R.string.subs_font_size),
                         valueRange = 5..60
                     ),
@@ -287,16 +304,19 @@ object SubtitlesScreen : SearchableSettings {
                             copy(upperCase = newValue)
                         },
                         icon = painterResource(R.drawable.uppercase_24px),
+                        iconTileColor = Color(0xFF2563EB),
                         title = stringResource(R.string.uppercase_all_subtitles),
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = store.field(SaveCaptionStyle::bold) { newValue -> copy(bold = newValue) },
                         icon = painterResource(R.drawable.format_bold_24px),
+                        iconTileColor = Color(0xFF2563EB),
                         title = stringResource(R.string.all_subtitles_bold),
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = store.field(SaveCaptionStyle::italic) { newValue -> copy(italic = newValue) },
                         icon = painterResource(R.drawable.format_italic_24px),
+                        iconTileColor = Color(0xFF2563EB),
                         title = stringResource(R.string.all_subtitles_italic),
                     ),
                 )
@@ -306,6 +326,7 @@ object SubtitlesScreen : SearchableSettings {
                 preferenceItems = persistentListOf(
                     Preference.PreferenceItem.ListPreference(
                         icon = painterResource(R.drawable.shadow_24px),
+                        iconTileColor = Color(0xFF7C3AED),
                         title = stringResource(R.string.subs_edge_type),
                         preference = store.field(SaveCaptionStyle::edgeType) { newValue ->
                             copy(edgeType = newValue)
@@ -325,6 +346,7 @@ object SubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_outline_color),
                         icon = painterResource(R.drawable.border_color_24px),
+                        iconTileColor = Color(0xFF7C3AED),
                     ),
                     Preference.PreferenceItem.SliderPreference(
                         preference = store.field(
@@ -333,6 +355,7 @@ object SubtitlesScreen : SearchableSettings {
                         ),
                         //enabled = state.edgeType == CaptionStyleCompat.EDGE_TYPE_OUTLINE,
                         icon = painterResource(R.drawable.shadow_add_24px),
+                        iconTileColor = Color(0xFF7C3AED),
                         title = stringResource(R.string.subs_edge_size),
                         valueRange = 0..60,
                     )
@@ -348,6 +371,7 @@ object SubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_window_color),
                         icon = painterResource(R.drawable.imagesearch_roller_24px),
+                        iconTileColor = Color(0xFF059669),
                     ),
                     Preference.PreferenceItem.ColorPreference(
                         preference = store.field(SaveCaptionStyle::backgroundColor) { newValue ->
@@ -355,6 +379,7 @@ object SubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_background_color),
                         icon = painterResource(R.drawable.format_color_fill_24px),
+                        iconTileColor = Color(0xFF059669),
                     ),
                     Preference.PreferenceItem.SliderPreference(
                         preference = store.field(
@@ -362,6 +387,7 @@ object SubtitlesScreen : SearchableSettings {
                             set = { newValue -> copy(backgroundRadius = newValue.toFloat()) }
                         ),
                         icon = painterResource(R.drawable.rounded_corner_24px),
+                        iconTileColor = Color(0xFF059669),
                         title = stringResource(R.string.background_radius),
                         valueRange = 0..50,
                         steps = 9,
@@ -377,6 +403,7 @@ object SubtitlesScreen : SearchableSettings {
                         },
 
                         icon = painterResource(R.drawable.format_align_center_24px),
+                        iconTileColor = Color(0xFFDB2777),
                         title = stringResource(R.string.subs_subtitle_alignment),
                         entries = persistentMapOf(
                             null to stringResource(R.string.automatic),
@@ -397,6 +424,7 @@ object SubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_subtitle_elevation),
                         icon = painterResource(R.drawable.text_select_move_up_24px),
+                        iconTileColor = Color(0xFFDB2777),
                         valueRange = 0..400,
                         steps = 39
                     ),
@@ -408,6 +436,7 @@ object SubtitlesScreen : SearchableSettings {
                 preferenceItems = persistentListOf(
                     Preference.PreferenceItem.ListPreference(
                         icon = painterResource(R.drawable.language_korean_latin_24px),
+                        iconTileColor = Color(0xFF0891B2),
                         title = stringResource(R.string.subs_auto_select_language),
                         preference = autoSelectSubtitles,
                         entries = mapOf(
@@ -416,6 +445,7 @@ object SubtitlesScreen : SearchableSettings {
                     ),
                     Preference.PreferenceItem.MultiSelectListPreference(
                         icon = painterResource(R.drawable.language_download2),
+                        iconTileColor = Color(0xFF0891B2),
                         title = stringResource(R.string.subs_download_languages),
                         preference = downloadSubsLanguage,
                         entries = mapOf(
@@ -425,6 +455,7 @@ object SubtitlesScreen : SearchableSettings {
                     Preference.PreferenceItem.SwitchPreference(
                         preference = subtitlesFilterSubLang,
                         icon = painterResource(R.drawable.filter_alt_24px),
+                        iconTileColor = Color(0xFF0891B2),
                         title = stringResource(R.string.subtitles_filter_lang),
                     ),
                 )
@@ -437,6 +468,7 @@ object SubtitlesScreen : SearchableSettings {
                             copy(removeCaptions = newValue)
                         },
                         icon = painterResource(R.drawable.closed_caption_24px),
+                        iconTileColor = Color(0xFFD97706),
                         title = stringResource(R.string.subtitles_remove_captions),
                         subtitle = "[Knocking on door] Hello → Hello",
                     ),
@@ -445,6 +477,7 @@ object SubtitlesScreen : SearchableSettings {
                             copy(removeBloat = newValue)
                         },
                         icon = painterResource(R.drawable.text_ad_off_24px),
+                        iconTileColor = Color(0xFFD97706),
                         title = stringResource(R.string.subtitles_remove_bloat),
                     ),
                 )
