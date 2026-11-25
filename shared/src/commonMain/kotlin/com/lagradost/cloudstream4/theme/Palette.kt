@@ -3,7 +3,7 @@ package com.lagradost.cloudstream4.theme
 import androidx.compose.ui.graphics.Color
 
 enum class CloudStreamPrimaryColor(val color: Color) {
-    NORMAL(Color(0xFFE20914)),
+    NORMAL(Color(0xFFE8261C)),
     BLUE(Color(0xFF5664B7)),
     PURPLE(Color(0xFF6200EA)),
     GREEN(Color(0xFF00BFA5)),
@@ -30,30 +30,30 @@ enum class CloudStreamPrimaryColor(val color: Color) {
 
 internal object CloudStreamPalette {
     // Default dark (AppTheme / Black) — Zayn Play palette
-    val Primary = Color(0xFFE20914)
-    val PrimaryDark = Color(0xFF7A0008)
+    val Primary = Color(0xFFE8261C)
+    val PrimaryDark = Color(0xFFC70F06)
     val Ongoing = Color(0xFFF53B66)
 
-    val DarkPrimaryGrayBg = Color(0xFF14141A)
+    val DarkPrimaryGrayBg = Color(0xFF14161D)
     val DarkBlackBg = Color(0xFF0A0A0F)
-    val DarkIconGrayBg = Color(0xFF1F1F23)
-    val DarkBoxItemBg = Color(0xFF1F1F23)
-    val DarkText = Color(0xFFE9EAEE)
-    val DarkGrayText = Color(0xFF9BA0A4)
-    val DarkIcon = Color(0xFF9BA0A6)
+    val DarkIconGrayBg = Color(0xFF1D2029)
+    val DarkBoxItemBg = Color(0xFF1D2029)
+    val DarkText = Color(0xFFF4F6F9)
+    val DarkGrayText = Color(0xFF9AA5B5)
+    val DarkIcon = Color(0xFF9AA5B5)
 
     // Amoled
     val AmoledBlack = Color(0xFF000000)
     val AmoledNearBlack = Color(0xFF121212)
 
     // Light
-    val LightPrimaryGrayBg = Color(0xFFF1F1F1)
+    val LightPrimaryGrayBg = Color(0xFFF2F3F7)
     val LightBlackBg = Color(0xFFFFFFFF)
-    val LightIconGrayBg = Color(0xFFEEEEEE)
-    val LightBoxItemBg = Color(0xFFEEEEEE)
+    val LightIconGrayBg = Color(0xFFE9EBF1)
+    val LightBoxItemBg = Color(0xFFE9EBF1)
     val LightText = Color(0xFF202125)
-    val LightGrayText = Color(0xFF5F6267)
-    val LightIcon = Color(0xFF5F6267)
+    val LightGrayText = Color(0xFF5D6774)
+    val LightIcon = Color(0xFF5D6774)
 
     // Dracula
     val DraculaPrimaryGrayBg = Color(0xFF414450)
