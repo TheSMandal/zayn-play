@@ -36,7 +36,18 @@ class LocalList : SyncAPI() {
         val list = ioWork {
             val isTrueTv = isLayout(TV)
 
-            val baseMap = WatchType.entries.filter { it != WatchType.NONE }.associate {
+            // Zayn Play library tab order (preview spec): Watching, Plan to
+            // Watch, Completed, On-Hold, Dropped. (WatchType declaration
+            // order is Watching, Completed, On-Hold, Dropped, Plan to Watch,
+            // which is why the tabs came out in that order before.)
+            val libraryTabOrder = listOf(
+                WatchType.WATCHING,
+                WatchType.PLANTOWATCH,
+                WatchType.COMPLETED,
+                WatchType.ONHOLD,
+                WatchType.DROPPED,
+            )
+            val baseMap = libraryTabOrder.associate {
                 // None is not something to display
                 it.stringRes to emptyList<SyncAPI.LibraryItem>()
             } + mapOf(
