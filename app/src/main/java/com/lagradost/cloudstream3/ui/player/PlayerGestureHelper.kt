@@ -1235,13 +1235,14 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
                             x = currentTouch.x,
                             viewWidth = view.width,
                             isLocked = isLocked,
-                            // Zayn Play: single tap left half = seek back 10s,
-                            // right half = seek forward 10s. Play/pause is only
-                            // via the centre play button, never via tap.
+                            // Zayn Play: single tap toggles the player
+                            // controls/menu (hide if shown, show if hidden).
+                            // It never seeks. Seeking back/forward is
+                            // double-tap left/right (handled inside
+                            // onTapDetected). Play/pause is only via the
+                            // centre play button, never via tap.
                             onSingleTap = {
-                                playerView.callbacks?.onSingleTapSeek(
-                                    currentTouch.x >= view.width / 2f
-                                )
+                                playerView.callbacks?.onSingleTap()
                             }
                         )
                     }
