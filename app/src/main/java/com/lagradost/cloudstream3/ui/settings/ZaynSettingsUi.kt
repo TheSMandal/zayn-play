@@ -459,11 +459,13 @@ private fun ZaynPreferenceItem(
             }
 
             is Preference.PreferenceItem.ListPreference<*> -> {
-                val value by item.preference.collectAsState()
+                @Suppress("UNCHECKED_CAST")
+                val listItem = item as Preference.PreferenceItem.ListPreference<Any?>
+                val value by listItem.preference.collectAsState()
                 var isDialogShown by remember { mutableStateOf(false) }
                 ZaynRow(
                     title = item.title,
-                    subtitle = item.internalSubtitleProvider(value, item.entries),
+                    subtitle = listItem.subtitleProvider(value, listItem.entries),
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
@@ -474,29 +476,31 @@ private fun ZaynPreferenceItem(
                     SingleSelectDialog(
                         dismiss = { isDialogShown = false },
                         title = item.title,
-                        entries = item.entries,
+                        entries = listItem.entries,
                         selectedKey = value,
                         confirm = { key ->
                             scope.launch {
-                                if (item.internalOnValueChanged(key)) {
-                                    item.internalSet(key)
+                                if (listItem.onValueChanged(key)) {
+                                    listItem.preference.set(key)
                                 }
                             }
                             isDialogShown = false
                         },
                         confirmText = stringResource(R.string.ok),
                         dismissText = stringResource(R.string.cancel),
-                        iconProvider = item::InternalIconProvider,
+                        iconProvider = listItem.iconProvider,
                     )
                 }
             }
 
             is Preference.PreferenceItem.MultiSelectListPreference<*> -> {
-                val values by item.preference.collectAsState()
+                @Suppress("UNCHECKED_CAST")
+                val multiItem = item as Preference.PreferenceItem.MultiSelectListPreference<Any?>
+                val values by multiItem.preference.collectAsState()
                 var isDialogShown by remember { mutableStateOf(false) }
                 ZaynRow(
                     title = item.title,
-                    subtitle = item.internalSubtitleProvider(values, item.entries),
+                    subtitle = multiItem.subtitleProvider(values, multiItem.entries),
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
@@ -506,15 +510,15 @@ private fun ZaynPreferenceItem(
                 if (isDialogShown) {
                     MultiSelectDialog(
                         title = item.title,
-                        entries = item.entries,
+                        entries = multiItem.entries,
                         properties = DialogProperties(
                             usePlatformDefaultWidth = true,
                         ),
                         confirmText = stringResource(R.string.ok),
                         confirm = { selection ->
                             scope.launch {
-                                if (item.internalOnValueChanged(selection)) {
-                                    item.internalSet(selection)
+                                if (multiItem.onValueChanged(selection)) {
+                                    multiItem.preference.set(selection)
                                 }
                             }
                             isDialogShown = false
@@ -643,9 +647,10 @@ private fun ZaynPreferenceItem(
                                 style = MaterialTheme.typography.titleLarge,
                                 fontSize = ZaynRowTitleSize,
                             )
-                            if (!item.subtitle.isNullOrBlank()) {
+                            val rowSubtitle = item.subtitle
+                            if (!rowSubtitle.isNullOrBlank()) {
                                 Text(
-                                    text = item.subtitle,
+                                    text = rowSubtitle,
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.secondaryItemAlpha(),
                                 )
