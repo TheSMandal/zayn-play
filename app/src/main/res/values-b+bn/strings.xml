@@ -162,6 +162,7 @@
     <string name="pause">থামুন</string>
     <string name="go_back_30">-৩০</string>
     <string name="github">গিটহাব</string>
+    <string name="website">ওয়েবসাইট</string>
     <string name="free_storage">ফ্রি</string>
     <string name="backup_settings">ডেটা ব্যাকআপ করুন</string>
     <string name="restore_success">ব্যাকআপ ফাইল লোড হয়েছে</string>
