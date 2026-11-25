@@ -639,6 +639,23 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
         super.onStop()
     }
 
+    /** Items the appbar Random button can pick from (set when the home loads). */
+    private var randomItems: List<SearchResponse>? = null
+
+    /** Shows/hides the appbar Random button (preview appbar) and wires it to
+     * the same random pick as the old floating button. The header may not be
+     * bound yet, so this is called both when the home loads and whenever the
+     * provider tabs are rebuilt. */
+    private fun syncAppbarRandom(hasItems: Boolean, listener: View.OnClickListener?) {
+        val headerView =
+            binding?.homeMasterRecycler?.findViewHolderForAdapterPosition(0)?.itemView
+                ?: return
+        headerView.findViewById<View>(R.id.home_appbar_random)?.apply {
+            isVisible = hasItems && listener != null
+            setOnClickListener(listener)
+        }
+    }
+
     /**
      * Zayn Play provider-name tabs row (phone header only; the TV header layout
      * has no tabs row, so this is a no-op there). Rebuilt when plugins finish
@@ -648,6 +665,16 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
      * The trailing "All providers" tab keeps the full picker reachable.
      */
     private fun rebuildProviderTabs(success: Boolean = false) {
+        // Keep the appbar Random button in sync (the header may have rebound).
+        val items = randomItems
+        syncAppbarRandom(
+            items?.isNotEmpty() == true,
+            items?.let { list ->
+                View.OnClickListener {
+                    list.randomOrNull()?.let { activity?.loadSearchResult(it) }
+                }
+            }
+        )
         val recycler = binding?.homeMasterRecycler ?: return
         val headerView = recycler.findViewHolderForAdapterPosition(0)?.itemView ?: return
         val tabsHolder =
@@ -674,9 +701,14 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.RECTANGLE
                     cornerRadius = dp(20).toFloat()
-                    // Selected tab: solid Zayn red pill, white text.
-                    if (selected) setColor(Color.parseColor("#E50914"))
-                    else setColor(Color.TRANSPARENT)
+                    // Selected tab: red gradient pill, white text (preview spec).
+                    if (selected) {
+                        orientation = GradientDrawable.Orientation.LEFT_RIGHT
+                        colors = intArrayOf(
+                            Color.parseColor("#E8261C"),
+                            Color.parseColor("#C70F06")
+                        )
+                    } else setColor(Color.TRANSPARENT)
                 }
                 setPadding(dp(8), dp(6), dp(12), dp(6))
                 layoutParams = LinearLayout.LayoutParams(
@@ -705,6 +737,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
                 setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                 if (selected) setTextColor(Color.WHITE)
+                else setTextColor(Color.parseColor("#9AA5B5"))
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1018,13 +1051,18 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
                                 distinct.randomOrNull()?.let { activity.loadSearchResult(it) }
                             }
 
-                            homeRandom.isVisible = isPhone && hasItems
-                            homeRandom.setOnClickListener(randomClickListener)
+                            // Zayn Play: Random lives in the home appbar, not
+                            // as a floating button (preview spec).
+                            homeRandom.isGone = true
+                            randomItems = distinct
+                            syncAppbarRandom(hasItems, randomClickListener)
                             homeRandomButtonTv.isVisible = !isPhone && hasItems
                             homeRandomButtonTv.setOnClickListener(randomClickListener)
                         } else {
                             homeRandom.isGone = true
                             homeRandomButtonTv.isGone = true
+                            randomItems = null
+                            syncAppbarRandom(false, null)
                         }
                     }
                     //Open browser directly, without a menu.
