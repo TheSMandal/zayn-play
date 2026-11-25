@@ -51,7 +51,9 @@ object ZaynProviderTest {
     suspend fun runAllTests(context: Context): List<ZaynProviderTestResult> {
         val enabled = getEnabledProviderNames(context)
         val apis = APIHolder.apis.withLock { APIHolder.apis.toList() }
-        val toTest = if (enabled.isEmpty()) apis else apis.filter { it.name in enabled }
+        // Normalised match: a provider stored as "Disney+" is tested under
+        // its runtime name "Disney Plus" too.
+        val toTest = if (enabled.isEmpty()) apis else apis.filter { ZaynProviders.isProviderEnabled(it.name) }
         if (toTest.isEmpty()) return emptyList()
 
         val results = mutableListOf<ZaynProviderTestResult>()
@@ -66,23 +68,25 @@ object ZaynProviderTest {
                 } else {
                     TestingUtils.runSingleProviderTest(api, TestingUtils.Logger()).success
                 }
-                val wasEnabled = api.name in enabled
+                val wasEnabled = ZaynProviders.isProviderEnabled(api.name)
                 ZaynProviderTestResult(api.name, loadOk, contentOk, videoOk, autoOff = wasEnabled && !videoOk)
             } catch (_: Exception) {
-                ZaynProviderTestResult(api.name, loadOk = false, contentOk = false, videoOk = false, autoOff = api.name in enabled)
+                ZaynProviderTestResult(api.name, loadOk = false, contentOk = false, videoOk = false, autoOff = ZaynProviders.isProviderEnabled(api.name))
             }
             results.add(result)
         }
 
         // Auto-off: persist the enabled set minus video-failed providers.
+        // Normalised removal: a stored "Disney+" is removed when its runtime
+        // name "Disney Plus" fails.
         val failedVideo = results.filter { !it.videoOk }.map { it.name }.toSet()
         if (failedVideo.isNotEmpty()) {
-            val newEnabled = if (enabled.isEmpty()) {
-                toTest.map { it.name }.toSet() - failedVideo
+            if (enabled.isEmpty()) {
+                val newEnabled = toTest.map { it.name }.toSet() - failedVideo
+                ZaynProviders.setEnabledProviders(newEnabled)
             } else {
-                enabled - failedVideo
+                ZaynProviders.setProvidersEnabled(failedVideo, false)
             }
-            ZaynProviders.setEnabledProviders(newEnabled)
         }
 
         return results
