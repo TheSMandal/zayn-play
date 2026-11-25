@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.databinding.FragmentZaynSetupProfileBinding
 import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.ui.BaseFragment
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 import com.lagradost.cloudstream3.utils.txt
 
 /**
@@ -31,9 +32,9 @@ import com.lagradost.cloudstream3.utils.txt
  * so the home header and Settings card keep showing it via
  * ZaynProfile.loadInto / presetDrawableRes — unchanged behaviour.
  */
-class ZaynSetupProfileFragment : BaseFragment() {
-    private var _binding: FragmentZaynSetupProfileBinding? = null
-    private val binding get() = _binding!!
+class ZaynSetupProfileFragment : BaseFragment<FragmentZaynSetupProfileBinding>(
+    BaseFragment.BindingCreator.Inflate(FragmentZaynSetupProfileBinding::inflate)
+) {
 
     private data class AvatarTileViews(val key: String, val cell: View, val ring: View, val tile: TextView)
 
@@ -81,19 +82,16 @@ class ZaynSetupProfileFragment : BaseFragment() {
         }
     }
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        _binding = FragmentZaynSetupProfileBinding.inflate(inflater, container, false)
-        return binding.root
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         tileViews.clear()
-        _binding = null
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun fixLayout(view: View) {
+        fixSystemBarsPadding(view)
+    }
+
+    override fun onBindingCreated(binding: FragmentZaynSetupProfileBinding) {
         safe {
             val ctx = context ?: return@safe
 
