@@ -1,6 +1,5 @@
 package com.lagradost.cloudstream3.ui.player
 
-import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -24,6 +23,7 @@ import android.view.WindowManager
 import android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
 import android.widget.TextView
@@ -192,12 +192,19 @@ class PlayerView @JvmOverloads constructor(
     var playerPausePlayHolderHolder: FrameLayout? = null
     var playerPausePlay: ImageView? = null
     var playerBuffering: ProgressBar? = null
-    /** Zayn Play: soft glossy glow behind the buffering spinner + live info text. */
+    /** Zayn Play: buffering glow + info text are legacy (no longer shown while
+     * buffering - the thin white ring is the only loading visual now). The views
+     * stay bound because the layout still contains them, always gone. */
     var playerBufferingGlow: View? = null
     var playerBufferingInfo: TextView? = null
+    /** Zayn Play: double-tap seek pills (video 1 spec) - side pill + centre time pill. */
+    var playerSeekPillLeft: LinearLayout? = null
+    var playerSeekPillRight: LinearLayout? = null
+    var playerSeekPillLeftText: TextView? = null
+    var playerSeekPillRightText: TextView? = null
+    var playerSeekTimePill: TextView? = null
     /** Zayn Play: glass pill showing the live gesture value (%, seek time). */
     var gesturePill: TextView? = null
-    private var bufferingPulseAnimator: ObjectAnimator? = null
     /** True once auto-landscape has been applied for the current playback. */
     private var autoLandscapeApplied = false
     /** The Media3/ExoPlayer [androidx.media3.ui.PlayerView] widget. */
@@ -260,6 +267,11 @@ class PlayerView @JvmOverloads constructor(
         playerBufferingGlow = root.findViewById(R.id.player_buffering_glow)
         playerBufferingInfo = root.findViewById(R.id.player_buffering_info)
         gesturePill = root.findViewById(R.id.player_gesture_pill)
+        playerSeekPillLeft = root.findViewById(R.id.player_seek_pill_left)
+        playerSeekPillRight = root.findViewById(R.id.player_seek_pill_right)
+        playerSeekPillLeftText = root.findViewById(R.id.player_seek_pill_left_text)
+        playerSeekPillRightText = root.findViewById(R.id.player_seek_pill_right_text)
+        playerSeekTimePill = root.findViewById(R.id.player_seek_time_pill)
         playerCenterMenu = root.findViewById(R.id.player_center_menu)
         playerFfwd = root.findViewById(R.id.player_ffwd)
         playerFfwdHolder = root.findViewById(R.id.player_ffwd_holder)
@@ -491,7 +503,7 @@ class PlayerView @JvmOverloads constructor(
     fun exitFullscreen() {
         val activity = context as? Activity
         autoLandscapeApplied = false
-        cancelBufferingPulse()
+        playerBuffering?.isVisible = false
         gestureHelper.resetZoomToDefault()
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
         // Simply resets brightness and notch settings that might have been overridden.
@@ -515,7 +527,7 @@ class PlayerView @JvmOverloads constructor(
     /** Releases all player resources. */
     fun release() {
         autoLandscapeApplied = false
-        cancelBufferingPulse()
+        playerBuffering?.isVisible = false
         player.release()
         player.releaseCallbacks()
         player = CS3IPlayer()
@@ -629,19 +641,17 @@ class PlayerView @JvmOverloads constructor(
 
         if (isBuffering) {
             playerPausePlayHolderHolder?.isVisible = false
+            // Zayn Play: buffering is ONLY the thin white rotating ring (video 2
+            // spec). The glow + info text stay hidden; the ring has no text and
+            // the video picture stays visible behind it.
             playerBuffering?.isVisible = true
-            // Zayn Play: light, glossy buffering — soft pulsing glow + live info text.
-            // The info text itself is set by GeneratorPlayer.updatePlayerInfo
-            // (server / quality / audio); the spinner is unchanged.
-            playerBufferingGlow?.isVisible = true
-            playerBufferingInfo?.isVisible = true
-            startBufferingPulse()
+            playerBufferingGlow?.isVisible = false
+            playerBufferingInfo?.isVisible = false
         } else {
             playerPausePlayHolderHolder?.isVisible = true
             playerBuffering?.isVisible = false
             playerBufferingGlow?.isVisible = false
             playerBufferingInfo?.isVisible = false
-            cancelBufferingPulse()
 
             if (isPlaying == CSPlayerLoading.IsEnded && isLayout(PHONE)) {
                 playerPausePlay?.setImageResource(R.drawable.ic_baseline_replay_24)
@@ -683,24 +693,6 @@ class PlayerView @JvmOverloads constructor(
             hasPipModeSupport,
             player.getAspectRatio()
         )
-    }
-
-    /** Soft animated glow/pulse for the buffering indicator (alpha 0.55 <-> 1.0). */
-    private fun startBufferingPulse() {
-        val glow = playerBufferingGlow ?: return
-        if (bufferingPulseAnimator?.isRunning == true) return
-        bufferingPulseAnimator = ObjectAnimator.ofFloat(glow, "alpha", 0.55f, 1f).apply {
-            duration = 900L
-            repeatCount = ObjectAnimator.INFINITE
-            repeatMode = ObjectAnimator.REVERSE
-            start()
-        }
-    }
-
-    private fun cancelBufferingPulse() {
-        bufferingPulseAnimator?.cancel()
-        bufferingPulseAnimator = null
-        playerBufferingGlow?.alpha = 1f
     }
 
     private fun requestAudioFocus() {
