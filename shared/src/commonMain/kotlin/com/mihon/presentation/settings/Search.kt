@@ -63,7 +63,16 @@ fun <T> SettingSearchResults(
     onItemClick: (SearchResultItem<T>) -> Unit,
     deferredItems: @Composable () -> ImmutableList<SettingsData<T>>,
     nestedScrollConnection: NestedScrollConnection,
-    empty: @Composable () -> Unit
+    empty: @Composable () -> Unit,
+    // Zayn Play: the app passes its own row renderer; the default keeps the
+    // stock Mihon row, so any other caller behaves exactly as before.
+    itemContent: @Composable (SearchResultItem<T>, () -> Unit) -> Unit = { item, onClick ->
+        TextPreferenceWidget(
+            title = item.title,
+            subtitle = item.breadcrumbs,
+            onPreferenceClick = onClick,
+        )
+    },
 ) {
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
 
@@ -150,13 +159,9 @@ fun <T> SettingSearchResults(
                         .nestedScroll(nestedScrollConnection)
                 ) {
                     it.forEach { item ->
-                        TextPreferenceWidget(
-                            title = item.title,
-                            subtitle = item.breadcrumbs,
-                            onPreferenceClick = {
-                                onItemClick(item)
-                            }
-                        )
+                        itemContent(item) {
+                            onItemClick(item)
+                        }
                     }
                 }
             }
