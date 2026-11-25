@@ -19,6 +19,7 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.AlphaAnimation
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
@@ -261,6 +262,8 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
         brightnessOverlay = null
         loudnessEnhancer?.release()
         loudnessEnhancer = null
+        seekZoomPulseAnimator?.cancel()
+        seekZoomPulseAnimator = null
         holdHandler.removeCallbacksAndMessages(null)
         clearZoomState()
         releaseOverlayLayoutListener()
@@ -911,6 +914,9 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
     private var seekPillLastTapMs = 0L
     private var seekPillHideRunnable: Runnable? = null
 
+    /** Zayn Play: running scrub-end zoom pulse, or null. Cancelled + restarted on each seek. */
+    private var seekZoomPulseAnimator: ValueAnimator? = null
+
     /**
      * Shows the YouTube-style seek pill for one side, accumulating ±10s per
      * rapid double-tap (the number updates in place). The centre time pill
@@ -1004,11 +1010,44 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
         }
     }
 
+    /**
+     * Zayn Play: light zoom pulse on the video when a double-tap seek lands -
+     * the picture shrinks ~2% then grows back over ~300ms (approved from the
+     * preview). Only the ExoPlayer content frame scales, so the controls, seek
+     * pill, subtitles and watermark never move. A new seek cancels any
+     * in-flight pulse and restarts it cleanly instead of stacking.
+     */
+    private fun playSeekZoomPulse() {
+        try {
+            val pkg = context.packageName
+            @SuppressLint("DiscouragedApi")
+            val contentId = context.resources.getIdentifier("exo_content_frame", "id", pkg)
+            val contentFrame = playerView.exoPlayerView?.findViewById<ViewGroup>(contentId) ?: return
+            // Cancel any in-flight pulse and restore full size before restarting.
+            seekZoomPulseAnimator?.cancel()
+            contentFrame.scaleX = 1f
+            contentFrame.scaleY = 1f
+            seekZoomPulseAnimator = ValueAnimator.ofFloat(1f, 0.98f, 1f).apply {
+                duration = 300L
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener { animation ->
+                    val scale = animation.animatedValue as Float
+                    contentFrame.scaleX = scale
+                    contentFrame.scaleY = scale
+                }
+                start()
+            }
+        } catch (e: Exception) {
+            logError(e)
+        }
+    }
+
     /** Seeks back by [fastForwardTime], showing the left seek pill. */
     fun rewind() {
         try {
             showSeekPill(isForward = false)
             playerView.player.seekTime(-fastForwardTime)
+            playSeekZoomPulse()
         } catch (e: Exception) { logError(e) }
     }
 
@@ -1017,6 +1056,7 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
         try {
             showSeekPill(isForward = true)
             playerView.player.seekTime(fastForwardTime)
+            playSeekZoomPulse()
         } catch (e: Exception) { logError(e) }
     }
 
