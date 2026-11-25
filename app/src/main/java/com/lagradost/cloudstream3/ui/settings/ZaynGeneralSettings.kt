@@ -63,7 +63,6 @@ import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.showRequestIg
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showMultiDialog
 import com.lagradost.cloudstream3.utils.SubtitleHelper
-import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToLanguageName
 import com.lagradost.cloudstream3.utils.SubtitleHelper.getNameNextToFlagEmoji
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.USER_PROVIDER_API
@@ -109,6 +108,20 @@ val appLanguages = arrayListOf(
     Pair("മലയാളം", "ml"),
     /* end language list */
 ) // Zayn Play order: English, Bengali, Hindi first, then the other major Indian languages
+
+/**
+ * Zayn Play provider-language tags in display order: "All languages" first,
+ * then the 11 languages in the user's order, then any extra tags from
+ * installed providers (e.g. "uni") so an installed provider's language can
+ * never vanish from the list. The list must NOT be built from installed
+ * providers alone — with no repos installed only English would show and
+ * Bengali/Hindi could never be ticked, even though the stored default is
+ * en+bn+hi (getApiProviderLangSettings).
+ */
+fun providerLanguageTagsInOrder(installedLangs: Collection<String>): List<String> {
+    val fixed = listOf(AllLanguagesName) + appLanguages.map { it.second }
+    return fixed + installedLangs.filterNot { it in fixed }.sorted()
+}
 
 fun Pair<String, String>.nameNextToFlagEmoji(): String {
     // fallback to [A][A] -> [?] question mak flag
@@ -304,9 +317,9 @@ object ZaynGeneralSettings : SearchableSettings {
         }
 
         val default = AllLanguagesName to stringResource(R.string.all_languages_preference)
-        val languages = APIHolder.apis.withLock {
-            APIHolder.apis.map { api -> api.lang }.distinct()
-        }.sortedBy { fromTagToLanguageName(it) ?: it }
+        val languages = providerLanguageTagsInOrder(
+            APIHolder.apis.withLock { APIHolder.apis.map { api -> api.lang }.distinct() }
+        ).filter { it != AllLanguagesName }
 
         return persistentListOf(
             Preference.PreferenceGroup(title = stringResource(R.string.extension_language), preferenceItems = persistentListOf(
