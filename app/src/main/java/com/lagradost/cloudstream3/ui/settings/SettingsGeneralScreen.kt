@@ -246,19 +246,11 @@ object SettingsGeneralScreen : SearchableSettings {
                 title = stringResource(R.string.pref_category_links),
                 preferenceItems = persistentListOf(
                     Preference.PreferenceItem.TextPreference(
-                        title = stringResource(R.string.github),
-                        subtitle = "https://github.com/TheSMandal/zayn-play",
-                        icon = painterResource(R.drawable.ic_github_logo),
+                        title = stringResource(R.string.website),
+                        subtitle = "https://zaynplay.netlify.app/",
+                        icon = painterResource(R.drawable.ic_baseline_public_24),
                         onClick = {
-                            CloudStreamApp.openBrowser("https://github.com/TheSMandal/zayn-play")
-                        }
-                    ),
-                    Preference.PreferenceItem.TextPreference(
-                        title = stringResource(R.string.lightnovel),
-                        subtitle = "https://github.com/LagradOst/QuickNovel",
-                        icon = painterResource(R.drawable.quick_novel_icon),
-                        onClick = {
-                            CloudStreamApp.openBrowser("https://github.com/LagradOst/QuickNovel")
+                            CloudStreamApp.openBrowser("https://zaynplay.netlify.app/")
                         }
                     ),
                 )
