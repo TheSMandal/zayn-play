@@ -119,6 +119,7 @@ object SettingsFragmentScreen : Screen {
             navigation = R.id.action_navigation_global_to_navigation_settings_general,
             screen = SettingsGeneralScreen,
             icon = R.drawable.build_24px,
+            tileColor = Color(0xFF2563EB),
             subtitle = persistentListOf(
                 R.string.extension_language,
                 R.string.title_downloads,
@@ -131,6 +132,7 @@ object SettingsFragmentScreen : Screen {
             navigation = R.id.action_navigation_global_to_navigation_settings_player,
             screen = SettingsPlayerScreen,
             icon = R.drawable.play_arrow_24px,
+            tileColor = Color(0xFFE8261C),
             subtitle = persistentListOf(
                 R.string.pref_category_subtitles,
                 R.string.pref_category_player_features,
@@ -150,6 +152,7 @@ object SettingsFragmentScreen : Screen {
             navigation = R.id.action_navigation_global_to_navigation_settings_ui,
             screen = SettingsUIScreen,
             icon = R.drawable.format_paint_24px,
+            tileColor = Color(0xFF7C3AED),
             subtitle = persistentListOf(
                 R.string.pref_category_looks,
                 R.string.pref_category_ui_features,
@@ -162,6 +165,7 @@ object SettingsFragmentScreen : Screen {
             navigation = R.id.action_navigation_global_to_navigation_settings_updates,
             screen = SettingsUpdatesScreen,
             icon = R.drawable.mobile_arrow_down_24px,
+            tileColor = Color(0xFFEA580C),
             subtitle = persistentListOf(
                 R.string.pref_category_app_updates,
                 R.string.pref_category_backup,
@@ -174,6 +178,7 @@ object SettingsFragmentScreen : Screen {
             navigation = R.id.action_navigation_global_to_navigation_settings_account,
             screen = SettingsAccountScreen,
             icon = R.drawable.encrypted_24px,
+            tileColor = Color(0xFF0891B2),
             subtitle = persistentListOf(
                 R.string.pref_category_accounts,
                 R.string.pref_category_security
@@ -184,6 +189,7 @@ object SettingsFragmentScreen : Screen {
             navigation = R.id.action_navigation_global_to_navigation_settings_extensions,
             screen = null,
             icon = R.drawable.extension_24px,
+            tileColor = Color(0xFF059669),
             subtitle = persistentListOf(R.string.add_repository)
         ),
     )
@@ -194,6 +200,8 @@ object SettingsFragmentScreen : Screen {
         val navigation: Int,
         val screen: SearchableSettings?,
         val icon: Int,
+        // Zayn Play: coloured icon tile (preview settings menu).
+        val tileColor: Color,
         val subtitle: PersistentList<Int>,
     )
 
@@ -444,6 +452,7 @@ object SettingsFragmentScreen : Screen {
         TextPreferenceWidget(
             title = stringResource(settingsTab.title),
             icon = painterResource(settingsTab.icon),
+            iconTileColor = settingsTab.tileColor,
             // This can not be converted to joinToString due to stringResource being composable
             subtitle =
                 @Suppress("SimplifiableCallChain")
