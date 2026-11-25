@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play strings translated from the approved preview
+     (zayn-play-preview v22) language dictionary, verbatim.
+     Only strings the preview itself translated are included;
+     the rest fall back to the English default. -->
+<resources>
+    <string name="zayn_audio_none">ఏదీ లేదు</string>
+    <string name="zayn_external_player_title">బాహ్య ప్లేయర్ యాప్</string>
+    <string name="zayn_home_empty_button">Extensions తెరవండి</string>
+    <string name="zayn_home_empty_title">ఏ ప్రొవైడర్ ఎంచుకోలేదు</string>
+    <string name="zayn_home_search_hint">ప్రొవైడర్‌లో శోధించు…</string>
+    <string name="zayn_home_watch_now">ఇప్పుడు చూడు</string>
+    <string name="zayn_off">ఆఫ్</string>
+    <string name="zayn_player_aspect">ఆస్పెక్ట్</string>
+    <string name="zayn_player_audio">ఆడియో</string>
+    <string name="zayn_player_choice_category">ప్లేయర్</string>
+    <string name="zayn_player_resolution">రిజల్యూషన్</string>
+    <string name="zayn_player_resolution_auto">ఆటో</string>
+    <string name="zayn_player_resolution_title">రిజల్యూషన్</string>
+    <string name="zayn_player_server">సర్వర్</string>
+    <string name="zayn_player_speed">స్పీడ్</string>
+    <string name="zayn_player_subtitles">సబ్‌టైటిల్‌లు</string>
+    <string name="zayn_player_value_off">ఆఫ్</string>
+    <string name="zayn_pref_resolution_auto">ఆటో</string>
+    <string name="zayn_pref_resolution_title">ఇష్టపడే రిజల్యూషన్</string>
+    <string name="zayn_repos_install">ఇన్‌స్టాల్</string>
+    <string name="zayn_repos_installed">ఇన్‌స్టాల్ చేయబడింది</string>
+    <string name="zayn_repos_test">పరీక్ష</string>
+    <string name="zayn_see_all">అన్నీ చూడు</string>
+    <string name="zayn_setup_profile_name_label">మీ పేరు</string>
+    <string name="zayn_setup_profile_upload_photo">మీ స్వంత ఫోటోను అప్‌లోడ్ చేయండి</string>
+    <string name="zayn_stream_mode_title">స్ట్రీమ్ మోడ్</string>
+    <string-array name="zayn_stream_timeout_names">
+        <item>@string/zayn_stream_timeout_instant</item>
+        <item>5 సెకన్లు</item>
+        <item>10 సెకన్లు</item>
+        <item>15 సెకన్లు</item>
+        <item>30 సెకన్లు</item>
+        <item>@string/zayn_stream_timeout_unlimited</item>
+    </string-array>
+    <string name="website">వెబ్‌సైట్</string>
+</resources>
