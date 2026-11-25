@@ -7,11 +7,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SearchView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
+import androidx.navigation.findNavController
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import androidx.recyclerview.widget.RecyclerView
@@ -47,6 +49,7 @@ import com.lagradost.cloudstream3.ui.result.setLinearListLayout
 import com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_LOAD
 import com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_SHOW_METADATA
 import com.lagradost.cloudstream3.ui.search.SearchClickCallback
+import com.lagradost.cloudstream3.ui.setup.ZaynProfile
 import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
 import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
@@ -327,9 +330,16 @@ class HomeParentItemAdapterPreview(
         private val headProfilePic: ImageView? = itemView.findViewById(R.id.home_head_profile_pic)
         private val headProfilePicCard: View? =
             itemView.findViewById(R.id.home_head_profile_padding)
+        private val headProfileInitial: TextView? =
+            itemView.findViewById(R.id.home_head_profile_initial)
 
         private val alternateHeadProfilePic: ImageView? =
             itemView.findViewById(R.id.alternate_home_head_profile_pic)
+        private val alternateHeadProfileInitial: TextView? =
+            itemView.findViewById(R.id.alternate_home_head_profile_initial)
+
+        private val homeEmptyState: View? = itemView.findViewById(R.id.home_empty_state)
+        private val homeEmptyButton: View? = itemView.findViewById(R.id.home_empty_button)
         private val alternateHeadProfilePicCard: View? =
             itemView.findViewById(R.id.alternate_home_head_profile_padding)
 
@@ -546,8 +556,39 @@ class HomeParentItemAdapterPreview(
             alternateHeadProfilePicCard?.isGone = isLayout(TV or EMULATOR)
 
             (headProfilePic ?: alternateHeadProfilePic)?.observe(viewModel.currentAccount) { currentAccount ->
-                headProfilePic?.loadImage(currentAccount?.image)
-                alternateHeadProfilePic?.loadImage(currentAccount?.image)
+                val ctx = itemView.context
+                // Zayn Play profile (setup Profile step) wins over the account
+                // picture; with no avatar image at all the profile initial
+                // shows on the gradient tile (preview appbar avatar).
+                val zaynAvatarShown =
+                    (headProfilePic?.let { ZaynProfile.loadInto(it, ctx) } == true) ||
+                        (alternateHeadProfilePic?.let { ZaynProfile.loadInto(it, ctx) } == true)
+                val hasAccountImage = !currentAccount?.image.isNullOrBlank()
+                val showInitial = !zaynAvatarShown && !hasAccountImage
+                val initial =
+                    ZaynProfile.getName(ctx)?.firstOrNull()?.uppercaseChar()?.toString() ?: "Z"
+                headProfileInitial?.apply {
+                    text = initial
+                    isVisible = showInitial
+                }
+                alternateHeadProfileInitial?.apply {
+                    text = initial
+                    isVisible = showInitial
+                }
+                if (zaynAvatarShown) {
+                    headProfilePic?.isVisible = true
+                    alternateHeadProfilePic?.isVisible = true
+                } else if (hasAccountImage) {
+                    headProfilePic?.isVisible = true
+                    alternateHeadProfilePic?.isVisible = true
+                    headProfilePic?.loadImage(currentAccount?.image)
+                    alternateHeadProfilePic?.loadImage(currentAccount?.image)
+                } else {
+                    // No image anywhere: hide the empty ImageView so the
+                    // initial shows instead of a blank tile.
+                    headProfilePic?.isGone = true
+                    alternateHeadProfilePic?.isGone = true
+                }
             }
 
             headProfilePicCard?.setOnClickListener {
@@ -652,6 +693,16 @@ class HomeParentItemAdapterPreview(
                     }
                 })
             }
+
+            // Home empty state: no provider ON yet -> open Extensions.
+            homeEmptyButton?.setOnClickListener { view ->
+                try {
+                    view.findNavController()
+                        .navigate(R.id.action_navigation_global_to_navigation_settings_extensions)
+                } catch (t: Throwable) {
+                    logError(t)
+                }
+            }
         }
 
         private fun updatePreview(preview: Resource<Pair<Boolean, List<LoadResponse>>>) {
@@ -667,6 +718,7 @@ class HomeParentItemAdapterPreview(
                 is Resource.Success -> {
                     homePreviewShimmer?.stopShimmer()
                     homePreviewShimmer?.isGone = true
+                    homeEmptyState?.isGone = true
                     previewAdapter.submitList(preview.value.second)
                     previewAdapter.hasMoreItems = preview.value.first
                     /*if (!.setItems(
@@ -701,6 +753,7 @@ class HomeParentItemAdapterPreview(
                 is Resource.Loading -> {
                     previewViewpager.isGone = true
                     previewViewpagerText.isGone = true
+                    homeEmptyState?.isGone = true
                     homePreviewShimmer?.isVisible = true
                     homePreviewShimmer?.startShimmer()
                 }
@@ -710,9 +763,13 @@ class HomeParentItemAdapterPreview(
                     homePreviewShimmer?.isGone = true
                     previewAdapter.submitList(listOf())
                     previewViewpager.setCurrentItem(0, false)
+                    // No provider ON yet: show the Zayn empty state instead of
+                    // the blank hero (preview .home-empty).
+                    val noProvidersOn = ZaynProviders.getEnabledProviders().isEmpty()
+                    homeEmptyState?.isVisible = noProvidersOn
                     previewViewpager.isVisible = false
                     previewViewpagerText.isVisible = false
-                    alternativeAccountPadding?.isVisible = true
+                    alternativeAccountPadding?.isVisible = !noProvidersOn
                     (binding as? FragmentHomeHeadTvBinding)?.apply {
                         homePreviewInfoBtt.isVisible = false
                     }
