@@ -298,6 +298,12 @@ object SettingsFragmentScreen : Screen {
                     onItemClick = { item ->
                         SearchableSettings.highlightKey = item.highlightKey
                         activity?.navigate(item.navigation)
+                    }, itemContent = { item, onClick ->
+                        ZaynSearchResultRow(
+                            title = item.title,
+                            subtitle = item.breadcrumbs,
+                            onClick = onClick,
+                        )
                     }, empty = {
                         Column(
                             modifier = Modifier
