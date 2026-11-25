@@ -401,9 +401,10 @@
 
             </FrameLayout>
 
-            <!-- Zayn Play: soft glossy glow behind the buffering spinner + live info text.
-                 The spinner itself is unchanged; glow pulses from PlayerView.updateIsPlaying,
-                 info text is set by GeneratorPlayer.updatePlayerInfo (server / quality / audio). -->
+            <!-- Zayn Play: buffering is ONLY the thin white rotating arc ring
+                 (video 2 spec). The old glossy glow + live info text are no longer
+                 shown while buffering (kept in the layout, gone); the ring has no
+                 text and the video picture stays visible behind it. -->
             <ImageView
                 android:id="@+id/player_buffering_glow"
                 android:layout_width="140dp"
@@ -439,8 +440,8 @@
             <!--use for thinner app:trackThickness="3dp" com.google.android.material.progressindicator.CircularProgressIndicator-->
             <ProgressBar
                 android:id="@+id/player_buffering"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:layout_gravity="center"
 
                 android:clickable="false"
@@ -448,6 +449,7 @@
                 android:focusableInTouchMode="false"
 
                 android:indeterminate="true"
+                android:indeterminateDrawable="@drawable/zayn_loading_ring"
                 android:visibility="gone"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintLeft_toLeftOf="parent"
@@ -684,6 +686,171 @@
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintLeft_toLeftOf="parent"
                 app:layout_constraintRight_toRightOf="parent" />
+
+            <!-- Zayn Play: YouTube-style double-tap seek pills (video 1 spec).
+                 Dark semi-transparent pill at 1/4 width (left) / 3/4 width (right),
+                 vertically centred: two white chevrons + accumulating ±10s text,
+                 two tiny dots below. The centre time pill shows current / total.
+                 Shown by PlayerGestureHelper on double-tap seek; ~1s after the last
+                 tap the content fades first, the empty pill lingers, then it is gone.
+                 The white touch circles in the video are the screen recorder's
+                 touch indicator and are NOT implemented. -->
+            <LinearLayout
+                android:id="@+id/player_seek_pill_left"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/zayn_seek_pill_bg"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="10dp"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintHorizontal_bias="0.25"
+                app:layout_constraintLeft_toLeftOf="parent"
+                app:layout_constraintRight_toRightOf="parent"
+                app:layout_constraintTop_toTopOf="parent">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="◀◀"
+                        android:textColor="@android:color/white"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/player_seek_pill_left_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="−10"
+                        android:textColor="@android:color/white"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <View
+                        android:layout_width="4dp"
+                        android:layout_height="4dp"
+                        android:background="@drawable/zayn_seek_dot" />
+
+                    <View
+                        android:layout_width="6dp"
+                        android:layout_height="4dp" />
+
+                    <View
+                        android:layout_width="4dp"
+                        android:layout_height="4dp"
+                        android:background="@drawable/zayn_seek_dot" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/player_seek_pill_right"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/zayn_seek_pill_bg"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="10dp"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintHorizontal_bias="0.75"
+                app:layout_constraintLeft_toLeftOf="parent"
+                app:layout_constraintRight_toRightOf="parent"
+                app:layout_constraintTop_toTopOf="parent">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="▶▶"
+                        android:textColor="@android:color/white"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/player_seek_pill_right_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="+10"
+                        android:textColor="@android:color/white"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <View
+                        android:layout_width="4dp"
+                        android:layout_height="4dp"
+                        android:background="@drawable/zayn_seek_dot" />
+
+                    <View
+                        android:layout_width="6dp"
+                        android:layout_height="4dp" />
+
+                    <View
+                        android:layout_width="4dp"
+                        android:layout_height="4dp"
+                        android:background="@drawable/zayn_seek_dot" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/player_seek_time_pill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/zayn_seek_pill_bg"
+                android:paddingStart="14dp"
+                android:paddingTop="7dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="7dp"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintLeft_toLeftOf="parent"
+                app:layout_constraintRight_toRightOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                tools:text="1:28 / 19:25" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/skip_chapter_button"
