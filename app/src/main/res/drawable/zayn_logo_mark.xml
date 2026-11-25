@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play logo mark #1 "Crimson Play", copied exactly from the selected logo:
+     red gradient tile #ff5147 -> #b3000c (rx 15), white Z polygon,
+     play triangle #c4000b. Same construction as ic_launcher_foreground.
+     (Vector gradient scales to any size; rendered via AppCompat vector compat.) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="34dp"
+    android:height="34dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path android:pathData="M19,4 H45 A15,15 0 0 1 60,19 V45 A15,15 0 0 1 45,60 H19 A15,15 0 0 1 4,45 V19 A15,15 0 0 1 19,4 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startColor="#FF5147"
+                android:endColor="#B3000C"
+                android:startX="0"
+                android:startY="0"
+                android:endX="64"
+                android:endY="64"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M19,13 L47,13 L31,41 L49,41 L49,53 L17,53 L33,25 L19,25 Z" />
+    <path
+        android:fillColor="#C4000B"
+        android:pathData="M28.5,27.5 L40,33 L28.5,38.5 Z" />
+</vector>
