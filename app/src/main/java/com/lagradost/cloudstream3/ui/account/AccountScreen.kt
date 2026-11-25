@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusRequester.Companion.FocusRequesterFactory.component2
 import androidx.compose.ui.focus.focusProperties
@@ -54,12 +56,17 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.lagradost.cloudstream3.CloudStreamApp
@@ -172,11 +179,39 @@ object AccountScreen {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    // Zayn Play: logo mark + wordmark above the title (same
+                    // brand header as Home and the setup screens).
+                    Image(
+                        painter = painterResource(R.drawable.zayn_logo_mark),
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = buildAnnotatedString {
+                            withStyle(
+                                SpanStyle(
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            ) { append("ZAYN ") }
+                            withStyle(
+                                SpanStyle(
+                                    color = Color(0xFFFF5147),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            ) { append("PLAY") }
+                        },
+                        fontSize = 15.5.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = if (state.canEditAccount) stringResource(R.string.manage_accounts) else stringResource(
                             R.string.select_an_account
                         ),
-                        style = MaterialTheme.typography.headlineMedium,
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(MaterialTheme.padding.large)
                     )
@@ -519,9 +554,10 @@ object AccountScreen {
                         }
                         .size(size)
                         .padding(innerPadding)
+                        // Zayn Play: red accent ring + icon on the Add circle.
                         .border(
                             2.dp,
-                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f),
+                            Color(0xFFE8261C),
                             CircleShape
                         )
                         .circle()
@@ -536,7 +572,7 @@ object AccountScreen {
                     Icon(
                         painter = painterResource(R.drawable.add_24px),
                         contentDescription = stringResource(R.string.add_account),
-                        tint = MaterialTheme.colorScheme.onBackground,
+                        tint = Color(0xFFE8261C),
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -778,6 +814,13 @@ object AccountScreen {
                     model = image,
                     modifier = Modifier
                         .circleBorder(size)
+                        // Zayn Play: red ring on the selected account
+                        // (preview .avatar-opt.on).
+                        .border(
+                            width = 2.5.dp,
+                            color = if (selected) Color(0xFFE8261C) else Color.Transparent,
+                            shape = CircleShape
+                        )
                         .whiteOutline(hasFocus = hasFocus, shape = CircleShape)
                         .indication(interactionSource = interactionSource, indication = ripple()),
                     contentDescription = account.name,
