@@ -31,6 +31,11 @@ import java.io.File
  * */
 typealias PluginViewDataUpdate = Pair<Boolean, List<PluginViewData>>
 
+data class PluginViewData(
+    val pluginWrapper: PluginWrapper,
+    val isDownloaded: Boolean,
+)
+
 class PluginsViewModel : ViewModel() {
 
     /** plugins is an unaltered list of plugins */
