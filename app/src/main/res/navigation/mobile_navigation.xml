@@ -588,13 +588,13 @@
 
     <fragment
         android:id="@+id/navigation_setup_profile"
-        android:name="com.lagradost.cloudstream3.ui.setup.SetupFragmentProfile"
+        android:name="com.lagradost.cloudstream3.ui.setup.ZaynSetupProfileFragment"
         android:layout_height="match_parent"
         app:enterAnim="@anim/enter_anim"
         app:exitAnim="@anim/exit_anim"
         app:popEnterAnim="@anim/enter_anim"
         app:popExitAnim="@anim/exit_anim"
-        tools:layout="@layout/fragment_setup_profile" />
+        tools:layout="@layout/fragment_zayn_setup_profile" />
 
     <fragment
         android:id="@+id/navigation_setup_language"
