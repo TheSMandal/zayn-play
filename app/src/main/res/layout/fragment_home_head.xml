@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play home header (preview spec order: appbar -> search pill -> provider
+     tabs -> hero -> rows). The hero is 238dp with 20dp rounded corners, the
+     search is a full-width pill, and the provider tabs sit directly under it.
+     All view ids are kept so HomeParentItemAdapterPreview + HomeFragment bindings
+     keep working. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -13,148 +18,133 @@
         android:layout_width="match_parent"
         android:layout_height="0dp" />
 
-    <FrameLayout
-        android:id="@+id/home_preview_viewpager_text"
+    <!-- Appbar: Logo #1 mark + ZAYN PLAY wordmark, Random button, profile avatar.
+         Keeps the id home_padding so the status-bar margin fix still targets the
+         top row. -->
+    <LinearLayout
+        android:id="@+id/home_padding"
         android:layout_width="match_parent"
-        android:layout_height="500dp">
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="18dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="6dp">
 
-        <androidx.viewpager2.widget.ViewPager2
-            android:id="@+id/home_preview_viewpager"
+        <ImageView
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/zayn_logo_mark" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:letterSpacing="0.05"
+            android:text="ZAYN"
+            android:textColor="?attr/textColor"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.05"
+            android:text="PLAY"
+            android:textColor="#FF5147"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/home_appbar_random"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/zayn_circle_button_bg"
+            android:contentDescription="@string/home_random"
+            android:padding="10dp"
+            android:src="@drawable/shuffle_24px"
+            android:visibility="gone"
+            app:tint="?attr/textColor" />
+
+        <LinearLayout
+            android:id="@+id/home_head_profile_padding"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="@drawable/rounded_select_ripple"
+            android:gravity="center"
+            android:nextFocusLeft="@id/home_search"
+            android:orientation="horizontal">
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/home_head_profile_card"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_gravity="center"
+                android:background="@color/transparent"
+                android:focusable="true"
+                android:foreground="@drawable/outline_big_15_gray"
+                app:cardCornerRadius="17dp">
+
+                <ImageView
+                    android:id="@+id/home_head_profile_pic"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/account"
+                    android:scaleType="centerCrop"
+                    tools:src="@drawable/profile_bg_orange" />
+
+                <TextView
+                    android:id="@+id/home_head_profile_initial"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/zayn_avatar_gradient"
+                    android:gravity="center"
+                    android:textColor="@color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="Z" />
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Search pill (preview .home-search): full width, panel-2, 13dp corners. -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginStart="14dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="14dp"
+        android:background="@drawable/zayn_search_bg">
+
+        <androidx.appcompat.widget.SearchView
+            android:id="@+id/home_search"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="horizontal">
-
-        </androidx.viewpager2.widget.ViewPager2>
-
-        <include layout="@layout/loading_hero_banner" />
-
-        <LinearLayout
-            android:id="@+id/home_padding"
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
+            android:layout_gravity="center_vertical"
+            android:editTextColor="?attr/textColor"
             android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="0dp">
-
-
-            <androidx.appcompat.widget.SearchView
-                android:id="@+id/home_search"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_marginEnd="8dp"
-                android:layout_weight="1"
-                android:editTextColor="@color/white"
-                android:gravity="center_vertical"
-                android:iconifiedByDefault="true"
-                android:nextFocusRight="@id/home_head_profile_padding"
-                android:padding="0dp"
-                android:textColor="@color/white"
-                android:textColorHint="@color/white"
-                app:closeIcon="@drawable/ic_baseline_close_24"
-                app:iconifiedByDefault="true"
-                app:queryBackground="@color/transparent"
-                app:queryHint="@string/search_hint"
-                app:searchIcon="@drawable/search_icon"
-                tools:ignore="RtlSymmetry" />
-
-            <LinearLayout
-                android:id="@+id/home_head_profile_padding"
-                android:layout_width="50dp"
-                android:layout_height="50dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="@drawable/rounded_select_ripple"
-                android:gravity="center"
-                android:nextFocusLeft="@id/home_search"
-                android:orientation="horizontal">
-
-                <androidx.cardview.widget.CardView
-                    android:id="@+id/home_head_profile_card"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
-                    android:layout_gravity="center"
-                    android:background="@color/transparent"
-                    android:focusable="true"
-                    android:foreground="@drawable/outline_big_15_gray"
-                    app:cardCornerRadius="20dp">
-
-                    <ImageView
-                        android:id="@+id/home_head_profile_pic"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:contentDescription="@string/account"
-                        android:scaleType="centerCrop"
-                        tools:src="@drawable/profile_bg_orange" />
-                </androidx.cardview.widget.CardView>
-            </LinearLayout>
-        </LinearLayout>
-
-        <!--
-                        <TextView
-                            android:visibility="gone"
-                            android:id="@+id/test_search"
-                            android:background="?android:attr/selectableItemBackgroundBorderless"
-                            android:layout_gravity="start"
-                            android:gravity="center"
-
-                            android:textSize="20dp"
-                            android:layout_margin="20dp"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/search"
-                            android:textColor="@color/white"
-                            app:drawableLeftCompat="@drawable/search_icon"
-                            app:tint="@color/white" />
-        -->
-
-        <LinearLayout
-            android:id="@+id/home_preview_title_holder"
-            android:layout_width="match_parent"
-            android:layout_height="100dp"
-            android:layout_gravity="bottom"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/home_preview_bookmark"
-                android:layout_width="70dp"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginStart="25dp"
-                android:layout_marginEnd="25dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:gravity="center"
-                android:text="@string/none"
-                android:textColor="?attr/white"
-                app:drawableTint="?attr/white"
-                app:drawableTopCompat="@drawable/ic_baseline_add_24"
-                app:tint="?attr/white" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/home_preview_play"
-                style="@style/WhiteButton"
-                android:layout_width="wrap_content"
-                android:layout_gravity="center"
-                android:text="@string/home_play"
-                app:icon="@drawable/ic_baseline_play_arrow_24" />
-
-            <TextView
-                android:id="@+id/home_preview_info"
-                android:layout_width="70dp"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginStart="25dp"
-                android:layout_marginEnd="25dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:gravity="center"
-                android:text="@string/home_info"
-                android:textColor="?attr/white"
-                app:drawableTint="?attr/white"
-                app:drawableTopCompat="@drawable/ic_outline_info_24"
-                app:tint="?attr/white" />
-
-        </LinearLayout>
-
+            android:iconifiedByDefault="false"
+            android:nextFocusRight="@id/home_head_profile_padding"
+            android:padding="0dp"
+            android:textColor="?attr/textColor"
+            android:textColorHint="?attr/grayTextColor"
+            app:closeIcon="@drawable/ic_baseline_close_24"
+            app:iconifiedByDefault="false"
+            app:queryBackground="@color/transparent"
+            app:queryHint="@string/zayn_home_search_hint"
+            app:searchIcon="@drawable/search_icon"
+            tools:ignore="RtlSymmetry" />
     </FrameLayout>
 
     <!-- Zayn Play provider-name tabs row (below the search bar, replaces the
@@ -175,6 +165,127 @@
             android:paddingStart="8dp"
             android:paddingEnd="8dp" />
     </HorizontalScrollView>
+
+    <!-- Hero (preview .hero): 238dp, 20dp rounded corners, clipped to outline. -->
+    <FrameLayout
+        android:id="@+id/home_preview_viewpager_text"
+        android:layout_width="match_parent"
+        android:layout_height="238dp"
+        android:layout_marginStart="14dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="14dp"
+        android:background="@drawable/zayn_hero_bg"
+        android:clipToOutline="true">
+
+        <androidx.viewpager2.widget.ViewPager2
+            android:id="@+id/home_preview_viewpager"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="horizontal" />
+
+        <include layout="@layout/loading_hero_banner" />
+
+        <LinearLayout
+            android:id="@+id/home_preview_title_holder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:gravity="start|center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/home_preview_play"
+                style="@style/ZaynWatchNowButton"
+                android:layout_width="wrap_content"
+                android:layout_height="46dp"
+                android:layout_gravity="center_vertical"
+                android:text="@string/zayn_home_watch_now"
+                app:icon="@drawable/ic_baseline_play_arrow_24" />
+
+            <TextView
+                android:id="@+id/home_preview_bookmark"
+                android:layout_width="70dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginStart="8dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:text="@string/none"
+                android:textColor="?attr/white"
+                app:drawableTint="?attr/white"
+                app:drawableTopCompat="@drawable/ic_baseline_add_24"
+                app:tint="?attr/white" />
+
+            <TextView
+                android:id="@+id/home_preview_info"
+                android:layout_width="70dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginStart="8dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:text="@string/home_info"
+                android:textColor="?attr/white"
+                app:drawableTint="?attr/white"
+                app:drawableTopCompat="@drawable/ic_outline_info_24"
+                app:tint="?attr/white" />
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- Home empty state (preview .home-empty): shown when no provider is ON,
+         in the same slot as the hero. -->
+    <LinearLayout
+        android:id="@+id/home_empty_state"
+        android:layout_width="match_parent"
+        android:layout_height="238dp"
+        android:layout_marginStart="14dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="14dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/zayn_empty_icon_bg"
+            android:contentDescription="@null"
+            android:padding="17dp"
+            android:src="@drawable/ic_baseline_tv_24"
+            app:tint="#E8365D" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/zayn_home_empty_title"
+            android:textColor="?attr/textColor"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="26dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="26dp"
+            android:gravity="center"
+            android:maxWidth="275dp"
+            android:text="@string/zayn_home_empty_text"
+            android:textColor="?attr/grayTextColor"
+            android:textSize="13sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/home_empty_button"
+            style="@style/ZaynWatchNowButton"
+            android:layout_width="wrap_content"
+            android:layout_height="46dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/zayn_home_empty_button"
+            app:icon="@drawable/ic_baseline_extension_24" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/alternative_account_padding"
@@ -212,6 +323,18 @@
                     android:contentDescription="@string/account"
                     android:scaleType="centerCrop"
                     tools:src="@drawable/profile_bg_orange" />
+
+                <TextView
+                    android:id="@+id/alternate_home_head_profile_initial"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/zayn_avatar_gradient"
+                    android:gravity="center"
+                    android:textColor="@color/white"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="Z" />
             </androidx.cardview.widget.CardView>
         </LinearLayout>
     </LinearLayout>
@@ -315,7 +438,7 @@
 
                         android:nextFocusLeft="@id/home_plan_to_watch_btt"
                         android:nextFocusRight="@id/home_type_dropped_btt"
-                        android:text="@string/type_on_hold" />
+                        android:text="@string/type_dropped" />
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/home_type_dropped_btt"
