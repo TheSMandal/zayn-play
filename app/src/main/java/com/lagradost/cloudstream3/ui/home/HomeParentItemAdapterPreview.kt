@@ -1,12 +1,15 @@
 package com.lagradost.cloudstream3.ui.home
 
 import android.content.Context
+import android.content.res.Configuration
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Parcelable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SearchView
@@ -340,6 +343,62 @@ class HomeParentItemAdapterPreview(
 
         private val homeEmptyState: View? = itemView.findViewById(R.id.home_empty_state)
         private val homeEmptyButton: View? = itemView.findViewById(R.id.home_empty_button)
+
+        // Hero dots (preview .dots). The TV header has no dots view, so this
+        // is null there and every dots call below is a no-op.
+        private val homePreviewDots: LinearLayout? =
+            itemView.findViewById(R.id.home_preview_dots)
+
+        /**
+         * Rebuilds/highlights the hero dots (preview .dots): one dot per hero
+         * slide, capped at 8 (the hero list paginates, the preview shows a
+         * handful). Active dot = 18dp red pill, the rest 6dp grey dots
+         * (#3A4353 dark, #C6CCD6 light). Tapping a dot jumps to that slide.
+         */
+        private fun updateHeroDots(position: Int) {
+            val dotsHolder = homePreviewDots ?: return
+            val count = previewAdapter.itemCount.coerceAtMost(8)
+            if (count <= 1) {
+                dotsHolder.isGone = true
+                return
+            }
+            dotsHolder.isVisible = true
+            val density = dotsHolder.resources.displayMetrics.density
+            fun dp(v: Int) = (v * density).toInt()
+            val isDark =
+                (dotsHolder.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                    Configuration.UI_MODE_NIGHT_YES
+            val inactiveColor =
+                if (isDark) "#3A4353".toColorInt() else "#C6CCD6".toColorInt()
+            if (dotsHolder.childCount != count) {
+                dotsHolder.removeAllViews()
+                for (i in 0 until count) {
+                    val dot = View(dotsHolder.context).apply {
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener { previewViewpager.setCurrentItem(i, true) }
+                    }
+                    dotsHolder.addView(dot)
+                }
+            }
+            val active = position.coerceAtMost(count - 1)
+            for (i in 0 until count) {
+                val dot = dotsHolder.getChildAt(i) ?: continue
+                val isActive = i == active
+                dot.background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(3).toFloat()
+                    setColor(if (isActive) "#E8261C".toColorInt() else inactiveColor)
+                }
+                dot.layoutParams = LinearLayout.LayoutParams(
+                    if (isActive) dp(18) else dp(6),
+                    dp(6)
+                ).apply {
+                    marginStart = dp(2)
+                    marginEnd = dp(2)
+                }
+            }
+        }
         private val alternateHeadProfilePicCard: View? =
             itemView.findViewById(R.id.alternate_home_head_profile_padding)
 
@@ -500,6 +559,7 @@ class HomeParentItemAdapterPreview(
                     }
                     val item = previewAdapter.getItemOrNull(position) ?: return
                     onSelect(item, position)
+                    updateHeroDots(position)
                 }
             }
 
@@ -523,6 +583,20 @@ class HomeParentItemAdapterPreview(
             previewViewpager.setPageTransformer(HomeScrollTransformer())
 
             previewViewpager.adapter = previewAdapter
+            // Keep the hero dots in sync when the hero list arrives/changes
+            // (submitList is async, so the count may still be stale in
+            // updatePreview when the list is first submitted).
+            previewAdapter.registerAdapterDataObserver(
+                object : RecyclerView.AdapterDataObserver() {
+                    override fun onChanged() {
+                        updateHeroDots(previewViewpager.currentItem)
+                    }
+
+                    override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
+                        updateHeroDots(previewViewpager.currentItem)
+                    }
+                }
+            )
             resumeRecyclerView.adapter = resumeAdapter
             bookmarkRecyclerView.setRecycledViewPool(HomeChildItemAdapter.sharedPool)
             bookmarkRecyclerView.adapter = bookmarkAdapter
@@ -748,12 +822,14 @@ class HomeParentItemAdapterPreview(
                     if (item != null) {
                         onSelect(item, currentPos)
                     }
+                    updateHeroDots(currentPos)
                 }
 
                 is Resource.Loading -> {
                     previewViewpager.isGone = true
                     previewViewpagerText.isGone = true
                     homeEmptyState?.isGone = true
+                    homePreviewDots?.isGone = true
                     homePreviewShimmer?.isVisible = true
                     homePreviewShimmer?.startShimmer()
                 }
@@ -769,6 +845,7 @@ class HomeParentItemAdapterPreview(
                     homeEmptyState?.isVisible = noProvidersOn
                     previewViewpager.isVisible = false
                     previewViewpagerText.isVisible = false
+                    homePreviewDots?.isGone = true
                     alternativeAccountPadding?.isVisible = !noProvidersOn
                     (binding as? FragmentHomeHeadTvBinding)?.apply {
                         homePreviewInfoBtt.isVisible = false
