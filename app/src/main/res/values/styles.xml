@@ -666,8 +666,8 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">?attr/textColor</item>
         <item name="android:gravity">center_vertical</item>
-        <item name="android:textSize">18sp</item>
-        <item name="android:layout_marginEnd">50dp</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:layout_marginEnd">0dp</item>
         <item name="android:textStyle">bold</item>
     </style>
 
@@ -717,6 +717,16 @@
         <item name="iconTint">?attr/iconGrayBackground</item>
         <item name="android:textColor">?attr/iconGrayBackground</item>
         <item name="rippleColor">?attr/primaryBlackBackground</item>
+    </style>
+
+    <!-- Zayn Play primary action (preview .btn-play): red gradient, white text/icon. -->
+    <style name="ZaynWatchNowButton" parent="Widget.Material3.Button">
+        <item name="android:background">@drawable/zayn_watchnow_bg</item>
+        <item name="backgroundTint">@null</item>
+        <item name="android:textColor">@color/white</item>
+        <item name="iconTint">@color/white</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">15sp</item>
     </style>
     <!-- This is so shit, because android has no native way to either changing the layout (android:layout) or changing the layout_height for no reason.
     So the only way to shrink the buttons is by using insetTop+insetBottom along with the drawable.
