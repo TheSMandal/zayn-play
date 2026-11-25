@@ -563,7 +563,7 @@ class HomeParentItemAdapterPreview(
                 val zaynAvatarShown =
                     (headProfilePic?.let { ZaynProfile.loadInto(it, ctx) } == true) ||
                         (alternateHeadProfilePic?.let { ZaynProfile.loadInto(it, ctx) } == true)
-                val hasAccountImage = !currentAccount?.image.isNullOrBlank()
+                val hasAccountImage = !currentAccount?.customImage.isNullOrBlank()
                 val showInitial = !zaynAvatarShown && !hasAccountImage
                 val initial =
                     ZaynProfile.getName(ctx)?.firstOrNull()?.uppercaseChar()?.toString() ?: "Z"
