@@ -1,0 +1,88 @@
+// Zayn Play setup — App Language (step 2 of 6).
+//
+// FRESH BUILD (delete-first rebuild, v1.0.9): replaces the deleted
+// SetupFragmentLanguage.kt and fragment_setup_language.xml. The old
+// centred CloudStream cloud icon is gone. Same step, same order, same
+// behaviour (11 languages, current locale pre-ticked, Next/Skip).
+
+package com.lagradost.cloudstream3.ui.setup
+
+import android.view.View
+import android.widget.AbsListView
+import android.widget.ArrayAdapter
+import androidx.core.content.edit
+import androidx.navigation.fragment.findNavController
+import androidx.preference.PreferenceManager
+import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKey
+import com.lagradost.cloudstream3.CommonActivity
+import com.lagradost.cloudstream3.databinding.FragmentZaynSetupLanguageBinding
+import com.lagradost.cloudstream3.mvvm.safe
+import com.lagradost.cloudstream3.plugins.PluginManager
+import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.ui.BaseFragment
+import com.lagradost.cloudstream3.ui.settings.appLanguages
+import com.lagradost.cloudstream3.ui.settings.getCurrentLocale
+import com.lagradost.cloudstream3.ui.settings.nameNextToFlagEmoji
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
+
+const val HAS_DONE_SETUP_KEY = "HAS_DONE_SETUP"
+
+class ZaynSetupLanguageFragment : BaseFragment<FragmentZaynSetupLanguageBinding>(
+    BaseFragment.BindingCreator.Inflate(FragmentZaynSetupLanguageBinding::inflate)
+) {
+
+    override fun fixLayout(view: View) {
+        fixSystemBarsPadding(view)
+    }
+
+    override fun onBindingCreated(binding: FragmentZaynSetupLanguageBinding) {
+        // We don't want a crash for all users
+        safe {
+            val ctx = context ?: return@safe
+            val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
+
+            val arrayAdapter =
+                ArrayAdapter<String>(ctx, R.layout.zayn_setup_option_single)
+
+            binding.apply {
+                val tags = appLanguages.map { it.second }
+                val current = getCurrentLocale(ctx).replace('_', '-')
+                val currentIndex = tags.indexOf(current).takeIf { it >= 0 }
+                    ?: tags.indexOf(current.substringBefore('-'))
+
+                arrayAdapter.addAll(appLanguages.map { it.nameNextToFlagEmoji() })
+                listview1.adapter = arrayAdapter
+                listview1.choiceMode = AbsListView.CHOICE_MODE_SINGLE
+                if (currentIndex >= 0) listview1.setItemChecked(currentIndex, true)
+
+                listview1.setOnItemClickListener { _, _, selectedLangIndex, _ ->
+                    val langTagIETF = tags[selectedLangIndex]
+                    CommonActivity.setLocale(activity, langTagIETF)
+                    settingsManager.edit {
+                        putString(getString(R.string.locale_key), langTagIETF)
+                    }
+                }
+
+                nextBtt.setOnClickListener {
+                    // If no plugins go to plugins page
+                    val nextDestination = if (
+                        PluginManager.getPluginsOnline().isEmpty()
+                        && PluginManager.getPluginsLocal().isEmpty()
+                    //&& PREBUILT_REPOSITORIES.isNotEmpty()
+                    ) R.id.action_navigation_global_to_navigation_setup_extensions
+                    else R.id.action_navigation_setup_language_to_navigation_setup_provider_languages
+
+                    findNavController().navigate(
+                        nextDestination,
+                        ZaynSetupExtensionsFragment.newInstance(true)
+                    )
+                }
+
+                skipBtt.setOnClickListener {
+                    setKey(HAS_DONE_SETUP_KEY, true)
+                    findNavController().navigate(R.id.navigation_home)
+                }
+            }
+        }
+    }
+}
