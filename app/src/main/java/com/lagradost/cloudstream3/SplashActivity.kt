@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.appcompat.app.AppCompatActivity
+import com.lagradost.cloudstream3.CommonActivity.loadThemes
 import com.lagradost.cloudstream3.ui.account.AccountSelectActivity2
 
 /**
@@ -14,6 +15,11 @@ import com.lagradost.cloudstream3.ui.account.AccountSelectActivity2
  */
 class SplashActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Zayn Play: apply the user's theme (System/Dark/Light) BEFORE
+        // super.onCreate, exactly like MainActivity — otherwise the splash
+        // (window background + layout) always renders under the dark
+        // AppTheme, even in light mode.
+        loadThemes(this)
         super.onCreate(savedInstanceState)
         if (!isTaskRoot) {
             finish()
