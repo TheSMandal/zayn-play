@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play setup: Extension languages / Provider Language (step 4 of 6).
+     Fresh build, v1.0.9. Replaces fragment_setup_provider_languages.xml. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/setup_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginTop="20dp"
+        android:text="@string/provider_lang_settings"
+        android:textSize="21sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginTop="5dp"
+        android:text="@string/provider_languages_tip"
+        android:textColor="?attr/textColorSecondary">
+
+    </TextView>
+
+    <ProgressBar
+        android:layout_width="match_parent"
+        android:layout_height="5dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginTop="14dp"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:max="6"
+        android:progress="4"
+        android:progressDrawable="@drawable/zayn_setup_progress" />
+
+    <ListView
+        android:id="@+id/listview1"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_rowWeight="1"
+        android:layout_marginBottom="60dp"
+        android:nextFocusLeft="@id/prev_btt"
+        android:nextFocusRight="@id/next_btt"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:clipToPadding="false"
+        android:divider="@drawable/zayn_setup_divider"
+        android:dividerHeight="8dp"
+        android:requiresFadingEdge="vertical"
+        tools:listitem="@layout/zayn_setup_option_multi" />
+
+    <LinearLayout
+        android:id="@+id/apply_btt_holder"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_gravity="bottom"
+        android:layout_marginTop="-60dp"
+        android:gravity="bottom|end"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/next_btt"
+            style="@style/ZaynWatchNowButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical|end"
+            android:text="@string/next" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/prev_btt"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical|end"
+            android:textColor="?attr/textColorSecondary"
+            android:text="@string/previous" />
+    </LinearLayout>
+
+
+</LinearLayout>
