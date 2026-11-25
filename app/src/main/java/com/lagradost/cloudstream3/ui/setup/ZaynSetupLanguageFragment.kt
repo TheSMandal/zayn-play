@@ -7,6 +7,11 @@
 
 package com.lagradost.cloudstream3.ui.setup
 
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.util.TypedValue
 import android.view.View
 import android.widget.AbsListView
 import android.widget.ArrayAdapter
@@ -27,6 +32,30 @@ import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 
 const val HAS_DONE_SETUP_KEY = "HAS_DONE_SETUP"
 
+/** English name under each of the 11 languages in the setup rows (preview .opt-row small). */
+val zaynLanguageEnglishNames = mapOf(
+    "en" to "English",
+    "bn" to "Bengali",
+    "hi" to "Hindi",
+    "mr" to "Marathi",
+    "te" to "Telugu",
+    "ta" to "Tamil",
+    "gu" to "Gujarati",
+    "ur" to "Urdu",
+    "kn" to "Kannada",
+    "or" to "Odia",
+    "ml" to "Malayalam",
+)
+
+/** Setup option row text: name + small sub-line underneath (preview .opt-row small). */
+fun zaynSetupOptionText(name: String, sub: String?, subColor: Int): CharSequence {
+    if (sub.isNullOrBlank()) return name
+    return SpannableString("$name\n$sub").apply {
+        setSpan(RelativeSizeSpan(0.83f), name.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        setSpan(ForegroundColorSpan(subColor), name.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
 class ZaynSetupLanguageFragment : BaseFragment<FragmentZaynSetupLanguageBinding>(
     BaseFragment.BindingCreator.Inflate(FragmentZaynSetupLanguageBinding::inflate)
 ) {
@@ -41,8 +70,12 @@ class ZaynSetupLanguageFragment : BaseFragment<FragmentZaynSetupLanguageBinding>
             val ctx = context ?: return@safe
             val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
 
+            val subColor = TypedValue().let { tv ->
+                ctx.theme.resolveAttribute(R.attr.grayTextColor, tv, true)
+                tv.data
+            }
             val arrayAdapter =
-                ArrayAdapter<String>(ctx, R.layout.zayn_setup_option_single)
+                ArrayAdapter<CharSequence>(ctx, R.layout.zayn_setup_option_single)
 
             binding.apply {
                 val tags = appLanguages.map { it.second }
@@ -50,7 +83,13 @@ class ZaynSetupLanguageFragment : BaseFragment<FragmentZaynSetupLanguageBinding>
                 val currentIndex = tags.indexOf(current).takeIf { it >= 0 }
                     ?: tags.indexOf(current.substringBefore('-'))
 
-                arrayAdapter.addAll(appLanguages.map { it.nameNextToFlagEmoji() })
+                arrayAdapter.addAll(appLanguages.map { (name, code) ->
+                    zaynSetupOptionText(
+                        (name to code).nameNextToFlagEmoji(),
+                        zaynLanguageEnglishNames[code],
+                        subColor
+                    )
+                })
                 listview1.adapter = arrayAdapter
                 listview1.choiceMode = AbsListView.CHOICE_MODE_SINGLE
                 if (currentIndex >= 0) listview1.setItemChecked(currentIndex, true)
