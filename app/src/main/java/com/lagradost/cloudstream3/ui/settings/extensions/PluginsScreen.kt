@@ -1,11 +1,12 @@
 package com.lagradost.cloudstream3.ui.settings.extensions
 
 import android.app.Activity
+import android.text.format.Formatter.formatFileSize
 import android.text.format.Formatter.formatShortFileSize
 import android.util.Log
-import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,20 +22,26 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,12 +62,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.lagradost.cloudstream3.AllLanguagesName
 import com.lagradost.cloudstream3.BuildConfig
+import com.lagradost.cloudstream3.CloudStreamApp.Companion.openBrowser
 import com.lagradost.cloudstream3.PROVIDER_STATUS_DOWN
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.plugins.PluginWrapper
+import com.lagradost.cloudstream3.plugins.VotingApi.canVote
+import com.lagradost.cloudstream3.plugins.VotingApi.getVotes
+import com.lagradost.cloudstream3.plugins.VotingApi.hasVoted
+import com.lagradost.cloudstream3.plugins.VotingApi.vote
 import com.lagradost.cloudstream3.ui.settings.SettingsFragmentScreen
 import com.lagradost.cloudstream3.ui.settings.SettingsProvidersScreen.toStringRes
 import com.lagradost.cloudstream3.utils.AppContextUtils.getApiProviderLangSettings
@@ -67,12 +80,16 @@ import com.lagradost.cloudstream3.utils.AppContextUtils.html
 import com.lagradost.cloudstream3.utils.SubtitleHelper.getNameNextToFlagEmoji
 import com.lagradost.cloudstream4.compose.MultiSelectDialog
 import com.lagradost.cloudstream4.compose.Screen
+import com.lagradost.cloudstream4.compose.WhiteButton
 import com.lagradost.cloudstream4.compose.WhiteFilterChip
 import com.lagradost.cloudstream4.compose.WhiteIconButton
 import com.mihon.material.AppBar
 import com.mihon.material.Scaffold
 import com.mihon.material.padding
 import com.mihon.presentation.LocalBackPress
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Zayn Play plugins screen (Compose) — replaces the old PluginsFragment +
@@ -149,6 +166,7 @@ object PluginsScreen : Screen {
 
         var selectedTvTypes by remember { mutableStateOf(setOf<String>()) }
         var showLangDialog by remember { mutableStateOf(false) }
+        var detailsData by remember { mutableStateOf<PluginViewData?>(null) }
 
         if (showLangDialog) {
             val languagesTagName = viewModel.pluginLanguages
@@ -298,14 +316,7 @@ object PluginsScreen : Screen {
                                             currentArgs.isLocal
                                         )
                                     },
-                                    onDetails = { data ->
-                                        val appCompatActivity =
-                                            context as? AppCompatActivity ?: return@PluginRow
-                                        PluginDetailsFragment(data).show(
-                                            appCompatActivity.supportFragmentManager,
-                                            "PluginDetails"
-                                        )
-                                    }
+                                    onDetails = { data -> detailsData = data }
                                 )
                             }
                         }
@@ -313,6 +324,12 @@ object PluginsScreen : Screen {
                 }
             },
         )
+
+        // Zayn Play plugin details bottom sheet (Compose) — replaces the
+        // old View-based PluginDetailsFragment.
+        detailsData?.let { data ->
+            PluginDetailsSheet(data = data, onDismiss = { detailsData = null })
+        }
     }
 
     @Composable
@@ -488,6 +505,232 @@ object PluginsScreen : Screen {
                     modifier = Modifier.size(22.dp)
                 )
             }
+        }
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun PluginDetailsSheet(data: PluginViewData, onDismiss: () -> Unit) {
+        val metadata = data.pluginWrapper.plugin
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        var votes by remember { mutableIntStateOf(0) }
+        var voted by remember { mutableStateOf(false) }
+        val canVote = metadata.canVote()
+        val repositoryUrl = metadata.repositoryUrl
+        val name = metadata.name.removeSuffix("Provider")
+        val disabled = metadata.status == PROVIDER_STATUS_DOWN
+
+        val plugin: Plugin? = if (data.isDownloaded) {
+            (PluginManager.urlPlugins[metadata.url]
+                ?: PluginManager.plugins[metadata.url]) as? Plugin
+        } else {
+            null
+        }
+        val hasSettings = plugin?.openSettings != null
+
+        LaunchedEffect(metadata.url) {
+            votes = withContext(Dispatchers.IO) { metadata.getVotes() }
+            voted = metadata.hasVoted()
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            containerColor = MaterialTheme.colorScheme.background,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 56dp icon tile, same Zayn tile as the plugin rows.
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val iconUrl = metadata.iconUrl
+                            ?.replace("%size%", "128")
+                            ?.replace("%exact_size%", "128")
+                        if (iconUrl.isNullOrBlank()) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_baseline_extension_24),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        } else {
+                            AsyncImage(
+                                model = iconUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(14.dp)),
+                                error = painterResource(R.drawable.ic_baseline_extension_24)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (disabled) {
+                                stringResource(R.string.single_plugin_disabled, name)
+                            } else {
+                                name
+                            },
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "v${metadata.version}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+
+                    if (hasSettings) {
+                        IconButton(onClick = {
+                            try {
+                                plugin?.openSettings?.invoke(context)
+                            } catch (t: Throwable) {
+                                Log.e(
+                                    "PluginsScreen",
+                                    "Failed to open $name settings: ${Log.getStackTraceString(t)}"
+                                )
+                            }
+                        }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_baseline_tune_24),
+                                contentDescription = stringResource(R.string.title_settings),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                votes = withContext(Dispatchers.IO) { metadata.vote() }
+                                voted = metadata.hasVoted()
+                            }
+                        },
+                        modifier = Modifier.alpha(if (canVote) 1f else 0.6f)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_baseline_thumb_up_24),
+                            contentDescription = null,
+                            tint = if (voted) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = votes.toString(),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    if (repositoryUrl != null) {
+                        WhiteButton(text = stringResource(R.string.result_open_in_browser)) {
+                            openBrowser(repositoryUrl)
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.extension_description),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = metadata.description ?: stringResource(R.string.no_data),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PluginDetailInfoRow(
+                        R.string.extension_authors,
+                        if (metadata.authors.isEmpty()) stringResource(R.string.no_data)
+                        else metadata.authors.joinToString(", ")
+                    )
+                    PluginDetailInfoRow(
+                        R.string.extension_version,
+                        metadata.version.toString()
+                    )
+                    PluginDetailInfoRow(
+                        R.string.extension_status,
+                        stringArrayResource(R.array.extension_statuses)
+                            .getOrNull(metadata.status) ?: stringResource(R.string.no_data)
+                    )
+                    PluginDetailInfoRow(
+                        R.string.extension_size,
+                        if (metadata.fileSize == null) stringResource(R.string.no_data)
+                        else formatFileSize(context, metadata.fileSize)
+                    )
+                    PluginDetailInfoRow(
+                        R.string.extension_types,
+                        if (metadata.tvTypes.isNullOrEmpty()) stringResource(R.string.no_data)
+                        else metadata.tvTypes.joinToString(", ")
+                    )
+                    PluginDetailInfoRow(
+                        R.string.extension_language,
+                        if (metadata.language == null) stringResource(R.string.no_data)
+                        else getNameNextToFlagEmoji(metadata.language) ?: metadata.language
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun PluginDetailInfoRow(label: Int, value: String) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = stringResource(label),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
