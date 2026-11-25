@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import com.lagradost.cloudstream4.generated.resources.Res
 import com.lagradost.cloudstream4.generated.resources.none
@@ -21,6 +22,12 @@ sealed class Preference {
         abstract val onValueChanged: suspend (value: T) -> R
 
         /**
+         * Zayn Play: coloured icon tile for this row (preview settings design).
+         * Null renders the plain icon, as before.
+         */
+        open val iconTileColor: Color? = null
+
+        /**
          * A basic [PreferenceItem] that only displays texts.
          */
         data class TextPreference(
@@ -29,7 +36,8 @@ sealed class Preference {
             override val enabled: Boolean = true,
             val widget: @Composable (() -> Unit)? = null,
             val onClick: (() -> Unit)? = null,
-            override val icon: Painter? = null
+            override val icon: Painter? = null,
+            override val iconTileColor: Color? = null
         ) : PreferenceItem<String, Unit>() {
             override val onValueChanged: suspend (value: String) -> Unit = {}
         }
@@ -43,7 +51,8 @@ sealed class Preference {
             override val subtitle: String? = null,
             override val enabled: Boolean = true,
             override val onValueChanged: suspend (value: Boolean) -> Boolean = { true },
-            override val icon: Painter? = null
+            override val icon: Painter? = null,
+            override val iconTileColor: Color? = null
         ) : PreferenceItem<Boolean, Boolean>()
 
         /**
@@ -55,7 +64,8 @@ sealed class Preference {
             override val subtitle: String? = null,
             override val enabled: Boolean = true,
             override val onValueChanged: suspend (value: Int) -> Boolean = { true },
-            override val icon: Painter? = null
+            override val icon: Painter? = null,
+            override val iconTileColor: Color? = null
         ) : PreferenceItem<Int, Boolean>()
 
         /**
@@ -70,7 +80,8 @@ sealed class Preference {
             @IntRange(from = 0) val steps: Int = with(valueRange) { (last - first) - 1 },
             override val enabled: Boolean = true,
             override val onValueChanged: suspend (value: Int) -> Boolean = { true },
-            override val icon: Painter? = null
+            override val icon: Painter? = null,
+            override val iconTileColor: Color? = null
         ) : PreferenceItem<Int, Boolean>()
 
         /**
@@ -88,6 +99,7 @@ sealed class Preference {
             override val enabled: Boolean = true,
             override val onValueChanged: suspend (value: T) -> Boolean = { true },
             val iconProvider: (@Composable (key: T, value: String) -> Unit)? = null,
+            override val iconTileColor: Color? = null,
         ) : PreferenceItem<T, Boolean>() {
             internal fun internalSet(value: Any?) = preference.set(value as T)
             internal suspend fun internalOnValueChanged(value: Any?) = onValueChanged(value as T)
@@ -123,6 +135,7 @@ sealed class Preference {
             override val icon: Painter? = null,
             override val enabled: Boolean = true,
             override val onValueChanged: suspend (value: Set<T>) -> Boolean = { true },
+            override val iconTileColor: Color? = null,
         ) : PreferenceItem<Set<T>, Boolean>() {
             internal fun internalSet(value: Set<Any?>) = preference.set(value as Set<T>)
             internal suspend fun internalOnValueChanged(value: Set<Any?>) = onValueChanged(value as Set<T>)
