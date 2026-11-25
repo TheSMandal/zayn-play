@@ -491,8 +491,9 @@
             android:layout_height="0dp"
             android:layout_weight="1" />
 
-        <com.lagradost.cloudstream3.ui.ZaynWatchNowButton
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/setup_next"
+            style="@style/ZaynWatchNowButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:minWidth="140dp"
