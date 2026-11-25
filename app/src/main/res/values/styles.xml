@@ -58,6 +58,7 @@
         <item name="grayTextColor">@color/grayTextColor</item>
         <item name="primaryGrayBackground">@color/primaryGrayBackground</item>
         <item name="primaryBlackBackground">@color/primaryBlackBackground</item>
+        <item name="splashBackground">@color/primaryBlackBackground</item>
         <item name="iconGrayBackground">@color/iconGrayBackground</item>
         <item name="boxItemBackground">@color/boxItemBackground</item>
         <item name="iconColor">@color/iconColor</item>
@@ -129,6 +130,7 @@
     <style name="AmoledMode">
         <item name="primaryGrayBackground">@color/black</item>
         <item name="primaryBlackBackground">@color/black</item>
+        <item name="splashBackground">@color/black</item>
         <item name="iconGrayBackground">@color/primaryBlackBackground</item>
         <item name="boxItemBackground">@color/black</item>
         <item name="textColor">@color/textColor</item>
@@ -173,6 +175,7 @@
     <style name="LightMode">
         <item name="primaryGrayBackground">@color/lightPrimaryGrayBackground</item>
         <item name="primaryBlackBackground">@color/lightBitDarkerGrayBackground</item>
+        <item name="splashBackground">@color/lightPrimaryGrayBackground</item>
         <item name="iconGrayBackground">@color/lightGrayBackground</item>
         <item name="boxItemBackground">@color/lightItemBackground</item>
         <item name="textColor">@color/lightTextColor</item>
@@ -188,6 +191,7 @@
     <style name="DraculaMode">
         <item name="primaryGrayBackground">@color/DraculaPrimaryGrayBackground</item>
         <item name="primaryBlackBackground">@color/DraculaBitDarkerGrayBackground</item>
+        <item name="splashBackground">@color/DraculaBitDarkerGrayBackground</item>
         <item name="iconGrayBackground">@color/DraculaGrayBackground</item>
         <item name="boxItemBackground">@color/DraculaItemBackground</item>
         <item name="textColor">@color/DraculaTextColor</item>
@@ -201,6 +205,7 @@
     <style name="SilentBlueMode">
         <item name="primaryGrayBackground">@color/SilentBluePrimaryGrayBackground</item>
         <item name="primaryBlackBackground">@color/SilentBlueBitDarkerGrayBackground</item>
+        <item name="splashBackground">@color/SilentBlueBitDarkerGrayBackground</item>
         <item name="iconGrayBackground">@color/SilentBlueGrayBackground</item>
         <item name="boxItemBackground">@color/SilentBlueItemBackground</item>
         <item name="textColor">@color/SilentBlueTextColor</item>
@@ -213,6 +218,7 @@
     <style name="LavenderMode">
         <item name="primaryGrayBackground">@color/LavenderPrimaryGrayBackground</item>
         <item name="primaryBlackBackground">@color/LavenderBitDarkerGrayBackground</item>
+        <item name="splashBackground">@color/LavenderBitDarkerGrayBackground</item>
         <item name="iconGrayBackground">@color/LavenderGrayBackground</item>
         <item name="boxItemBackground">@color/LavenderItemBackground</item>
         <item name="textColor">@color/LavenderTextColor</item>
@@ -227,6 +233,7 @@
     <style name="MonetMode">
         <item name="primaryGrayBackground">@color/material_dynamic_neutral20</item>
         <item name="primaryBlackBackground">@color/material_dynamic_neutral10</item>
+        <item name="splashBackground">@color/material_dynamic_neutral10</item>
         <item name="iconGrayBackground">@color/material_dynamic_neutral20</item>
         <item name="boxItemBackground">@color/material_dynamic_neutral20</item>
         <item name="textColor">@color/material_dynamic_neutral90</item>
