@@ -1155,28 +1155,6 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
         onClickChange()
     }
 
-    /**
-     * Zayn Play: single tap on the left half seeks back 10s, right half seeks
-     * forward 10s (via the gesture helper's rewind/fast-forward, which also
-     * shows the seek animation + glass pill). Play/pause is only via the
-     * centre play button, never via tap. While locked, a tap only toggles
-     * the (lock) UI, as before.
-     */
-    override fun onSingleTapSeek(forward: Boolean) {
-        if (isLocked) {
-            onClickChange()
-            return
-        }
-        // Tap is now seek, not a UI toggle — but the tap must still reveal the
-        // controls when hidden, otherwise the centre play button (the only
-        // play/pause affordance) would be unreachable once auto-hidden.
-        // Never hides the UI when it is already showing.
-        if (!isShowing) onClickChange()
-        autoHide()
-        if (forward) playerHostView?.gestureHelper?.fastForward()
-        else playerHostView?.gestureHelper?.rewind()
-    }
-
     override fun onTouchDown() {
         if (isShowingEpisodeOverlay) toggleEpisodesOverlay(show = false)
     }
