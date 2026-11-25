@@ -163,6 +163,9 @@ open class ParentItemAdapter(
                 homeChildMoreInfo.setOnClickListener {
                     moreInfoClickCallback.invoke(item)
                 }
+                homeChildSeeAll.setOnClickListener {
+                    moreInfoClickCallback.invoke(item)
+                }
             }
         }
     }
