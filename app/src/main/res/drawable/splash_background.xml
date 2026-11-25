@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Zayn Play cold-start splash (windowBackground): splash #13 "Bokeh Nights"
-     background + Logo #1 mark. The full splash (wordmark/tagline/credit) is
-     SplashActivity on top of this. -->
+     background only. The full splash (logo tile, wordmark, tagline, credit)
+     is SplashActivity on top of this — the window background must never draw
+     a logo of its own, or cold start shows two splash images in sequence. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@drawable/zayn_splash_bg" />
-    <item
-        android:width="150dp"
-        android:height="150dp"
-        android:gravity="center"
-        android:drawable="@drawable/ic_launcher_foreground" />
 </layer-list>
