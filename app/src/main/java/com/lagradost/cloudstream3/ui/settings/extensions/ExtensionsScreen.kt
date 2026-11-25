@@ -522,7 +522,7 @@ object ExtensionsScreen : Screen {
         val activity = activity ?: return
         activity.findNavController(R.id.nav_host_fragment).navigate(
             R.id.navigation_settings_extensions_to_navigation_settings_plugins,
-            PluginsFragment.newLocalInstance(
+            PluginsFragment2.newLocalInstance(
                 activity.getString(R.string.extensions),
             )
         )
