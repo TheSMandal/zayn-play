@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.widget.doAfterTextChanged
 import androidx.navigation.fragment.findNavController
@@ -18,7 +19,7 @@ import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.ui.BaseFragment
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
-import com.lagradost.cloudstream3.utils.txt
+import com.lagradost.cloudstream3.CommonActivity.showToast
 
 /**
  * Zayn Play setup: Profile (step 1 of 6). Fresh build, v1.0.10.
@@ -74,9 +75,9 @@ class ZaynSetupProfileFragment : BaseFragment<FragmentZaynSetupProfileBinding>(
                     hasUploadedPhoto = true
                     updateTileSelection()
                     updatePreviewPhoto()
-                    txt(ctx, R.string.zayn_setup_profile_photo_saved)
+                    showToast(R.string.zayn_setup_profile_photo_saved, Toast.LENGTH_SHORT)
                 } else {
-                    txt(ctx, R.string.zayn_setup_profile_photo_failed)
+                    showToast(R.string.zayn_setup_profile_photo_failed, Toast.LENGTH_LONG)
                 }
             }
         }
