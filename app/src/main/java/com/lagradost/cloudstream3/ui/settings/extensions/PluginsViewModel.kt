@@ -9,6 +9,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.preference.PreferenceManager
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.PROVIDER_STATUS_DOWN
 import com.lagradost.cloudstream3.R
@@ -24,6 +25,8 @@ import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.main
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import com.lagradost.cloudstream3.utils.Levenshtein
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import java.io.File
 
 /**
@@ -35,6 +38,35 @@ data class PluginViewData(
     val pluginWrapper: PluginWrapper,
     val isDownloaded: Boolean,
 )
+
+/**
+ * Zayn Play: RepositoryData + REPOSITORIES_KEY lived in the deleted
+ * ExtensionsViewModel.kt; restored here (same package) because
+ * PluginManager, RepositoryManager and others still use them.
+ */
+@Serializable
+data class RepositoryData(
+    @JsonProperty("iconUrl") @SerialName("iconUrl") val iconUrl: String?,
+    @JsonProperty("name") @SerialName("name") val name: String,
+    @JsonProperty("url") @SerialName("url") val url: String,
+    @JsonProperty("description") @SerialName("description") val description: String? = null,
+) {
+    constructor(name: String, url: String) : this(
+        iconUrl = null,
+        name = name,
+        url = url,
+        description = null
+    )
+
+    constructor(iconUrl: String?, name: String, url: String) : this(
+        iconUrl = iconUrl,
+        name = name,
+        url = url,
+        description = null
+    )
+}
+
+const val REPOSITORIES_KEY = "REPOSITORIES_KEY"
 
 class PluginsViewModel : ViewModel() {
 
