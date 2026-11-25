@@ -136,10 +136,11 @@ class PlayerView @JvmOverloads constructor(
         /** Called on a short single-tap on empty player area (no swipe, no double-tap). */
         fun onSingleTap() {}
         /**
-         * Zayn Play: single tap seeks instead of toggling play/pause —
-         * [forward]=false seeks back, true seeks forward (10s each way).
-         * Default delegates to [onSingleTap] so hosts that do not override it
-         * (e.g. the trailer player) keep their old tap behaviour.
+         * Zayn Play: single tap toggles the player controls/menu — it never
+         * seeks. Seeking back/forward is double-tap left/right (handled by
+         * the gesture helper). Default delegates to [onSingleTap] so hosts
+         * that do not override it (e.g. the trailer player) keep their old
+         * tap behaviour.
          */
         fun onSingleTapSeek(forward: Boolean) { onSingleTap() }
         /** Called when the hold-for-speedup gesture starts (show=true) or ends (show=false). */
@@ -421,8 +422,15 @@ class PlayerView @JvmOverloads constructor(
                 val cs3 = player as? CS3IPlayer ?: return
                 cs3.cacheSize =
                     settingsManager.getInt(context.getString(R.string.video_buffer_size_key), 0) * 1024L * 1024L
+                // Zayn Play: video disk cache capped at 100 MB so cache cannot pile up
+                // (the setting offers up to 500 MB; 0 = Automatic/off stays 0). This one
+                // value feeds both the ExoPlayer SimpleCache (LRU) and the Cronet HTTP
+                // cache, so both are capped together.
                 cs3.simpleCacheSize =
-                    settingsManager.getInt(context.getString(R.string.video_buffer_disk_key), 0) * 1024L * 1024L
+                    minOf(
+                        settingsManager.getInt(context.getString(R.string.video_buffer_disk_key), 0),
+                        100
+                    ) * 1024L * 1024L
                 cs3.videoBufferMs =
                     settingsManager.getInt(context.getString(R.string.video_buffer_length_key), 0) * 1000L
             } catch (e: Exception) {
