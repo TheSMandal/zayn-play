@@ -1423,8 +1423,6 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
         updateLockUI()
         updateUIVisibility()
         animateLayoutChanges()
-        playerHostView?.gestureHelper?.resetFastForwardText()
-        playerHostView?.gestureHelper?.resetRewindText()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
