@@ -106,6 +106,7 @@ import com.lagradost.cloudstream3.ui.WatchType
 import com.lagradost.cloudstream3.ui.account.AccountHelper.showAccountSelectLinear
 import com.lagradost.cloudstream3.ui.download.DOWNLOAD_NAVIGATE_TO
 import com.lagradost.cloudstream3.ui.home.HomeViewModel
+import com.lagradost.cloudstream3.ui.home.ZaynProviders
 import com.lagradost.cloudstream3.ui.library.LibraryViewModel
 import com.lagradost.cloudstream3.ui.player.BasicLink
 import com.lagradost.cloudstream3.ui.player.GeneratorPlayer
@@ -837,6 +838,13 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
                             it.lang + it.name + it.mainUrl + it::class.qualifiedName
                         }
                         APIHolder.apiMap = null
+                        // Zayn Play: heal the enabled-provider set — rewrite
+                        // stored repo-catalogue spellings (e.g. "Disney+",
+                        // "NetflixMirror", "MovieBoxProviderIN") to their
+                        // runtime MainAPI names, so the home tabs can never
+                        // miss an ON provider over a name spelling. No-op
+                        // when nothing is stored or nothing changed.
+                        ZaynProviders.healEnabledNames(apis.withLock { apis.toList() })
                     } catch (e: Exception) {
                         logError(e)
                     }
