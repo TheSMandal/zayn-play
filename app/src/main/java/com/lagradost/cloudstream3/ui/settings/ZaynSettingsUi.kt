@@ -112,13 +112,39 @@ private val ZaynRowTitleSize = 14.5.sp
 @Composable
 fun ZaynSearchableContent(
     title: String,
+    // Zayn Play: top-bar actions (e.g. the subtitles screens' undo/reset
+    // buttons). Same slot the old Mihon PreferenceScaffold exposed; the five
+    // inner Settings screens leave it empty.
+    actions: @Composable RowScope.() -> Unit = {},
     itemsProvider: @Composable () -> List<Preference>,
 ) {
     val handleBack = LocalBackPress.current
     ZaynSettingsScaffold(
         title = title,
+        actions = actions,
         onBackPressed = if (handleBack != null) handleBack::invoke else null,
         itemsProvider = itemsProvider,
+    )
+}
+
+/**
+ * Settings-search result row: the same Zayn row as the settings lists.
+ * Search results carry no icon, so no tile; tap navigates to the setting.
+ */
+@Composable
+fun ZaynSearchResultRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    ZaynRow(
+        title = title,
+        subtitle = subtitle,
+        icon = null,
+        iconTileColor = null,
+        highlighted = false,
+        onClick = onClick,
+        trailing = null,
     )
 }
 
