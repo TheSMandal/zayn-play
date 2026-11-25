@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/zayn_splash_bg">
+
+    <!-- Zayn Play splash #13 "Bokeh Nights" (preview spec): Logo #1 mark,
+         ZAYN PLAY wordmark, tagline, two-line credit. Light mode shows the
+         same design in light (theme attrs adapt). -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <ImageView
+            android:layout_width="104dp"
+            android:layout_height="104dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/zayn_logo_mark" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="ZAYN"
+                android:textColor="?attr/textColor"
+                android:textSize="27sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.08"
+                android:text="PLAY"
+                android:textColor="#FF5147"
+                android:textSize="27sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:letterSpacing="0.3"
+            android:text="@string/zayn_splash_tagline"
+            android:textColor="?attr/grayTextColor"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingBottom="36dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.2"
+            android:text="@string/zayn_splash_credit_by"
+            android:textColor="?attr/grayTextColor"
+            android:textSize="11sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:letterSpacing="0.15"
+            android:text="@string/zayn_splash_credit_name"
+            android:textColor="?attr/textColor"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+</FrameLayout>
