@@ -123,9 +123,9 @@ import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.isLandscape
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 import com.lagradost.cloudstream3.ui.settings.Globals.updateTv
-import com.lagradost.cloudstream3.ui.settings.SettingsGeneral
+import com.lagradost.cloudstream3.ui.settings.ZaynGeneralSettings
 import com.lagradost.cloudstream3.ui.setup.HAS_DONE_SETUP_KEY
-import com.lagradost.cloudstream3.ui.setup.SetupFragmentExtensions
+import com.lagradost.cloudstream3.ui.setup.ZaynSetupExtensionsFragment
 import com.lagradost.cloudstream3.utils.ApkInstaller
 import com.lagradost.cloudstream3.utils.AppContextUtils.getApiDubstatusSettings
 import com.lagradost.cloudstream3.utils.AppContextUtils.html
@@ -817,7 +817,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
                 allProviders.withLock {
                     // Load cloned sites after plugins have been loaded since clones depend on plugins.
                     try {
-                        getKey<Array<SettingsGeneral.CustomSite>>(USER_PROVIDER_API)?.let { list ->
+                        getKey<Array<ZaynGeneralSettings.CustomSite>>(USER_PROVIDER_API)?.let { list ->
                             list.forEach { custom ->
                                 allProviders.firstOrNull {
                                     it::class.simpleName == custom.parentClassName
@@ -2045,7 +2045,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
             ) {
                 navController.navigate(
                     R.id.navigation_setup_extensions,
-                    SetupFragmentExtensions.newInstance(false)
+                    ZaynSetupExtensionsFragment.newInstance(false)
                 )
             }
         } catch (e: Exception) {
