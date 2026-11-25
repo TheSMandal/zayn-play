@@ -234,6 +234,17 @@
 
     </FrameLayout>
 
+    <!-- Hero dots (preview .dots): one per hero slide, centred below the
+         hero; active dot is an 18dp red pill, the rest 6dp grey dots.
+         Built in code by HomeParentItemAdapterPreview. -->
+    <LinearLayout
+        android:id="@+id/home_preview_dots"
+        android:layout_width="match_parent"
+        android:layout_height="22dp"
+        android:layout_marginTop="6dp"
+        android:gravity="center"
+        android:orientation="horizontal" />
+
     <!-- Home empty state (preview .home-empty): shown when no provider is ON,
          in the same slot as the hero. -->
     <LinearLayout
