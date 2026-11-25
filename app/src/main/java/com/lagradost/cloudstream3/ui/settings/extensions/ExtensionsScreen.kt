@@ -172,8 +172,6 @@ import com.mihon.presentation.LocalBackPress
 import com.mihon.presentation.secondaryItemAlpha
 import com.mihon.presentation.settings.LocalPreferenceHighlighted
 import com.mihon.presentation.settings.LocalPreferenceMinHeight
-import com.mihon.presentation.settings.widget.BasePreferenceWidget
-import com.mihon.presentation.settings.widget.PrefsHorizontalPadding
 import com.mihon.presentation.settings.widget.TextPreferenceWidget
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
@@ -1074,100 +1072,110 @@ object ExtensionsScreen : Screen {
             remember { FocusRequester.createRefs() }
 
 
-        BasePreferenceWidget(
+        // Zayn Play card row.
+        val isHighlighted = LocalPreferenceHighlighted.current
+        Row(
             modifier = modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = MaterialTheme.padding.small,
+                    vertical = 4.dp
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    if (isHighlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MaterialTheme.colorScheme.surfaceVariant
+                )
+                .focusOutline()
                 .focusRequester(backgroundFocusRequester)
                 .focusProperties {
                     end = buttonsFocusRequester
-                },
-            title =
-                if (isPluginDisabledByAuthor) {
-                    stringResource(R.string.single_plugin_disabled, plugin.info.name)
+                }
+                .combinedClickable(
+                    onClick = onClick ?: { extendedDialog = true },
+                    onLongClick = { extendedDialog = true }
+                )
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ZaynIconTile(
+                iconUrl = plugin.info.iconUrl,
+                defaultIcon = if (isPluginDisabledByAuthor) {
+                    painterResource(R.drawable.extension_off_24px)
                 } else {
-                    plugin.info.name
-                },
-            subcomponent =
-                {
-                    Column(modifier = Modifier.padding(horizontal = PrefsHorizontalPadding)) {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-                            verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small)
-                        ) {
-                            val language = plugin.info.language
-                            if (!language.isNullOrBlank()) {
-                                Text(
-                                    text = getNameNextToFlagEmoji(language) ?: language,
-                                    modifier = Modifier
-                                        .secondaryItemAlpha(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            Text(
-                                text = "v${plugin.info.version}",
-                                modifier = Modifier
-                                    .secondaryItemAlpha(),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            val sizeBytes = plugin.source?.size
-                            if (sizeBytes != null) {
-                                Text(
-                                    text = formatShortFileSize(LocalContext.current, sizeBytes),
-                                    modifier = Modifier
-                                        .secondaryItemAlpha(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            if (plugin.info.tvTypes.contains(TvType.NSFW)) {
-                                Text(
-                                    text = "18+",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colorResource(R.color.adultColor)
-                                )
-                            }
-                        }
-                        if (!description.isNullOrBlank()) {
-                            Text(
-                                text = description,
-                                modifier = Modifier
-                                    .secondaryItemAlpha(),
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    painterResource(R.drawable.extension_24px)
+                }
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (isPluginDisabledByAuthor) {
+                        stringResource(R.string.single_plugin_disabled, plugin.info.name)
+                    } else {
+                        plugin.info.name
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small)
+                ) {
+                    val language = plugin.info.language
+                    if (!language.isNullOrBlank()) {
+                        Text(
+                            text = getNameNextToFlagEmoji(language) ?: language,
+                            modifier = Modifier.secondaryItemAlpha(),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
-                },
-            icon = {
-                RepositoryIcon(
-                    iconUrl = plugin.info.iconUrl,
-                    defaultIcon =
-                        if (isPluginDisabledByAuthor) {
-                            painterResource(R.drawable.extension_off_24px)
-                        } else {
-                            painterResource(R.drawable.extension_24px)
-                        }
-                )
-            },
-            onClick = onClick ?: {
-                extendedDialog = true
-            },
-            onLongClick = {
-                extendedDialog = true
-            },
-            widget = {
-                PluginWidget(
-                    plugin = plugin,
-                    onAction = onAction,
-                    returnFocusRequester = backgroundFocusRequester,
-                    modifier = Modifier
-                        .focusRequester(buttonsFocusRequester)
-                        .focusProperties {
-                            start = backgroundFocusRequester
-                        }
-                        .focusGroup()
-                )
-            },
-        )
+                    Text(
+                        text = "v${plugin.info.version}",
+                        modifier = Modifier.secondaryItemAlpha(),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    val sizeBytes = plugin.source?.size
+                    if (sizeBytes != null) {
+                        Text(
+                            text = formatShortFileSize(LocalContext.current, sizeBytes),
+                            modifier = Modifier.secondaryItemAlpha(),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (plugin.info.tvTypes.contains(TvType.NSFW)) {
+                        Text(
+                            text = "18+",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colorResource(R.color.adultColor)
+                        )
+                    }
+                }
+                if (!description.isNullOrBlank()) {
+                    Text(
+                        text = description,
+                        modifier = Modifier.secondaryItemAlpha(),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            PluginWidget(
+                plugin = plugin,
+                onAction = onAction,
+                returnFocusRequester = backgroundFocusRequester,
+                modifier = Modifier
+                    .focusRequester(buttonsFocusRequester)
+                    .focusProperties {
+                        start = backgroundFocusRequester
+                    }
+                    .focusGroup()
+            )
+        }
     }
 
     @Composable
@@ -1530,6 +1538,36 @@ object ExtensionsScreen : Screen {
     }
 
     @Composable
+    fun ZaynIconTile(iconUrl: String?, defaultIcon: Painter) {
+        // 48dp icon tile, same as the Zayn plugin rows in PluginsScreen.
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (iconUrl.isNullOrBlank()) {
+                Icon(
+                    painter = defaultIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            } else {
+                AsyncImage(
+                    model = remapUrl(url = iconUrl, size = 48.dp),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    error = defaultIcon
+                )
+            }
+        }
+    }
+
+    @Composable
     fun RepositoryIcon(iconUrl: String?, defaultIcon: Painter) {
         if (iconUrl != null) {
             AsyncImage(
@@ -1723,168 +1761,179 @@ object ExtensionsScreen : Screen {
 
         val (backgroundFocusRequester, buttonFocusRequester) = remember { FocusRequester.createRefs() }
 
-        BasePreferenceWidget(
+        // Zayn Play card row.
+        val isHighlighted = LocalPreferenceHighlighted.current
+        Row(
             modifier = modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = MaterialTheme.padding.small,
+                    vertical = 4.dp
+                )
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    if (isHighlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MaterialTheme.colorScheme.surfaceVariant
+                )
+                .focusOutline()
                 .focusRequester(backgroundFocusRequester)
                 .focusProperties {
                     end = buttonFocusRequester
-                },
-            title = repository.info.name,
-            subcomponent = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
-                    modifier = Modifier
-                        .padding(horizontal = PrefsHorizontalPadding)
+                }
+                .combinedClickable(
+                    onClick = {
+                        onAction(SelectRepository(repository.uuid))
+                    },
+                    onLongClick = {
+                        val shareableRepoData =
+                            "${repository.info.name}$SHAREABLE_REPO_SEPARATOR\n ${repository.info.url}"
+
+                        scope.launch {
+                            clipboard.setPlainText(
+                                label = copyTextLabel,
+                                text = shareableRepoData
+                            )
+                        }
+                    }
+                )
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ZaynIconTile(
+                iconUrl = repository.info.iconUrl,
+                defaultIcon = painterResource(
+                    when {
+                        repository.info.url.contains("codeberg") -> R.drawable.codeberg
+                        repository.info.url.contains("pastebin") -> R.drawable.pastebin
+                        else -> R.drawable.ic_github_logo
+                    }
+                )
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = repository.info.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(
+                        MaterialTheme.padding.extraSmall
+                    ),
+                    modifier = Modifier.defaultMinSize(minHeight = 14.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(
-                            MaterialTheme.padding.extraSmall
-                        ),
-                        modifier = Modifier.defaultMinSize(minHeight = 14.dp)
-                    ) {
-                        if (derivedState != null) {
+                    if (derivedState != null) {
+                        Text(
+                            text = stringResource(
+                                R.string.plugins_downloaded,
+                                derivedState.downloadedAndEnabled
+                            )
+                                    /**
+                                    Not very good concatenation translation here tbh,
+                                    but we do not want to add translation keys
+                                     */
+                                    + "/${derivedState.total}",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        if (derivedState.downloadedAndDisabled > 0) {
                             Text(
                                 text = stringResource(
-                                    R.string.plugins_downloaded,
-                                    derivedState.downloadedAndEnabled
-                                )
-                                        /**
-                                        Not very good concatenation translation here tbh,
-                                        but we do not want to add translation keys
-                                         */
-                                        + "/${derivedState.total}",
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                            if (derivedState.downloadedAndDisabled > 0) {
-                                Text(
-                                    text = stringResource(
-                                        R.string.plugins_disabled,
-                                        derivedState.downloadedAndDisabled
-                                    ),
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-                        } else if (repository.status == RepositoryStatus.Loading) {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.onBackground,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                            )
-                        } else {
-                            Text(
-                                text = stringResource(
-                                    R.string.plugin_load_fail,
-                                    repository.info.name
+                                    R.string.plugins_disabled,
+                                    derivedState.downloadedAndDisabled
                                 ),
                                 style = MaterialTheme.typography.labelMedium
                             )
                         }
+                    } else if (repository.status == RepositoryStatus.Loading) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = stringResource(
+                                R.string.plugin_load_fail,
+                                repository.info.name
+                            ),
+                            style = MaterialTheme.typography.labelMedium
+                        )
                     }
-                    Text(
-                        text = repository.info.description ?: repository.info.url,
-                        modifier = Modifier.secondaryItemAlpha(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 10,
-                    )
                 }
-            },
-            icon = {
-                RepositoryIcon(
-                    iconUrl = repository.info.iconUrl,
-                    painterResource(
-                        when {
-                            repository.info.url.contains("codeberg") -> R.drawable.codeberg
-                            repository.info.url.contains("pastebin") -> R.drawable.pastebin
-                            else -> R.drawable.ic_github_logo
-                        }
-                    )
+                Text(
+                    text = repository.info.description ?: repository.info.url,
+                    modifier = Modifier.secondaryItemAlpha(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 10,
                 )
-            },
-            onClick = {
-                onAction(SelectRepository(repository.uuid))
-            },
-            onLongClick = {
-                val shareableRepoData =
-                    "${repository.info.name}$SHAREABLE_REPO_SEPARATOR\n ${repository.info.url}"
+            }
 
-                scope.launch {
-                    clipboard.setPlainText(
-                        label = copyTextLabel,
-                        text = shareableRepoData
-                    )
-                }
-            },
-            widget = {
-                when (val reason = repository.status) {
-                    is RepositoryStatus.Failure -> {
-                        var errorDialog by remember { mutableStateOf(false) }
-                        WhiteIconButton(
-                            onClick = {
-                                errorDialog = true
-                            },
-                            modifier = Modifier
-                                .focusRequester(buttonFocusRequester)
-                                .focusProperties {
-                                    start = backgroundFocusRequester
-                                })
-                        {
-                            Icon(
-                                painter = painterResource(R.drawable.warning_24px),
-                                contentDescription = null
-                            )
-                        }
-                        if (errorDialog) {
-                            ErrorDialog(
-                                error = reason.cause,
-                                tag = stringResource(R.string.error_invalid_data),
-                                confirmButton = { modifier ->
-                                    WhiteButton(
-                                        text = stringResource(R.string.reload_error),
-                                        modifier = modifier
-                                    ) {
-                                        onAction(ReloadRepository(repository.uuid))
-                                        errorDialog = false
-                                    }
-                                    WhiteButton(
-                                        text = stringResource(R.string.delete_repository),
-                                        modifier = modifier
-                                    ) {
-                                        deleteDialog = true
-                                    }
-                                },
-                                onDismissRequest = {
+            when (val reason = repository.status) {
+                is RepositoryStatus.Failure -> {
+                    var errorDialog by remember { mutableStateOf(false) }
+                    WhiteIconButton(
+                        onClick = {
+                            errorDialog = true
+                        },
+                        modifier = Modifier
+                            .focusRequester(buttonFocusRequester)
+                            .focusProperties {
+                                start = backgroundFocusRequester
+                            })
+                    {
+                        Icon(
+                            painter = painterResource(R.drawable.warning_24px),
+                            contentDescription = null
+                        )
+                    }
+                    if (errorDialog) {
+                        ErrorDialog(
+                            error = reason.cause,
+                            tag = stringResource(R.string.error_invalid_data),
+                            confirmButton = { modifier ->
+                                WhiteButton(
+                                    text = stringResource(R.string.reload_error),
+                                    modifier = modifier
+                                ) {
+                                    onAction(ReloadRepository(repository.uuid))
                                     errorDialog = false
-                                })
-                        }
-                    }
-
-                    RepositoryStatus.Loading, RepositoryStatus.Success -> {
-                        WhiteIconButton(
-                            onClick = {
-                                deleteDialog = true
-                            },
-                            modifier = Modifier
-                                .focusRequester(buttonFocusRequester)
-                                .focusProperties {
-                                    start = backgroundFocusRequester
                                 }
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.delete_24px),
-                                contentDescription = null
-                            )
-                            /*CircularProgressIndicator(
-                                modifier = Modifier
-                                    .size(IconButtonDefaults.smallContainerSize())
-                                    .padding(MaterialTheme.padding.small),
-                                color = MaterialTheme.colorScheme.onBackground,
-                            )*/
-                        }
+                                WhiteButton(
+                                    text = stringResource(R.string.delete_repository),
+                                    modifier = modifier
+                                ) {
+                                    deleteDialog = true
+                                }
+                            },
+                            onDismissRequest = {
+                                errorDialog = false
+                            })
                     }
                 }
-            },
-        )
+
+                RepositoryStatus.Loading, RepositoryStatus.Success -> {
+                    WhiteIconButton(
+                        onClick = {
+                            deleteDialog = true
+                        },
+                        modifier = Modifier
+                            .focusRequester(buttonFocusRequester)
+                            .focusProperties {
+                                start = backgroundFocusRequester
+                            }
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.delete_24px),
+                            contentDescription = null
+                        )
+                    }
+                }
+            }
+        }
     }
 
     @Composable
