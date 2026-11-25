@@ -25,7 +25,7 @@
         android:layout_marginEnd="20dp"
         android:layout_marginTop="5dp"
         android:text="@string/preferred_media_subtext"
-        android:textColor="?attr/textColorSecondary" />
+        android:textColor="?attr/grayTextColor" />
 
     <ProgressBar
         android:layout_width="match_parent"
@@ -80,7 +80,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical|end"
-            android:textColor="?attr/textColorSecondary"
+            android:textColor="?attr/grayTextColor"
             android:text="@string/previous" />
     </LinearLayout>
 
