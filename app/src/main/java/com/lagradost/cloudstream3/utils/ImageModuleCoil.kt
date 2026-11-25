@@ -51,8 +51,10 @@ object ImageLoader {
             .diskCache {
                 DiskCache.Builder()
                     .directory(context.cacheDir.resolve("cs3_image_cache").toOkioPath())
-                    .maxSizeBytes(512L * 1024 * 1024) // 512 MB
-                    .maxSizePercent(0.04) // max 4% of storage for disk caching
+                    // Zayn Play: image disk cache capped at 100 MB so it cannot
+                    // pile up (was 512 MB / 4% of storage). LRU eviction is
+                    // built into Coil, so the oldest posters are dropped first.
+                    .maxSizeBytes(100L * 1024 * 1024) // 100 MB
                     .build()
             }
             /** Pass interceptors with care, unnecessary passing tokens to servers
