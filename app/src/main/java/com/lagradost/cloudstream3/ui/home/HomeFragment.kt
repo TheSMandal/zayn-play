@@ -684,6 +684,12 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
         val context = headerView.context ?: return
         val providers = with(ZaynProviders) { context.visibleTabProviders() }
         val current = currentApiName
+        // When nothing is ON, the designed empty state (home_empty_state)
+        // is shown instead — hide the whole tabs row so its hint text
+        // ("Turn providers ON in Extensions…") and the trailing
+        // "All providers" chip don't duplicate it. The row is rebuilt (and
+        // shown again) as soon as a provider is ON.
+        scrollView?.isVisible = providers.isNotEmpty()
         tabsHolder.removeAllViews()
         val density = context.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
