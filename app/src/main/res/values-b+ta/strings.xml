@@ -310,6 +310,7 @@
     <string name="normal">சாதாரண</string>
     <string name="tracks">தடங்கள்</string>
     <string name="github">கிதப்</string>
+    <string name="website">வலைத்தளம்</string>
     <string name="episode_short">இ</string>
     <string name="add_site_summary">வேறு முகவரி உடன் ஏற்கனவே இருக்கும் தளத்தின் குளோனைச் சேர்க்கவும்</string>
     <string name="dns_pref">Https க்கு மேல் dns</string>
