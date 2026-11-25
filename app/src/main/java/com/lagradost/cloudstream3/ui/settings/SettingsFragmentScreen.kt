@@ -117,7 +117,7 @@ object SettingsFragmentScreen : Screen {
         SettingsNavigation(
             title = R.string.category_general,
             navigation = R.id.action_navigation_global_to_navigation_settings_general,
-            screen = SettingsGeneralScreen,
+            screen = ZaynGeneralSettings,
             icon = R.drawable.build_24px,
             tileColor = Color(0xFF2563EB),
             subtitle = persistentListOf(
@@ -130,7 +130,7 @@ object SettingsFragmentScreen : Screen {
         SettingsNavigation(
             title = R.string.category_player,
             navigation = R.id.action_navigation_global_to_navigation_settings_player,
-            screen = SettingsPlayerScreen,
+            screen = ZaynPlayerSettings,
             icon = R.drawable.play_arrow_24px,
             tileColor = Color(0xFFE8261C),
             subtitle = persistentListOf(
@@ -150,7 +150,7 @@ object SettingsFragmentScreen : Screen {
         SettingsNavigation(
             title = R.string.category_ui,
             navigation = R.id.action_navigation_global_to_navigation_settings_ui,
-            screen = SettingsUIScreen,
+            screen = ZaynLayoutSettings,
             icon = R.drawable.format_paint_24px,
             tileColor = Color(0xFF7C3AED),
             subtitle = persistentListOf(
@@ -163,7 +163,7 @@ object SettingsFragmentScreen : Screen {
         SettingsNavigation(
             title = R.string.category_updates,
             navigation = R.id.action_navigation_global_to_navigation_settings_updates,
-            screen = SettingsUpdatesScreen,
+            screen = ZaynUpdatesSettings,
             icon = R.drawable.mobile_arrow_down_24px,
             tileColor = Color(0xFFEA580C),
             subtitle = persistentListOf(
@@ -176,7 +176,7 @@ object SettingsFragmentScreen : Screen {
         SettingsNavigation(
             title = R.string.category_account,
             navigation = R.id.action_navigation_global_to_navigation_settings_account,
-            screen = SettingsAccountScreen,
+            screen = ZaynAccountSettings,
             icon = R.drawable.encrypted_24px,
             tileColor = Color(0xFF0891B2),
             subtitle = persistentListOf(
