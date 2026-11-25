@@ -9,14 +9,27 @@
      zayn_enabled_providers, zayn_last_link_<title-hash>. -->
 <resources>
     <!-- Setup: Profile step -->
-    <string name="zayn_setup_profile_title">Your profile</string>
+    <string name="zayn_setup_profile_title">Create your profile</string>
+    <string name="zayn_setup_profile_sub">Make your own profile — add a name and a photo. This name and photo will show at the top of Home and in Settings.</string>
     <string name="zayn_setup_profile_name_label">Your name</string>
     <string name="zayn_setup_profile_name_hint">e.g. Samim</string>
     <string name="zayn_setup_profile_avatar_label">Choose a picture</string>
     <string name="zayn_setup_profile_upload_photo">Upload your own photo</string>
     <string name="zayn_setup_profile_preview">Preview</string>
+    <string name="zayn_setup_profile_your_name">Your name</string>
     <string name="zayn_setup_profile_photo_saved">Photo saved</string>
     <string name="zayn_setup_profile_photo_failed">Could not save that photo</string>
+
+    <!-- Setup: step counter in the setup-top header (preview: "Step X of 6") -->
+    <string name="zayn_setup_step_1_of_6">Step 1 of 6</string>
+    <string name="zayn_setup_step_2_of_6">Step 2 of 6</string>
+    <string name="zayn_setup_step_3_of_6">Step 3 of 6</string>
+    <string name="zayn_setup_step_4_of_6">Step 4 of 6</string>
+    <string name="zayn_setup_step_5_of_6">Step 5 of 6</string>
+    <string name="zayn_setup_step_6_of_6">Step 6 of 6</string>
+
+    <!-- Setup: Provider Language "All languages" row sub-line (preview) -->
+    <string name="zayn_setup_all_languages_sub">Providers in every language</string>
 
     <!-- Settings > Player: Nuvio Smart-Streams -->
     <string name="zayn_smart_streams_category">Smart-Streams (Nuvio)</string>
