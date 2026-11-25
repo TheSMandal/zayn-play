@@ -76,7 +76,6 @@ import com.lagradost.cloudstream3.ui.WebviewFragment
 import com.lagradost.cloudstream3.ui.player.SubtitleData
 import com.lagradost.cloudstream3.ui.result.ResultFragment
 import com.lagradost.cloudstream3.ui.settings.Globals
-import com.lagradost.cloudstream3.ui.settings.extensions.PluginsFragment
 import com.lagradost.cloudstream3.ui.settings.extensions.RepositoryData
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.main
@@ -552,7 +551,7 @@ object AppContextUtils {
             if (repos.isNotEmpty()) {
                 navigate(
                     R.id.global_to_navigation_settings_plugins,
-                    PluginsFragment.newInstance(
+                    PluginsFragment2.newInstance(
                         repositoryData,
                     )
                 )
