@@ -7,6 +7,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -16,6 +17,7 @@ import com.google.android.gms.cast.TextTrackStyle.EDGE_TYPE_NONE
 import com.google.android.gms.cast.TextTrackStyle.EDGE_TYPE_OUTLINE
 import com.google.android.gms.cast.TextTrackStyle.EDGE_TYPE_RAISED
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.ui.settings.ZaynSearchableContent
 import com.lagradost.cloudstream3.ui.subtitles.ChromecastSubtitlesFragment.Companion.applyStyleEvent
 import com.lagradost.cloudstream3.ui.subtitles.ChromecastSubtitlesFragment.Companion.chromeCastSubtitleState
 import com.lagradost.cloudstream3.ui.subtitles.ChromecastSubtitlesFragment.Companion.defaultChromeCastSubtitleState
@@ -31,6 +33,18 @@ import kotlin.math.roundToInt
 object ChromecastSubtitlesScreen : SearchableSettings {
     @Composable
     override fun getTitleRes(): String = stringResource(R.string.chromecast_subtitles_settings)
+
+    // Zayn Play: render with the Zayn rows (same as the five inner Settings
+    // screens) instead of Mihon's default old PreferenceScaffold. The undo /
+    // reset buttons stay in the top bar via actions — same behaviour as before.
+    @Composable
+    override fun Content() {
+        ZaynSearchableContent(
+            title = getTitleRes(),
+            actions = { AppBarAction() },
+            itemsProvider = { getPreferences() },
+        )
+    }
 
     // For ux purposes we also want to show a diff of what will be reset
     private val diff = arrayOf<Pair<Int, (SaveChromeCaptionStyle) -> Any?>>(
@@ -82,6 +96,7 @@ object ChromecastSubtitlesScreen : SearchableSettings {
                             copy(fontFamily = newValue)
                         },
                         icon = painterResource(R.drawable.font_download_24px),
+                        iconTileColor = Color(0xFF2563EB),
                         title = stringResource(R.string.subs_font),
                         entries = persistentMapOf(
                             null to stringResource(R.string.normal),
@@ -100,12 +115,14 @@ object ChromecastSubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_text_color),
                         icon = painterResource(R.drawable.format_color_text_24px),
+                        iconTileColor = Color(0xFF2563EB),
                     ),
                     Preference.PreferenceItem.SliderPreference(
                         preference = store.field(
                             get = { fontScale.times(100.0f).roundToInt() },
                             set = { newValue -> copy(fontScale = newValue.toFloat() * 0.01f) }),
                         icon = painterResource(R.drawable.text_fields_24px),
+                        iconTileColor = Color(0xFF2563EB),
                         title = stringResource(R.string.subs_font_size),
                         valueRange = 75..150,
                         steps = 75 / 5 - 1,
@@ -118,6 +135,7 @@ object ChromecastSubtitlesScreen : SearchableSettings {
                             copy(edgeType = newValue)
                         },
                         icon = painterResource(R.drawable.shadow_24px),
+                        iconTileColor = Color(0xFF7C3AED),
                         title = stringResource(R.string.subs_edge_type),
                         entries = persistentMapOf(
                             EDGE_TYPE_NONE to stringResource(R.string.subtitles_none),
@@ -134,6 +152,7 @@ object ChromecastSubtitlesScreen : SearchableSettings {
                         //enabled = state.edgeType != EDGE_TYPE_NONE,
                         title = stringResource(R.string.subs_outline_color),
                         icon = painterResource(R.drawable.border_color_24px),
+                        iconTileColor = Color(0xFF7C3AED),
                     ),
                 )
             ), Preference.PreferenceGroup(
@@ -144,6 +163,7 @@ object ChromecastSubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_window_color),
                         icon = painterResource(R.drawable.imagesearch_roller_24px),
+                        iconTileColor = Color(0xFF059669),
                     ),
                     Preference.PreferenceItem.ColorPreference(
                         preference = store.field(SaveChromeCaptionStyle::backgroundColor) { newValue ->
@@ -151,6 +171,7 @@ object ChromecastSubtitlesScreen : SearchableSettings {
                         },
                         title = stringResource(R.string.subs_background_color),
                         icon = painterResource(R.drawable.format_color_fill_24px),
+                        iconTileColor = Color(0xFF059669),
                     ),
                 )
             )
