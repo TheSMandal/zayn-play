@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play profile avatar gradient (preview spec): #ffb03a -> #e8261c, 135deg. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:angle="315"
+        android:endColor="#E8261C"
+        android:startColor="#FFB03A"
+        android:type="linear" />
+</shape>
