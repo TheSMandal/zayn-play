@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play search pill (preview home-search): panel-2 fill, 13dp corners. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/iconGrayBackground" />
+    <corners android:radius="13dp" />
+</shape>
