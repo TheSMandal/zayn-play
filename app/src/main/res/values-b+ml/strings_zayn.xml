@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play strings translated from the approved preview
+     (zayn-play-preview v22) language dictionary, verbatim.
+     Only strings the preview itself translated are included;
+     the rest fall back to the English default. -->
+<resources>
+    <string name="zayn_audio_none">ഒന്നുമില്ല</string>
+    <string name="zayn_external_player_title">ബാഹ്യ പ്ലെയർ ആപ്പ്</string>
+    <string name="zayn_home_empty_button">Extensions തുറക്കുക</string>
+    <string name="zayn_home_empty_title">പ്രൊവൈഡർ തിരഞ്ഞെടുത്തിട്ടില്ല</string>
+    <string name="zayn_home_search_hint">പ്രൊവൈഡർമാരിൽ തിരയുക…</string>
+    <string name="zayn_home_watch_now">ഇപ്പോൾ കാണുക</string>
+    <string name="zayn_off">ഓഫ്</string>
+    <string name="zayn_player_aspect">അസ്പെക്ട്</string>
+    <string name="zayn_player_audio">ഓഡിയോ</string>
+    <string name="zayn_player_choice_category">പ്ലെയർ</string>
+    <string name="zayn_player_resolution">റെസല്യൂഷൻ</string>
+    <string name="zayn_player_resolution_auto">ഓട്ടോ</string>
+    <string name="zayn_player_resolution_title">റെസല്യൂഷൻ</string>
+    <string name="zayn_player_server">സെർവർ</string>
+    <string name="zayn_player_speed">സ്പീഡ്</string>
+    <string name="zayn_player_subtitles">സബ്ടൈറ്റിലുകൾ</string>
+    <string name="zayn_player_value_off">ഓഫ്</string>
+    <string name="zayn_pref_resolution_auto">ഓട്ടോ</string>
+    <string name="zayn_pref_resolution_title">ഇഷ്ടപ്പെട്ട റെസല്യൂഷൻ</string>
+    <string name="zayn_repos_install">ഇൻസ്റ്റാൾ ചെയ്യുക</string>
+    <string name="zayn_repos_installed">ഇൻസ്റ്റാൾ ചെയ്തു</string>
+    <string name="zayn_repos_test">പരിശോധന</string>
+    <string name="zayn_see_all">എല്ലാം കാണുക</string>
+    <string name="zayn_setup_profile_name_label">നിങ്ങളുടെ പേര്</string>
+    <string name="zayn_setup_profile_upload_photo">നിങ്ങളുടെ സ്വന്തം ഫോട്ടോ അപ്‌ലോഡ് ചെയ്യുക</string>
+    <string name="zayn_stream_mode_title">സ്ട്രീം മോഡ്</string>
+    <string-array name="zayn_stream_timeout_names">
+        <item>@string/zayn_stream_timeout_instant</item>
+        <item>5 സെക്കൻഡ്</item>
+        <item>10 സെക്കൻഡ്</item>
+        <item>15 സെക്കൻഡ്</item>
+        <item>30 സെക്കൻഡ്</item>
+        <item>@string/zayn_stream_timeout_unlimited</item>
+    </string-array>
+</resources>
