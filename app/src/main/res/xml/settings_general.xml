@@ -81,21 +81,12 @@
     <PreferenceCategory android:title="@string/pref_category_links">
 
         <Preference
-            android:icon="@drawable/ic_github_logo"
-            android:title="@string/github"
-            app:summary="https://github.com/recloudstream/cloudstream">
+            android:icon="@drawable/ic_baseline_public_24"
+            android:title="@string/website"
+            app:summary="https://zaynplay.netlify.app/">
             <intent
                 android:action="android.intent.action.VIEW"
-                android:data="https://github.com/recloudstream/cloudstream" />
-        </Preference>
-
-        <Preference
-            android:icon="@drawable/quick_novel_icon"
-            android:title="@string/lightnovel"
-            app:summary="https://github.com/LagradOst/QuickNovel">
-            <intent
-                android:action="android.intent.action.VIEW"
-                android:data="https://github.com/LagradOst/QuickNovel" />
+                android:data="https://zaynplay.netlify.app/" />
         </Preference>
         <Preference
             android:icon="@drawable/ic_baseline_discord_24"
