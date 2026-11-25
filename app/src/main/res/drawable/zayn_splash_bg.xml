@@ -4,7 +4,7 @@
      activity_splash.xml on top of this. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
-        <color android:color="?attr/primaryBlackBackground" />
+        <color android:color="?attr/splashBackground" />
     </item>
     <item
         android:width="96dp"
