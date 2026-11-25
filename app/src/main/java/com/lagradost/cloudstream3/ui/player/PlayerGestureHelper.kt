@@ -20,8 +20,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.animation.AlphaAnimation
-import android.view.animation.Animation
-import android.view.animation.AnimationUtils
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
 import androidx.core.view.isGone
@@ -891,18 +889,6 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
 
     /** Rewind / fast-forward animations */
 
-    /** Resets the rewind button label to the standard "–Xs" format. */
-    fun resetRewindText() {
-        playerView.exoRewText?.text = context.getString(R.string.rew_text_regular_format)
-            .format(fastForwardTime / 1000)
-    }
-
-    /** Resets the fast-forward button label to the standard "+Xs" format. */
-    fun resetFastForwardText() {
-        playerView.exoFfwdText?.text = context.getString(R.string.ffw_text_regular_format)
-            .format(fastForwardTime / 1000)
-    }
-
     /**
      * Fades playerRewHolder, playerFfwdHolder, and playerPausePlay to [fadeTo] (0f or 1f).
      * Always resets the holder alphas to 1f first so any stale fillAfter state is cleared.
@@ -919,82 +905,115 @@ class PlayerGestureHelper(private val playerView: PlayerView) {
         playerView.playerPausePlay?.startAnimation(makeAnim())
     }
 
-    /** Plays the rewind animation and seeks back by [fastForwardTime]. */
+    /** Zayn Play: double-tap seek pill state (video 1 spec). */
+    private var seekPillAccumulatedMs = 0L
+    private var seekPillSide = 0 // -1 = rewind, +1 = fast-forward, 0 = none
+    private var seekPillLastTapMs = 0L
+    private var seekPillHideRunnable: Runnable? = null
+
+    /**
+     * Shows the YouTube-style seek pill for one side, accumulating ±10s per
+     * rapid double-tap (the number updates in place). The centre time pill
+     * shows the position the seek will land on / total; it is only shown while
+     * the controls are hidden so it never covers the centre play/pause button.
+     * Both fade out ~1s after the last tap: the pill content (chevrons, text,
+     * dots) fades first, the empty pill lingers a moment, then it is gone.
+     */
+    private fun showSeekPill(isForward: Boolean) {
+        val now = System.currentTimeMillis()
+        val side = if (isForward) 1 else -1
+        // A new side, or a tap more than 1s after the last one, restarts the total.
+        if (side != seekPillSide || now - seekPillLastTapMs > 1000L) {
+            seekPillAccumulatedMs = fastForwardTime
+        } else {
+            seekPillAccumulatedMs += fastForwardTime
+        }
+        seekPillSide = side
+        seekPillLastTapMs = now
+
+        val pill = if (isForward) playerView.playerSeekPillRight else playerView.playerSeekPillLeft
+        val other = if (isForward) playerView.playerSeekPillLeft else playerView.playerSeekPillRight
+        val textView = if (isForward) playerView.playerSeekPillRightText else playerView.playerSeekPillLeftText
+        // Hide the opposite pill immediately.
+        other?.let { hideSeekPillNow(it) }
+        val target = pill ?: return
+        val secs = seekPillAccumulatedMs / 1000
+        textView?.text = (if (isForward) "+" else "−") + convertTimeToString(secs)
+        // Restore full opacity (a previous fade may have left it transparent).
+        target.animate().cancel()
+        target.alpha = 1f
+        for (i in 0 until target.childCount) {
+            target.getChildAt(i).animate().cancel()
+            target.getChildAt(i).alpha = 1f
+        }
+        target.isVisible = true
+
+        // Centre time pill (position after this tap's seek / total), only while
+        // the controls are hidden.
+        val timePill = playerView.playerSeekTimePill
+        val controlsShowing = playerView.callbacks?.isUIShowing() ?: false
+        if (!controlsShowing && timePill != null) {
+            val pos = playerView.player.getPosition()
+            val dur = playerView.player.getDuration()
+            if (pos != null && dur != null) {
+                val landed = (pos + (if (isForward) fastForwardTime else -fastForwardTime)).coerceIn(0, dur)
+                timePill.text = convertTimeToString(landed / 1000) + " / " + convertTimeToString(dur / 1000)
+                timePill.animate().cancel()
+                timePill.alpha = 1f
+                timePill.isVisible = true
+            }
+        }
+
+        // Hide ~1s after the last tap.
+        seekPillHideRunnable?.let {
+            playerView.playerSeekPillLeft?.removeCallbacks(it)
+            playerView.playerSeekPillRight?.removeCallbacks(it)
+        }
+        seekPillHideRunnable = Runnable {
+            // Phase 1: fade the pill content (chevrons, text, dots) + time pill.
+            for (i in 0 until target.childCount) {
+                target.getChildAt(i).animate().alpha(0f).setDuration(200).start()
+            }
+            timePill?.let { it.animate().alpha(0f).setDuration(200).start() }
+            // Phase 2: after the content is gone, fade the empty pill itself.
+            target.postDelayed({
+                target.animate().alpha(0f).setDuration(250).withEndAction {
+                    target.isVisible = false
+                    target.alpha = 1f
+                    for (i in 0 until target.childCount) target.getChildAt(i).alpha = 1f
+                }.start()
+                timePill?.postDelayed({
+                    timePill.isVisible = false
+                    timePill.alpha = 1f
+                }, 250)
+            }, 250)
+        }
+        target.postDelayed(seekPillHideRunnable, 1000)
+    }
+
+    private fun hideSeekPillNow(pill: View) {
+        seekPillHideRunnable?.let {
+            playerView.playerSeekPillLeft?.removeCallbacks(it)
+            playerView.playerSeekPillRight?.removeCallbacks(it)
+        }
+        pill.animate().cancel()
+        pill.isVisible = false
+        pill.alpha = 1f
+        for (i in 0 until pill.childCount) pill.getChildAt(i).alpha = 1f
+    }
+
+    /** Seeks back by [fastForwardTime], showing the left seek pill. */
     fun rewind() {
         try {
-            val rewHolder = playerView.playerRewHolder ?: return
-            val rew = playerView.playerRew
-            val rewText = playerView.exoRewText
-            val wasShowing = playerView.callbacks?.isUIShowing() ?: false
-
-            // Only expose the parent chain when controls are currently hidden.
-            val prevVideoHolderVisible = playerView.playerVideoHolder?.isVisible ?: true
-            if (!wasShowing) {
-                playerView.playerCenterMenu?.isGone = false
-                playerView.playerVideoHolder?.isVisible = true
-            }
-            // Always clear any stale fillAfter alpha so the button is visible during animation.
-            rewHolder.alpha = 1f
-
-            rew?.startAnimation(AnimationUtils.loadAnimation(context, R.anim.rotate_left))
-            val goLeft = AnimationUtils.loadAnimation(context, R.anim.go_left)
-            goLeft.setAnimationListener(object : Animation.AnimationListener {
-                override fun onAnimationStart(animation: Animation?) {}
-                override fun onAnimationRepeat(animation: Animation?) {}
-                override fun onAnimationEnd(animation: Animation?) {
-                    rewText?.post {
-                        resetRewindText()
-                        // Restore parent chain only if we changed it and controls are still hidden.
-                        if (!wasShowing && !(playerView.callbacks?.isUIShowing() ?: false)) {
-                            playerView.playerCenterMenu?.isGone = true
-                            playerView.playerVideoHolder?.isVisible = prevVideoHolderVisible
-                            rewHolder.alpha = 0f
-                        }
-                    }
-                }
-            })
-            rewText?.startAnimation(goLeft)
-            rewText?.text = context.getString(R.string.rew_text_format).format(fastForwardTime / 1000)
-            showGesturePill("-${convertTimeToString(fastForwardTime / 1000)}")
+            showSeekPill(isForward = false)
             playerView.player.seekTime(-fastForwardTime)
         } catch (e: Exception) { logError(e) }
     }
 
-    /** Plays the fast-forward animation and seeks forward by [fastForwardTime]. */
+    /** Seeks forward by [fastForwardTime], showing the right seek pill. */
     fun fastForward() {
         try {
-            val ffwdHolder = playerView.playerFfwdHolder ?: return
-            val ffwd = playerView.playerFfwd
-            val ffwdText = playerView.exoFfwdText
-            val wasShowing = playerView.callbacks?.isUIShowing() ?: false
-
-            val prevVideoHolderVisible = playerView.playerVideoHolder?.isVisible ?: true
-            if (!wasShowing) {
-                playerView.playerCenterMenu?.isGone = false
-                playerView.playerVideoHolder?.isVisible = true
-            }
-            // Always clear any stale fillAfter alpha so the button is visible during animation.
-            ffwdHolder.alpha = 1f
-
-            ffwd?.startAnimation(AnimationUtils.loadAnimation(context, R.anim.rotate_right))
-            val goRight = AnimationUtils.loadAnimation(context, R.anim.go_right)
-            goRight.setAnimationListener(object : Animation.AnimationListener {
-                override fun onAnimationStart(animation: Animation?) {}
-                override fun onAnimationRepeat(animation: Animation?) {}
-                override fun onAnimationEnd(animation: Animation?) {
-                    ffwdText?.post {
-                        resetFastForwardText()
-                        if (!wasShowing && !(playerView.callbacks?.isUIShowing() ?: false)) {
-                            playerView.playerCenterMenu?.isGone = true
-                            playerView.playerVideoHolder?.isVisible = prevVideoHolderVisible
-                            ffwdHolder.alpha = 0f
-                        }
-                    }
-                }
-            })
-            ffwdText?.startAnimation(goRight)
-            ffwdText?.text = context.getString(R.string.ffw_text_format).format(fastForwardTime / 1000)
-            showGesturePill("+${convertTimeToString(fastForwardTime / 1000)}")
+            showSeekPill(isForward = true)
             playerView.player.seekTime(fastForwardTime)
         } catch (e: Exception) { logError(e) }
     }
