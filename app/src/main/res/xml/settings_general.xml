@@ -88,22 +88,5 @@
                 android:action="android.intent.action.VIEW"
                 android:data="https://zaynplay.netlify.app/" />
         </Preference>
-        <Preference
-            android:icon="@drawable/ic_baseline_discord_24"
-            android:title="@string/discord"
-            app:summary="https://discord.gg/5Hus6fM">
-            <intent
-                android:action="android.intent.action.VIEW"
-                android:data="https://discord.gg/5Hus6fM" />
-        </Preference>
-        <Preference
-            android:icon="@drawable/baseline_description_24"
-            android:title="@string/cs3wiki"
-            app:summary="https://cloudstream.miraheze.org/">
-            <intent
-                android:action="android.intent.action.VIEW"
-                android:data="https://cloudstream.miraheze.org/" />
-        </Preference>
-
     </PreferenceCategory>
 </PreferenceScreen>
