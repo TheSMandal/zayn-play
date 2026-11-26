@@ -287,7 +287,10 @@ class ZaynPlayer(
             val pos = p.currentPosition
             val wasPlaying = p.isPlaying
             val item = buildMediaItem(link, mimeOf(link), text, lang, null)
-            p.setMediaItem(item, pos, true)
+            // Media3 1.4.1 has no 3-arg setMediaItem(item, pos, reset): set the
+            // item, then seek to the saved position before preparing.
+            p.setMediaItem(item)
+            p.seekTo(pos)
             p.prepare()
             if (wasPlaying) p.play()
         }
