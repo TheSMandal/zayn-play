@@ -23,19 +23,35 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import app.netlify.zaynplay.engine.EngineLogger
+import app.netlify.zaynplay.engine.EngineStore
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import org.json.JSONObject
 
 /**
- * Zayn Play — UI-only build (v0.1.0).
+ * Zayn Play — UI-only build (v0.2.0-phaseA).
  *
  * The whole app UI is the approved preview (assets/zaynplay-app.html),
- * shown in a single WebView. There is no engine here: no providers, no
- * real player, no downloads — sample data only, exactly like the preview.
- * The engine phase comes later, after the user
- * approves this UI.
+ * shown in a single WebView. Phase A of the engine phase adds only the
+ * bridge skeleton: a second JavascriptInterface ("ZaynEngineNative") whose
+ * dispatcher answers engineStatus / settingsGet / settingsSet and replies
+ * engine_not_ready for everything else. No providers, no real player, no
+ * downloads yet — the demo video and demo repo state are gone, and the UI
+ * fails visibly (toast) whenever it calls an unimplemented engine method.
+ * The engine port itself comes in a later phase.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+
+    // Engine bridge (phase A): the store behind settingsGet/settingsSet,
+    // a small IO pool for bridge work, and the in-flight calls by id.
+    // No new Gradle dependency is used: plain threads, not coroutines.
+    private lateinit var engineStore: EngineStore
+    private val engineExecutor = Executors.newCachedThreadPool()
+    private val engineJobs = ConcurrentHashMap<String, Future<*>>()
 
     // True while the player is fullscreen: the immersive hide must be
     // re-applied after every rotation / focus change / resume, because the
@@ -173,6 +189,44 @@ class MainActivity : AppCompatActivity() {
             }
         }, "ZaynAppNative")
 
+        // Engine bridge skeleton (phase A, engine-design.md §4.2): a second
+        // interface, "ZaynEngineNative", with one async entry point. call()
+        // arrives on a WebView thread and returns at once — the work runs on
+        // the IO pool and the reply is posted to the main thread, which is
+        // the only thread allowed to call evaluateJavascript. The existing
+        // "ZaynAppNative" 4 methods above are untouched. Until the engine
+        // port lands, only engineStatus / settingsGet / settingsSet are
+        // implemented; every other method name gets engine_not_ready.
+        engineStore = EngineStore(this)
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun call(id: String, method: String, json: String) {
+                val task = Runnable {
+                    val params = try {
+                        JSONObject(json)
+                    } catch (e: Exception) {
+                        engineReply(id, engineError("invalid_input", "Bad request"))
+                        return@Runnable
+                    }
+                    EngineLogger.log("bridge", "$method id=$id")
+                    val response = try {
+                        dispatchEngineCall(method, params)
+                    } catch (e: Exception) {
+                        EngineLogger.log("bridge", "$method id=$id threw ${e.message}")
+                        engineError("unknown", "Engine error")
+                    }
+                    engineJobs.remove(id)
+                    engineReply(id, response)
+                }
+                engineJobs[id] = engineExecutor.submit(task)
+            }
+
+            @JavascriptInterface
+            fun cancel(id: String) {
+                engineJobs.remove(id)?.cancel(true)
+            }
+        }, "ZaynEngineNative")
+
         // The native splash already showed (?bootsplash=0 skips the
         // in-WebView splash so the user is not shown it twice).
         webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0&form=$form")
@@ -227,6 +281,72 @@ class MainActivity : AppCompatActivity() {
         // swiped in, or after another app) must not leave the status bar
         // visible over fullscreen video.
         if (isPlayerFullscreen) setImmersiveMode(true)
+    }
+
+    override fun onDestroy() {
+        // Engine bridge: drop in-flight calls and stop the IO pool.
+        engineJobs.values.forEach { it.cancel(true) }
+        engineJobs.clear()
+        engineExecutor.shutdownNow()
+        super.onDestroy()
+    }
+
+    /**
+     * Engine bridge dispatcher (phase A). Only three methods are real;
+     * everything else answers engine_not_ready until the engine port lands.
+     * Runs on the IO pool — never on the WebView thread, never on main.
+     */
+    private fun dispatchEngineCall(method: String, params: JSONObject): JSONObject {
+        return when (method) {
+            "engineStatus" -> engineOk(
+                JSONObject()
+                    .put("version", "0.2.0")
+                    .put("engineReady", false)
+                    // Phase A: no plugin system yet, so all counts are 0.
+                    .put("pluginsLoaded", 0)
+                    .put("reposInstalled", 0)
+                    .put("providersOn", 0)
+            )
+            "settingsGet" -> engineOk(
+                JSONObject().put("settings", engineStore.settingsSnapshot())
+            )
+            "settingsSet" -> {
+                val key = params.optString("key", "")
+                if (!params.has("value")) {
+                    return engineError("invalid_input", "Missing value")
+                }
+                val value = params.opt("value")
+                when (val err = engineStore.setSetting(key, value)) {
+                    null -> engineOk(JSONObject().put("key", key).put("value", value))
+                    "unknown_setting" -> engineError("unknown_setting", "Unknown setting: $key")
+                    "invalid_value" -> engineError("invalid_value", "Invalid value for $key")
+                    else -> engineError("unknown", "Could not save $key")
+                }
+            }
+            else -> {
+                EngineLogger.log("bridge", "$method -> engine_not_ready")
+                engineError(
+                    "engine_not_ready",
+                    "Engine not ready yet — this feature comes in the next update"
+                )
+            }
+        }
+    }
+
+    private fun engineOk(data: Any?): JSONObject =
+        JSONObject().put("ok", true).put("data", data ?: JSONObject.NULL)
+
+    private fun engineError(code: String, message: String): JSONObject =
+        JSONObject().put("ok", false).put("code", code).put("message", message)
+
+    /** Post a bridge reply to the main thread, then into the page. */
+    private fun engineReply(id: String, response: JSONObject) {
+        val idJson = JSONObject.quote(id)
+        runOnUiThread {
+            if (::webView.isInitialized) {
+                webView.evaluateJavascript("window.__zaynReply($idJson, $response)", null)
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
