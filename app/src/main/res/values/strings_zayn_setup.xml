@@ -127,4 +127,12 @@
     <string name="zayn_test_all_results_title">Provider test results</string>
     <string name="zayn_test_all_done">Tested %1$d providers, %2$d failed video and were turned off.</string>
     <string name="zayn_test_all_auto_off">auto-off</string>
+    <!-- Zayn Play: App theme picker (System / Dark / Light) + Settings profile card + provider picker -->
+    <string name="zayn_theme_system">System</string>
+    <string name="zayn_theme_dark">Dark</string>
+    <string name="zayn_theme_light">Light</string>
+    <string name="zayn_local_account">Local account • Not synced</string>
+    <string name="zayn_local">LOCAL</string>
+    <string name="zayn_select_provider">Select Provider</string>
+    <string name="zayn_picker_hint">Long-press a provider to pin/unpin it — pinned providers stay first, the rest are sorted A–Z by name.</string>
 </resources>
