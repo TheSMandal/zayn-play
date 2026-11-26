@@ -61,7 +61,7 @@ object CryptoJS {
     }
 
     private fun evpkdf(
-password: <redacted>
+        password: ByteArray,
         keySize: Int,
         ivSize: Int,
         salt: ByteArray,
@@ -89,14 +89,14 @@ password: <redacted>
                 block = iterMd.digest()
             }
 
-            block.copyInto(
+            block!!.copyInto(
                 destination = derivedBytes,
                 destinationOffset = numberOfDerivedWords * 4,
                 startIndex = 0,
-                endIndex = min(block.size, (targetKeySize - numberOfDerivedWords) * 4)
+                endIndex = min(block!!.size, (targetKeySize - numberOfDerivedWords) * 4)
             )
 
-            numberOfDerivedWords += block.size / 4
+            numberOfDerivedWords += block!!.size / 4
         }
 
         derivedBytes.copyInto(destination = resultKey, destinationOffset = 0, startIndex = 0, endIndex = keySize * 4)
