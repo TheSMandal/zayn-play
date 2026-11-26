@@ -1280,11 +1280,11 @@
       .skip-intro,.up-next{ right:auto; left:12px; bottom:126px; }
       .up-next{ bottom:172px; }
 
-      /* gesture pill — live volume / brightness value while swiping */
+      /* gesture pill — live volume / brightness value while swiping; vertical bar fills from the bottom, amber for brightness */
       .tap-zone{ touch-action:none; }
       .gesture-pill{
         position:absolute; top:50%; z-index:11; transform:translateY(-50%) scale(.9);
-        display:flex; flex-direction:column; align-items:center; gap:6px; min-width:88px;
+        display:flex; flex-direction:column; align-items:center; gap:6px;
         padding:12px 16px; border-radius:16px; color:#fff;
         background:rgba(15,19,27,.45); border:1px solid rgba(255,255,255,.3);
         backdrop-filter:blur(16px) saturate(1.5); -webkit-backdrop-filter:blur(16px) saturate(1.5);
@@ -1295,9 +1295,9 @@
       .gesture-pill.left{ left:16px; } .gesture-pill.right{ right:16px; }
       .gesture-pill .gp-top{ display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:700; }
       .gesture-pill .gp-top svg{ width:17px; height:17px; flex:none; }
-      .gesture-pill .gp-val{ font-family:"Sora",sans-serif; font-size:19px; font-weight:800; line-height:1; }
-      .gesture-pill .gp-bar{ width:76px; height:5px; border-radius:99px; background:rgba(255,255,255,.25); overflow:hidden; display:block; }
-      .gesture-pill .gp-bar i{ display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,var(--app-accent),var(--app-accent-2)); }
+      .gesture-pill .gp-bar{ width:6px; height:76px; border-radius:99px; background:rgba(255,255,255,.25); overflow:hidden; display:block; position:relative; }
+      .gesture-pill .gp-bar i{ display:block; position:absolute; bottom:0; left:0; width:100%; border-radius:99px; background:linear-gradient(180deg,var(--app-accent),var(--app-accent-2)); transition:height .15s ease; }
+      .gesture-pill.bri .gp-bar i{ background:linear-gradient(180deg,#ffcf33,#f5b301); }
       .stage-video.locked .gesture-pill{ opacity:0 !important; }
 
       @media (prefers-reduced-motion: reduce){
@@ -1862,7 +1862,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v0.1.6</p>
+                  <p class="splash-ver">Zayn Play v0.1.7</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2008,7 +2008,28 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 
               <div class="viewport">
                 <!-- ============ HOME ============ -->
-                <section class="screen on" id="scr-home" aria-label="Home">
+                <section class="screen" id="scr-home" aria-label="Home">
+                  <script>
+                    /* FIX 7 — first-paint setup gate: the boot JS at the end of
+                       this file runs ~1s after first paint on a phone, so Home
+                       (the markup default) flashed before Setup on fresh
+                       installs. This tiny script runs during parsing, before
+                       any paint, and shows the right first screen: Setup on
+                       a fresh install, Home once setup is done. The boot code
+                       re-runs the same decision, so this only fixes timing. */
+                    (function(){
+                      try{
+                        var done = false;
+                        try { done = localStorage.getItem('zayn-setup-done') === '1'; } catch (e) {}
+                        var home = document.getElementById('scr-home');
+                        var setup = document.getElementById('setup');
+                        if (/[?&]bootsplash=0/.test(location.search)) {
+                          if (done) { if (home) home.classList.add('on'); }
+                          else if (setup) { setup.classList.remove('hide'); }
+                        } else if (home) { home.classList.add('on'); }
+                      }catch(e){}
+                    })();
+                  </script>
                   <div class="appbar">
                     <div class="brand">
                       <span class="logo-mark" role="img" aria-label="Zayn Play logo"><svg viewBox="0 0 64 64"><defs><linearGradient id="lg-head" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5147"/><stop offset="1" stop-color="#b3000c"/></linearGradient></defs><rect x="4" y="4" width="56" height="56" rx="15" fill="url(#lg-head)"/><g fill="#fff"><polygon points="19,13 47,13 31,41 49,41 49,53 17,53 33,25 19,25"/></g><polygon points="28.5,27.5 40,33 28.5,38.5" fill="#c4000b"/></svg></span>
@@ -2514,6 +2535,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            tell Android whether they must be dark (light theme) or white
            (dark theme) — no-op in the browser preview (no bridge) */
         try { if (window.ZaynAppNative && window.ZaynAppNative.setStatusBarDarkIcons) window.ZaynAppNative.setStatusBarDarkIcons(eff === 'light'); } catch (e) {}
+        /* FIX 5: sync the app theme choice to native SharedPreferences so
+           the next cold start's splash follows the app theme (System/Dark/
+           Light), not just the system setting — no-op in the browser preview */
+        try { if (window.ZaynAppNative && window.ZaynAppNative.setThemePref) window.ZaynAppNative.setThemePref(ZPTheme.pref); } catch (e) {}
         var rows = document.querySelectorAll('[data-theme-opt]');
         for (var r=0;r<rows.length;r++) rows[r].classList.toggle('on', rows[r].getAttribute('data-theme-val') === ZPTheme.pref);
         var label = ZPTheme.pref === 'system' ? 'System' : (ZPTheme.pref === 'dark' ? 'Dark' : 'Light');
@@ -3747,10 +3772,30 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       var gPillTimer = null, gState = null;
       var GP_ICON_BRI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.5 4.5l2 2M17.5 17.5l2 2M19.5 4.5l-2 2M6.5 17.5l-2 2"/></svg>';
       var GP_ICON_VOL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10v4h3l5 4.5v-13L7 10H4z" fill="currentColor" stroke="none"/><path d="M15 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg>';
+      var gPillKind = null, gPillSide = null;
       function showGPill(side, kind, pct){
-        gPill.className = 'gesture-pill show ' + side;
-        gPill.innerHTML = '<span class="gp-top">' + (kind === 'vol' ? GP_ICON_VOL : GP_ICON_BRI) + (kind === 'vol' ? 'Volume' : 'Brightness') + '</span>'
-          + '<span class="gp-val">' + pct + '%</span><span class="gp-bar"><i style="width:' + Math.max(0, Math.min(100, pct)) + '%"></i></span>';
+        var v = Math.max(0, Math.min(100, pct));
+        /* FIX 8 (2026-11-26, Samim): the indicator shows on the OPPOSITE side
+           from the swiping finger, so the finger never covers it — the
+           brightness gesture is on the LEFT but its bar shows on the RIGHT;
+           the volume gesture is on the RIGHT but its bar shows on the LEFT.
+           'side' is the gesture side; 'disp' is the display side. */
+        var disp = side === 'left' ? 'right' : 'left';
+        /* same kind + side as the pill already shows: update the vertical
+           fill in place, so the height transition animates smoothly instead
+           of popping (rebuilding innerHTML on every move would create a
+           fresh fill element with no transition to animate). */
+        if (gPillKind === kind && gPillSide === side && gPill.querySelector('.gp-bar i')){
+          gPill.querySelector('.gp-bar i').style.height = v + '%';
+        } else {
+          gPillKind = kind; gPillSide = side;
+          gPill.className = 'gesture-pill show ' + disp + ' ' + kind;
+          /* FIX 8: NO TEXT in the pill at all — icon + vertical bar only
+             (no 'Volume'/'Brightness' word, no % number). */
+          gPill.innerHTML = '<span class="gp-top">' + (kind === 'vol' ? GP_ICON_VOL : GP_ICON_BRI) + '</span>'
+            + '<span class="gp-bar"><i style="height:' + v + '%"></i></span>';
+        }
+        gPill.classList.add('show');
         clearTimeout(gPillTimer);
         gPillTimer = setTimeout(function(){ gPill.classList.remove('show'); }, 750);
       }
@@ -4858,7 +4903,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (act){
           var a = act.getAttribute('data-act');
           if (a === 'Back up data'){
-            var data = { app: 'Zayn Play', version: '0.1.6', theme: ZPTheme.pref, lang: window.ZP_LANG || 'en', installed: Object.keys(ST.installed), provOn: ST.provOn, pb: PB, savedAt: new Date().toISOString() };
+            var data = { app: 'Zayn Play', version: '0.1.7', theme: ZPTheme.pref, lang: window.ZP_LANG || 'en', installed: Object.keys(ST.installed), provOn: ST.provOn, pb: PB, savedAt: new Date().toISOString() };
             var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             var url = URL.createObjectURL(blob);
             var link = document.createElement('a');
@@ -5691,7 +5736,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 0.1.6</span></div>' +
+      '<span class="v31-val">Version 0.1.7</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
