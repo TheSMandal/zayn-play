@@ -5,14 +5,8 @@ import android.content.Context
 import android.net.http.SslError
 import android.webkit.*
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayInputStream
 import com.lagradost.api.Log
 import com.lagradost.api.getContext
-import com.lagradost.cloudstream3.USER_AGENT
-import com.lagradost.cloudstream3.USER_AGENT
-import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.debugException
