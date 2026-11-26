@@ -108,7 +108,11 @@ class EngineStore(private val context: Context) {
             "dlQuality" to "Auto",
             "wifiOnly" to false,
             "autoNextEp" to false,
-            "dns" to "cloudflare",
+            // (v0.2.2) Upstream CloudStream defaults DNS to system (0).
+            // Our old default was Cloudflare DoH with no fallback, so a
+            // DoH failure on the phone's network broke all downloads.
+            // (DoH resolvers now fall back to system DNS too.)
+            "dns" to "system",
             "swDec" to false,
             // Engine-only keys (kept native-side; the UI does not show them).
             "prefProvider" to JSONObject.NULL,
