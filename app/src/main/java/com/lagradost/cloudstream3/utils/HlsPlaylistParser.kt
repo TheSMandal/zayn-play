@@ -1079,17 +1079,13 @@ object HlsPlaylistParser {
             buffer.writeInt(psshBoxLength)
             buffer.writeInt(Mp4Box.TYPE_pssh)
             buffer.writeInt(if (keyIds != null) 0x01000000 else 0 /* version=(buildV1Atom ? 1 : 0), flags=0 */)
-            systemId.toLongs { mostSignificantBits, leastSignificantBits ->
-                buffer.writeLong(mostSignificantBits)
-                buffer.writeLong(leastSignificantBits)
-            }
+            buffer.writeLong(systemId.mostSignificantBits)
+            buffer.writeLong(systemId.leastSignificantBits)
             if (keyIds != null) {
                 buffer.writeInt(keyIds.size)
                 for (keyId in keyIds) {
-                    keyId.toLongs { mostSignificantBits, leastSignificantBits ->
-                        buffer.writeLong(mostSignificantBits)
-                        buffer.writeLong(leastSignificantBits)
-                    }
+                    buffer.writeLong(keyId.mostSignificantBits)
+                    buffer.writeLong(keyId.leastSignificantBits)
                 }
             }
             if (data != null && data.size != 0) {
