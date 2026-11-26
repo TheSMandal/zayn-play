@@ -19,6 +19,9 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.TextureView
+import android.view.View
+import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -28,7 +31,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import app.netlify.zaynplay.engine.EngineApp
 import app.netlify.zaynplay.engine.EngineLogger
 import app.netlify.zaynplay.engine.EngineStore
+import app.netlify.zaynplay.engine.ZaynDownloads
 import app.netlify.zaynplay.engine.ZaynEngine
+import app.netlify.zaynplay.engine.ZaynPlayer
 import com.lagradost.api.setContext
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.network.initClient
@@ -65,6 +70,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var zaynEngine: ZaynEngine
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val engineJobs = ConcurrentHashMap<String, Job>()
+
+    // Phase C player (P0 overlay, engine-design.md §5.5/§7.2): a
+    // chrome-less TextureView ExoPlayer renders into, positioned over the
+    // WebView's player stage from the rect the page reports. No native
+    // controls — every control stays HTML.
+    //
+    // TextureView (not SurfaceView) is deliberate: a SurfaceView lives on
+    // its own layer — behind the window it would be hidden by the
+    // WebView, above it (ZOrderOnTop/MediaOverlay) it would cover the
+    // HTML controls inside the stage. A TextureView composites as a
+    // normal View BELOW the WebView, so the HTML controls draw above the
+    // video and stay tappable; the page punches a transparent hole in
+    // the stage (body / #scr-player / .stage-video backgrounds off,
+    // poster hidden) while the surface is visible, and the WebView
+    // background is set transparent for the same window.
+    private lateinit var playerSurface: TextureView
+    private lateinit var zaynPlayer: ZaynPlayer
+    private lateinit var zaynDownloads: ZaynDownloads
+    private var lastStageRect: JSONObject? = null
 
     // True while the player is fullscreen: the immersive hide must be
     // re-applied after every rotation / focus change / resume, because the
@@ -129,11 +153,27 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             // Sample links inside the UI (provider sites, repo pages) open
             // in the browser; the app UI itself stays in the WebView.
+            // The zaynplay://auth redirect is the OAuth capture path
+            // (design §5.8 Accounts): it stays in-app and is handed to
+            // the bridge as an authRedirect event.
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?,
             ): Boolean {
                 val url = request?.url ?: return false
+                if (url.scheme == "zaynplay" && url.host == "auth") {
+                    val provider = url.getQueryParameter("provider") ?: ""
+                    val code = url.getQueryParameter("code") ?: ""
+                    pushEngineEvent(
+                        "authRedirect",
+                        JSONObject()
+                            .put("provider", provider)
+                            .put("redirectUrl", url.toString())
+                            .put("code", code),
+                    )
+                    EngineLogger.log("accounts", "auth redirect captured for $provider")
+                    return true
+                }
                 if (url.scheme == "http" || url.scheme == "https") {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
                     return true
@@ -200,6 +240,24 @@ class MainActivity : AppCompatActivity() {
                     WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = dark
                 }
             }
+
+            @JavascriptInterface
+            fun setWindowBrightness(value: Float) {
+                // Phase C: the brightness gesture drives the activity
+                // window brightness while the player is open (a native
+                // video surface has no per-view filter). -1 restores the
+                // system brightness. The page calls this only while the
+                // player screen is open; exitPlayerCleanup restores -1.
+                runOnUiThread {
+                    val attrs = window.attributes
+                    attrs.screenBrightness = if (value < 0) {
+                        WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    } else {
+                        value.coerceIn(0.01f, 1.0f)
+                    }
+                    window.attributes = attrs
+                }
+            }
         }, "ZaynAppNative")
 
         // Engine bridge (phase B, engine-design.md §4.2): a second
@@ -217,7 +275,15 @@ class MainActivity : AppCompatActivity() {
         EngineApp.init(this, engineStore)
         app.initClient(this)
         setContext(applicationContext)
-        zaynEngine = ZaynEngine(this, engineStore)
+        // Phase C: the headless player + downloads, owned here. Their
+        // events flow back into the page via pushEngineEvent.
+        playerSurface = findViewById(R.id.player_surface)
+        zaynPlayer = ZaynPlayer(this) { type, data -> pushEngineEvent(type, data) }
+        zaynPlayer.setSurface(playerSurface)
+        zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
+        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope) { rect ->
+            onPlayerStageRect(rect)
+        }
         engineScope.launch {
             try {
                 PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllOnlinePlugins(this@MainActivity)
@@ -281,6 +347,9 @@ class MainActivity : AppCompatActivity() {
         if (isPlayerFullscreen) {
             setImmersiveMode(true)
             window.decorView.post { if (isPlayerFullscreen) setImmersiveMode(true) }
+            // The stage moved: ask the page to re-report its rect so the
+            // native video surface follows the new layout.
+            webView.evaluateJavascript("window.__zaynReportStage && window.__zaynReportStage()", null)
         }
     }
 
@@ -291,6 +360,9 @@ class MainActivity : AppCompatActivity() {
         // keeps running (or playing) in the background.
         webView.onPause()
         webView.pauseTimers()
+        // Phase C: pause playback too (audio must not keep playing when
+        // the user leaves the app).
+        if (::zaynPlayer.isInitialized) zaynPlayer.pauseForBackground()
     }
 
     override fun onResume() {
@@ -313,6 +385,9 @@ class MainActivity : AppCompatActivity() {
         engineJobs.values.forEach { it.cancel() }
         engineJobs.clear()
         engineScope.cancel()
+        // Phase C: release the player + stop downloads.
+        if (::zaynPlayer.isInitialized) zaynPlayer.release()
+        if (::zaynDownloads.isInitialized) zaynDownloads.shutdown()
         super.onDestroy()
     }
 
@@ -344,6 +419,51 @@ class MainActivity : AppCompatActivity() {
             if (::webView.isInitialized) {
                 webView.evaluateJavascript("window.__zaynReply($idJson, $response)", null)
             }
+        }
+    }
+
+    /**
+     * P0 overlay positioning (engine-design.md §5.5/§7.2).
+     *
+     * The page reports the player stage rect in CSS px plus the viewport
+     * size (window.innerWidth/innerHeight). The scale from CSS px to
+     * physical px is webView.width / viewportWidth — exact for any
+     * viewport setup, no density guess. The surface is visible ONLY
+     * while the page says the player is open and fullscreen; otherwise
+     * it is GONE (never a black rectangle over the UI). The last rect is
+     * kept so a rotation can re-apply it once the page re-reports.
+     */
+    private fun onPlayerStageRect(rect: JSONObject) {
+        lastStageRect = rect
+        runOnUiThread {
+            if (!::playerSurface.isInitialized || !::webView.isInitialized) return@runOnUiThread
+            val visible = rect.optBoolean("visible", false)
+            if (!visible) {
+                playerSurface.visibility = View.GONE
+                // The page repaints its own backgrounds; restore the
+                // WebView background so a transparent hole never shows the
+                // window behind the UI.
+                if (::webView.isInitialized) webView.setBackgroundColor(currentBackgroundColor())
+                return@runOnUiThread
+            }
+            // Transparent WebView background while the surface shows, so
+            // the page's transparent stage hole reveals the video below.
+            if (::webView.isInitialized) webView.setBackgroundColor(Color.TRANSPARENT)
+            val vw = rect.optDouble("vw", 0.0)
+            val vh = rect.optDouble("vh", 0.0)
+            if (vw <= 0 || vh <= 0 || webView.width <= 0) return@runOnUiThread
+            val scale = webView.width / vw
+            val x = (rect.optDouble("x", 0.0) * scale).toInt()
+            val y = (rect.optDouble("y", 0.0) * scale).toInt()
+            val w = (rect.optDouble("w", 0.0) * scale).toInt().coerceAtLeast(1)
+            val h = (rect.optDouble("h", 0.0) * scale).toInt().coerceAtLeast(1)
+            val params = playerSurface.layoutParams as FrameLayout.LayoutParams
+            params.width = w
+            params.height = h
+            params.leftMargin = x
+            params.topMargin = y
+            playerSurface.layoutParams = params
+            playerSurface.visibility = View.VISIBLE
         }
     }
 
