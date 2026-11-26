@@ -4,8 +4,16 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.http.SslError
 import android.webkit.*
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayInputStream
 import com.lagradost.api.Log
 import com.lagradost.api.getContext
+import com.lagradost.cloudstream3.USER_AGENT
+import com.lagradost.cloudstream3.USER_AGENT
+import com.lagradost.cloudstream3.USER_AGENT
+import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.debugException
 import com.lagradost.cloudstream3.mvvm.logError
@@ -33,14 +41,17 @@ import okhttp3.Response
  * @param scriptCallback will be called with the result from custom js
  * @param timeout close webview after timeout
  * */
-class WebViewResolver actual constructor(
+class WebViewResolver constructor(
     val interceptUrl: Regex,
-    val additionalUrls: List<Regex>,
-    val userAgent: String?,
-    val useOkhttp: Boolean,
-    val script: String?,
-    val scriptCallback: ((String) -> Unit)?,
-    val timeout: Long
+    // Defaults restored from the dropped common expect file: callers
+    // (WatchSB/Filemoon/Filesim/GenericM3U8/StreamWishExtractor and
+    // intercept()) rely on them.
+    val additionalUrls: List<Regex> = emptyList(),
+    val userAgent: String? = USER_AGENT,
+    val useOkhttp: Boolean = true,
+    val script: String? = null,
+    val scriptCallback: ((String) -> Unit)? = null,
+    val timeout: Long = DEFAULT_TIMEOUT
 ) :
     Interceptor {
 
@@ -73,18 +84,18 @@ class WebViewResolver actual constructor(
 
     suspend fun resolveUsingWebView(
         url: String,
-        referer: String?,
-        method: String,
-        requestCallBack: (Request) -> Boolean,
+        referer: String? = null,
+        method: String = "GET",
+        requestCallBack: (Request) -> Boolean = { false },
     ): Pair<Request?, List<Request>> =
         resolveUsingWebView(url, referer, emptyMap(), method, requestCallBack)
 
     suspend fun resolveUsingWebView(
         url: String,
-        referer: String?,
-        headers: Map<String, String>,
-        method: String,
-        requestCallBack: (Request) -> Boolean,
+        referer: String? = null,
+        headers: Map<String, String> = emptyMap(),
+        method: String = "GET",
+        requestCallBack: (Request) -> Boolean = { false },
     ): Pair<Request?, List<Request>> {
         return try {
             resolveUsingWebView(
@@ -100,7 +111,7 @@ class WebViewResolver actual constructor(
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun resolveUsingWebView(
         request: Request,
-        requestCallBack: (Request) -> Boolean
+        requestCallBack: (Request) -> Boolean = { false }
     ): Pair<Request?, List<Request>> {
         val url = request.url.toString()
         val headers = request.headers
@@ -302,8 +313,8 @@ fun Response.toWebResourceResponse(): WebResourceResponse {
         val found = typeRegex.find(contentTypeValue)
         val contentType = found?.groupValues?.getOrNull(1)?.ifBlank { null } ?: contentTypeValue
         val charset = found?.groupValues?.getOrNull(2)?.ifBlank { null }
-        WebResourceResponse(contentType, charset, this.body.byteStream())
+        WebResourceResponse(contentType, charset, this.body?.byteStream() ?: ByteArrayInputStream(ByteArray(0)))
     } else {
-        WebResourceResponse("application/octet-stream", null, this.body.byteStream())
+        WebResourceResponse("application/octet-stream", null, this.body?.byteStream() ?: ByteArrayInputStream(ByteArray(0)))
     }
 }
