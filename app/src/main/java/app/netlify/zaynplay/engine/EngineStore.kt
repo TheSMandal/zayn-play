@@ -155,7 +155,7 @@ class EngineStore(private val context: Context) {
     }
 
     private fun storedOrDefault(key: String, def: Any?): Any? {
-        val raw: String? = context.getKey(SETTINGS_PREFIX + key, null)
+        val raw: String? = context.getKey<String>(SETTINGS_PREFIX + key, null)
             ?: return def
         return try {
             JSONObject(raw).opt("v")
@@ -209,7 +209,7 @@ class EngineStore(private val context: Context) {
     // ---- provider state (maps keyed "<repoId>|<providerName>") ----
 
     private fun readMap(key: String): JSONObject {
-        val raw: String? = context.getKey(key, null)
+        val raw: String? = context.getKey<String>(key, null)
         return try {
             if (raw.isNullOrBlank()) JSONObject() else JSONObject(raw)
         } catch (e: Exception) {
