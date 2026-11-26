@@ -5,13 +5,11 @@ package com.lagradost.cloudstream3.plugins
  * ExtensionsViewModel.kt:22-42 (the class lived in the UI layer there;
  * RepositoryManager references it, so it now lives next to it).
  */
-import kotlinx.serialization.Serializable
 
 import kotlinx.serialization.Serializable
 
 const val REPOSITORIES_KEY = "REPOSITORIES_KEY"
 
-@Serializable
 @Serializable
 data class RepositoryData(
     val iconUrl: String?,
