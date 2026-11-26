@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -17,6 +18,9 @@ import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 /**
  * Zayn Play — UI-only build (v0.1.0).
@@ -83,6 +87,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // True fullscreen for the player: the page's CSS-only fullscreen
+        // rotates the stage but cannot hide the Android status/nav bars,
+        // so the player calls this from setFS() when it enters/leaves
+        // fullscreen. (Named ZaynAppNative — the page already defines its
+        // own window.ZaynApp object for back navigation.)
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun setFullscreen(on: Boolean) {
+                runOnUiThread { setImmersive(on) }
+            }
+        }, "ZaynAppNative")
+
         // The native splash already showed (?bootsplash=0 skips the
         // in-WebView splash so the user is not shown it twice).
         webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0&form=$form")
@@ -106,6 +122,24 @@ class MainActivity : AppCompatActivity() {
         // Night mode changed (system theme switch): repaint the WebView
         // background; the page itself re-themes live via matchMedia.
         webView.setBackgroundColor(currentBackgroundColor())
+    }
+
+    /**
+     * True immersive fullscreen for the player: hide the status +
+     * navigation bars and go edge-to-edge so the video covers the whole
+     * screen. Restored when leaving the player; the normal UI (status bar,
+     * gesture bar, dock) is untouched outside fullscreen.
+     */
+    private fun setImmersive(on: Boolean) {
+        WindowCompat.setDecorFitsSystemWindows(window, !on)
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        if (on) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     private fun currentBackgroundColor(): Int {
