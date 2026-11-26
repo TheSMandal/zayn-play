@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phase C FileProvider paths (authority app.netlify.zaynplay.provider):
+     the updater APK in cacheDir, downloaded videos in the app's external
+     files dir, subtitle files in cacheDir. -->
+<paths>
+    <cache-path name="cache" path="." />
+    <external-files-path name="external" path="." />
+    <files-path name="files" path="." />
+</paths>
