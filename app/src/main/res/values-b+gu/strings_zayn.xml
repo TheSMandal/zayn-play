@@ -39,4 +39,12 @@
         <item>@string/zayn_stream_timeout_unlimited</item>
     </string-array>
     <string name="website">વેબસાઇટ</string>
+    <!-- Zayn Play: App theme picker (System / Dark / Light) + Settings profile card + provider picker -->
+    <string name="zayn_theme_system">સિસ્ટમ</string>
+    <string name="zayn_theme_dark">ડાર્ક</string>
+    <string name="zayn_theme_light">લાઇટ</string>
+    <string name="zayn_local_account">સ્થાનિક એકાઉન્ટ • સિંક નથી</string>
+    <string name="zayn_local">LOCAL</string>
+    <string name="zayn_select_provider">Select Provider</string>
+    <string name="zayn_picker_hint">પ્રોવાઇડરને પિન/અનપિન કરવા માટે લાંબો સમય દબાવો — પિન કરેલા પ્રોવાઇડર પહેલા રહે છે, બાકીના નામ પ્રમાણે A–Z.</string>
 </resources>
