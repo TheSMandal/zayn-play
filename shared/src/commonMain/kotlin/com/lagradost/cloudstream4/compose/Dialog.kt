@@ -309,7 +309,10 @@ fun <T> SingleSelectionItem(
                 painter = selectedPainter,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onBackground
+                // Zayn Play: the selected option's check renders in the
+                // primary/accent colour (red by default; follows the
+                // Primary color setting, e.g. green when the user picks it).
+                tint = MaterialTheme.colorScheme.primary
             )
             iconProvider?.invoke(key, text)
             Text(
