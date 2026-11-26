@@ -57,9 +57,10 @@
             android:textColor="@color/splash_tag"
             android:textSize="11sp" />
 
-        <!-- Loading dots (preview .splash-dots): 3 red dots, 7dp, 6dp gaps,
-             opacities .45 / .75 / 1 — pulsed by SplashActivity to match the
-             HTML dotpulse (1.05s, ease-in-out, infinite, 0/.16/.32s stagger).
+        <!-- Loading dots (preview .splash-dots): 3 red dots, 9dp, 6dp gaps,
+             opacities .45 / .75 / 1 — pulsed by SplashActivity as a
+             scale + alpha wave (1 -> 1.6, dim floor -> full opacity,
+             1.05s, ease-in-out, infinite, 0/.16/.32s stagger).
              Colour is @color/splash_play so it reads on the pearl light
              background and on the dark background alike. -->
         <LinearLayout
@@ -72,23 +73,23 @@
 
             <View
                 android:id="@+id/splash_dot1"
-                android:layout_width="7dp"
-                android:layout_height="7dp"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
                 android:alpha="0.45"
                 android:background="@drawable/splash_dot" />
 
             <View
                 android:id="@+id/splash_dot2"
-                android:layout_width="7dp"
-                android:layout_height="7dp"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
                 android:layout_marginStart="6dp"
                 android:alpha="0.75"
                 android:background="@drawable/splash_dot" />
 
             <View
                 android:id="@+id/splash_dot3"
-                android:layout_width="7dp"
-                android:layout_height="7dp"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
                 android:layout_marginStart="6dp"
                 android:alpha="1.0"
                 android:background="@drawable/splash_dot" />
