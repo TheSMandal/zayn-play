@@ -216,6 +216,10 @@ class EngineStore(private val context: Context) {
     }
 
     // ---- provider state (maps keyed "<repoId>|<providerName>") ----
+    // (v0.2.1-a) Health probes run in async chunks of 4 and do
+    // read-modify-write on these shared JSON maps; every read+write pair
+    // below runs under one lock so two probes cannot clobber each other.
+    private val mapLock = Any()
 
     private fun readMap(key: String): JSONObject {
         val raw: String? = context.getKey<String>(key, null)
@@ -236,9 +240,11 @@ class EngineStore(private val context: Context) {
         readMap(KEY_PROV_ON).optBoolean(mapKey(repoId, providerName), false)
 
     fun setProviderOn(repoId: String, providerName: String, on: Boolean) {
-        val map = readMap(KEY_PROV_ON)
-        map.put(mapKey(repoId, providerName), on)
-        writeMap(KEY_PROV_ON, map)
+        synchronized(mapLock) {
+            val map = readMap(KEY_PROV_ON)
+            map.put(mapKey(repoId, providerName), on)
+            writeMap(KEY_PROV_ON, map)
+        }
     }
 
     /** Names of all providers currently ON, across all repos. */
@@ -280,9 +286,11 @@ class EngineStore(private val context: Context) {
         readMap(KEY_PROV_AUTO_OFF).optBoolean(mapKey(repoId, providerName), false)
 
     fun setProviderAutoOff(repoId: String, providerName: String, autoOff: Boolean) {
-        val map = readMap(KEY_PROV_AUTO_OFF)
-        map.put(mapKey(repoId, providerName), autoOff)
-        writeMap(KEY_PROV_AUTO_OFF, map)
+        synchronized(mapLock) {
+            val map = readMap(KEY_PROV_AUTO_OFF)
+            map.put(mapKey(repoId, providerName), autoOff)
+            writeMap(KEY_PROV_AUTO_OFF, map)
+        }
     }
 
     /** Last health probe result for a provider ("ok" / "fail"), or null. */
@@ -290,23 +298,27 @@ class EngineStore(private val context: Context) {
         readMap(KEY_PROV_HEALTH).optString(mapKey(repoId, providerName), null)
 
     fun setProviderHealth(repoId: String, providerName: String, health: String) {
-        val map = readMap(KEY_PROV_HEALTH)
-        map.put(mapKey(repoId, providerName), health)
-        writeMap(KEY_PROV_HEALTH, map)
+        synchronized(mapLock) {
+            val map = readMap(KEY_PROV_HEALTH)
+            map.put(mapKey(repoId, providerName), health)
+            writeMap(KEY_PROV_HEALTH, map)
+        }
     }
 
     /** Drop all provider state for one repo (called on repoRemove). */
     fun clearRepoState(repoId: String) {
-        for (key in listOf(KEY_PROV_ON, KEY_PROV_AUTO_OFF, KEY_PROV_HEALTH)) {
-            val map = readMap(key)
-            val keys = map.keys()
-            val doomed = mutableListOf<String>()
-            while (keys.hasNext()) {
-                val k = keys.next()
-                if (k.startsWith("$repoId|")) doomed += k
+        synchronized(mapLock) {
+            for (key in listOf(KEY_PROV_ON, KEY_PROV_AUTO_OFF, KEY_PROV_HEALTH)) {
+                val map = readMap(key)
+                val keys = map.keys()
+                val doomed = mutableListOf<String>()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    if (k.startsWith("$repoId|")) doomed += k
+                }
+                for (k in doomed) map.remove(k)
+                writeMap(key, map)
             }
-            for (k in doomed) map.remove(k)
-            writeMap(key, map)
         }
     }
 
@@ -314,9 +326,9 @@ class EngineStore(private val context: Context) {
     // downloads / accounts / last-link). One DataStore string per map,
     // values are JSON objects keyed by a stable id. ----
 
-    fun readJsonMap(key: String): JSONObject = readMap(key)
+    fun readJsonMap(key: String): JSONObject = synchronized(mapLock) { readMap(key) }
 
-    fun writeJsonMap(key: String, map: JSONObject) = writeMap(key, map)
+    fun writeJsonMap(key: String, map: JSONObject) = synchronized(mapLock) { writeMap(key, map) }
 
     fun mapEntry(key: String, entryId: String): JSONObject? {
         val map = readMap(key)
@@ -324,14 +336,18 @@ class EngineStore(private val context: Context) {
     }
 
     fun putMapEntry(key: String, entryId: String, entry: JSONObject) {
-        val map = readMap(key)
-        map.put(entryId, entry)
-        writeMap(key, map)
+        synchronized(mapLock) {
+            val map = readMap(key)
+            map.put(entryId, entry)
+            writeMap(key, map)
+        }
     }
 
     fun removeMapEntry(key: String, entryId: String) {
-        val map = readMap(key)
-        map.remove(entryId)
-        writeMap(key, map)
+        synchronized(mapLock) {
+            val map = readMap(key)
+            map.remove(entryId)
+            writeMap(key, map)
+        }
     }
 }
