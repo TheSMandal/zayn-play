@@ -13,7 +13,7 @@ import kotlinx.serialization.serializer
 import kotlinx.serialization.serializerOrNull
 import kotlin.reflect.KClass
 
-@OptIn(ExperimentalSerializationApi::class, InternalSerializationApi::class)
+@OptIn(ExperimentalSerializationApi::class, InternalSerializationApi::class, InternalAPI::class)
 object AppUtils {
     /** Any object as a JSON string */
     fun Any.toJson(): String {
