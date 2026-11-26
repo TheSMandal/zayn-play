@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import app.netlify.zaynplay.engine.EngineApp
 import app.netlify.zaynplay.engine.EngineApp.getKey
 import app.netlify.zaynplay.engine.EngineApp.setKey
+import app.netlify.zaynplay.engine.EngineLogger
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.json
@@ -342,36 +343,110 @@ object RepositoryManager {
         }
     }
 
+    /**
+     * (v0.2.2) Typed download result. The old File? contract swallowed
+     * EVERY failure (safeAsync -> null) so a download could fail for any
+     * reason — HTTP error, empty body, hash mismatch, move failure — and
+     * the bridge could only report a generic "network_error". Callers
+     * read [lastDownloadError] (stable code) for the exact reason.
+     * Codes: http_<code> | download_empty | hash_mismatch | download_io.
+     */
+    sealed class PluginDownloadResult {
+        data class Ok(val file: File) : PluginDownloadResult()
+        data class Err(val code: String, val detail: String) : PluginDownloadResult()
+    }
+
+    @Volatile
+    var lastDownloadError: String? = null
+        private set
+
     suspend fun downloadPluginToFile(
         context: Context,
         pluginUrl: String,
         file: File,
         expectedFileHash: String?
-    ): File? {
-        return safeAsync {
-            val parentDir = file.parentFile ?: return@safeAsync null
-            parentDir.mkdirs()
+    ): PluginDownloadResult {
+        // (v0.2.2) No safeAsync wrapper: every failure is returned as a
+        // typed Err with the real cause, never swallowed to null.
+        val parentDir = file.parentFile ?: run {
+            lastDownloadError = "download_io"
+            EngineLogger.log("download", "no parent dir for ${file.name}")
+            return PluginDownloadResult.Err("download_io", "No parent directory")
+        }
+        parentDir.mkdirs()
 
-            // Prevent corrupting the plugin file if the operation fails
-            val tempFile = File.createTempFile(file.name, ".tmp", context.cacheDir)
+        // Prevent corrupting the plugin file if the operation fails
+        val tempFile = try {
+            File.createTempFile(file.name, ".tmp", context.cacheDir)
+        } catch (e: Exception) {
+            lastDownloadError = "download_io"
+            EngineLogger.log("download", "temp file failed for ${file.name}: ${e.message}")
+            return PluginDownloadResult.Err("download_io", "Could not create temp file")
+        }
 
-            val body = app.get(convertRawGitUrl(pluginUrl)).okhttpResponse.body ?: return@safeAsync null
-
-            body.byteStream().use { body ->
-                tempFile.outputStream().use { fileSteam ->
-                    body.copyTo(fileSteam)
+        // (v0.2.2) FORCE_NETWORK: a .cs3 must always come from the
+        // network, never from the OkHttp cache (whose responses are
+        // rewritten to max-stale=68y by CacheInterceptor, so a stale or
+        // poisoned entry would otherwise be served forever).
+        val response = try {
+            app.get(
+                convertRawGitUrl(pluginUrl),
+                cacheControlOverride = okhttp3.CacheControl.FORCE_NETWORK
+            )
+        } catch (e: Exception) {
+            tempFile.delete()
+            lastDownloadError = "download_failed"
+            EngineLogger.log("download", "GET failed ${file.name}: ${e.javaClass.simpleName} ${e.message}")
+            return PluginDownloadResult.Err("download_failed", "Could not reach the server (${e.javaClass.simpleName})")
+        }
+        if (!response.isSuccessful) {
+            tempFile.delete()
+            val code = "http_${response.code}"
+            lastDownloadError = code
+            EngineLogger.log("download", "HTTP ${response.code} for ${file.name} ($pluginUrl)")
+            return PluginDownloadResult.Err(code, "Server returned HTTP ${response.code}")
+        }
+        val body = response.okhttpResponse.body
+        if (body == null) {
+            tempFile.delete()
+            lastDownloadError = "download_empty"
+            EngineLogger.log("download", "empty body for ${file.name}")
+            return PluginDownloadResult.Err("download_empty", "Server returned an empty file")
+        }
+        try {
+            body.byteStream().use { stream ->
+                tempFile.outputStream().use { out ->
+                    stream.copyTo(out)
                 }
             }
+        } catch (e: Exception) {
+            tempFile.delete()
+            lastDownloadError = "download_failed"
+            EngineLogger.log("download", "body read failed ${file.name}: ${e.message}")
+            return PluginDownloadResult.Err("download_failed", "Download interrupted (${e.javaClass.simpleName})")
+        }
+        if (tempFile.length() == 0L) {
+            tempFile.delete()
+            lastDownloadError = "download_empty"
+            EngineLogger.log("download", "0-byte download for ${file.name}")
+            return PluginDownloadResult.Err("download_empty", "Downloaded file is empty")
+        }
 
-            if (expectedFileHash != null) {
-                val downloadHash = sha256(tempFile)
-                if (expectedFileHash != downloadHash) {
-                    tempFile.delete()
-                    throw IllegalStateException("Extension hash mismatch when validating '${file.name}'! Expected: '$expectedFileHash', got: '$downloadHash'.")
-                }
+        if (expectedFileHash != null) {
+            val downloadHash = sha256(tempFile)
+            if (expectedFileHash != downloadHash) {
+                tempFile.delete()
+                lastDownloadError = "hash_mismatch"
+                EngineLogger.log("download", "hash mismatch ${file.name}: expected $expectedFileHash got $downloadHash")
+                return PluginDownloadResult.Err(
+                    "hash_mismatch",
+                    "Downloaded file failed its integrity check"
+                )
             }
+        }
 
-            // We prefer the operation to be atomic
+        // We prefer the operation to be atomic
+        try {
             try {
                 Files.move(
                     tempFile.toPath(),
@@ -386,9 +461,16 @@ object RepositoryManager {
                     StandardCopyOption.REPLACE_EXISTING
                 )
             }
-
-            file
+        } catch (e: Exception) {
+            tempFile.delete()
+            lastDownloadError = "download_io"
+            EngineLogger.log("download", "move failed ${file.name}: ${e.message}")
+            return PluginDownloadResult.Err("download_io", "Could not save the file (${e.javaClass.simpleName})")
         }
+
+        lastDownloadError = null
+        EngineLogger.log("download", "downloaded ${file.name} (${file.length()} B)")
+        return PluginDownloadResult.Ok(file)
     }
 
     fun getRepositories(): Array<RepositoryData> {
