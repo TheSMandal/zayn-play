@@ -21,10 +21,10 @@ package com.lagradost.cloudstream3.utils
 
 import com.lagradost.cloudstream3.base64DecodeArray
 import io.ktor.http.Url
-import kotlinx.io.Buffer
-import kotlinx.io.IOException
-import kotlinx.io.readByteArray
-import kotlin.uuid.Uuid
+import okio.Buffer
+import java.io.IOException
+// kotlin.uuid.Uuid is Kotlin 2.0-only; java.util.UUID is equivalent.
+import java.util.UUID as Uuid
 
 @Suppress("unused")
 object HlsPlaylistParser {
@@ -540,7 +540,7 @@ object HlsPlaylistParser {
          *
          * ClearKey is supported on Android devices running Android 5.0 (API Level 21) and up.
          */
-        val CLEARKEY_UUID = Uuid.fromLongs(-0x1d8e62a7567a4c37L, 0x781AB030AF78D30EL)
+        val CLEARKEY_UUID = Uuid(-0x1d8e62a7567a4c37L, 0x781AB030AF78D30EL)
 
         /**
          * [Uuid] for the Widevine DRM scheme.
@@ -548,7 +548,7 @@ object HlsPlaylistParser {
          *
          * Widevine is supported on Android devices running Android 4.3 (API Level 18) and up.
          */
-        val WIDEVINE_UUID = Uuid.fromLongs(-0x121074568629b532L, -0x5c37d8232ae2de13L)
+        val WIDEVINE_UUID = Uuid(-0x121074568629b532L, -0x5c37d8232ae2de13L)
 
         /**
          * [Uuid] for the PlayReady DRM scheme.
@@ -557,7 +557,7 @@ object HlsPlaylistParser {
          * PlayReady is supported on all AndroidTV devices. Note that most other Android devices do not
          * provide PlayReady support.
          */
-        val PLAYREADY_UUID = Uuid.fromLongs(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
+        val PLAYREADY_UUID = Uuid(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
 
 
         /** "cenc" scheme type name as defined in ISO/IEC 23001-7:2016.  */
