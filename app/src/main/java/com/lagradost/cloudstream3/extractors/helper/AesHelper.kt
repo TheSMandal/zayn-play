@@ -52,7 +52,7 @@ object AesHelper {
     // https://stackoverflow.com/a/41434590/8166854
     // EVP_BytesToKey-style derivation (MD5, 1 iteration default) as in upstream.
     fun generateKeyAndIv(
-password: <redacted>
+        password: ByteArray,
         salt: ByteArray,
         keyLength: Int = 32,
         ivLength: Int,
