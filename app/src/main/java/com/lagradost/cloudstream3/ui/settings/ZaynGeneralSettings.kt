@@ -37,7 +37,6 @@ import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
 import com.fasterxml.jackson.annotation.JsonAlias
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.APIHolder.allProviders
 import com.lagradost.cloudstream3.AllLanguagesName
 import com.lagradost.cloudstream3.CloudStreamApp
@@ -47,7 +46,6 @@ import com.lagradost.cloudstream3.CommonActivity.activity
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
-import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.UnsafeSSL
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.databinding.AddRemoveSitesBinding
@@ -63,7 +61,6 @@ import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.showRequestIg
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showMultiDialog
 import com.lagradost.cloudstream3.utils.SubtitleHelper
-import com.lagradost.cloudstream3.utils.SubtitleHelper.getNameNextToFlagEmoji
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.USER_PROVIDER_API
 import com.lagradost.cloudstream4.AppSettings
@@ -316,55 +313,38 @@ object ZaynGeneralSettings : SearchableSettings {
             )
         }
 
-        val default = AllLanguagesName to stringResource(R.string.all_languages_preference)
-        val languages = providerLanguageTagsInOrder(
-            APIHolder.apis.withLock { APIHolder.apis.map { api -> api.lang }.distinct() }
-        ).filter { it != AllLanguagesName }
-
         return persistentListOf(
-            Preference.PreferenceGroup(title = stringResource(R.string.extension_language), preferenceItems = persistentListOf(
-                Preference.PreferenceItem.ListPreference(
-                    preference = settings.general.locale,
-                    entries = appLanguages.associate { (name, code) -> (code to (name to code).nameNextToFlagEmoji()) },
-                    title = stringResource(R.string.app_language),
-                    icon = painterResource(R.drawable.language_korean_latin_24px),
-                    iconTileColor = Color(0xFF2563EB),
-                    onValueChanged = { value ->
-                        settings.general.locale.set(value)
-                        activity?.recreate()
-                        return@ListPreference false
-                    },
-                    subtitleProvider = { v, e -> e[v] ?: getCurrentLocale(LocalContext.current) }
-                ),
-                Preference.PreferenceItem.MultiSelectListPreference(
-                    title = stringResource(R.string.provider_lang_settings),
-                    icon = painterResource(R.drawable.plugin_lang),
-                    iconTileColor = Color(0xFF2563EB),
-                    entries = mapOf(default) + languages.associateWith { lang ->
-                        (getNameNextToFlagEmoji(
-                            lang
-                        ) ?: lang)
-                    },
-                    preference = settings.provider.extensionLanguages
-                ),
-                Preference.PreferenceItem.MultiSelectListPreference(
-                    title = stringResource(R.string.preferred_media_settings),
-                    icon = painterResource(R.drawable.movie_edit_24px),
-                    iconTileColor = Color(0xFFDB2777),
-                    preference = settings.provider.preferredMedia,
-                    entries = TvType.entries.associate {
-                        it.ordinal.toString() to stringResource(it.toStringRes())
-                    }
-                        // Ok this looks strange af, but we do this to avoid double movie
-                        .toPersistentMap().remove(TvType.AnimeMovie.ordinal.toString()), onValueChanged = { diff ->
-                        if (diff.contains(TvType.Movie.ordinal.toString())) {
-                            settings.provider.preferredMedia.set(diff + TvType.AnimeMovie.ordinal.toString())
-                        } else {
-                            settings.provider.preferredMedia.set(diff - TvType.AnimeMovie.ordinal.toString())
-                        }
-                        return@MultiSelectListPreference false
-                    }),
-            )),
+            // Preview scr-set-general order: App Language (ungrouped, top),
+            // Disclaimer, Benene, Downloads, Bypass, Links. The provider
+            // rows (Extension languages, Preferred media) now live on the
+            // Providers screen.
+            Preference.PreferenceItem.ListPreference(
+                preference = settings.general.locale,
+                entries = appLanguages.associate { (name, code) -> (code to (name to code).nameNextToFlagEmoji()) },
+                title = stringResource(R.string.app_language),
+                icon = painterResource(R.drawable.language_korean_latin_24px),
+                iconTileColor = Color(0xFF2563EB),
+                onValueChanged = { value ->
+                    settings.general.locale.set(value)
+                    activity?.recreate()
+                    return@ListPreference false
+                },
+                subtitleProvider = { v, e -> e[v] ?: getCurrentLocale(LocalContext.current) }
+            ),
+            Preference.PreferenceItem.InfoPreference(title = stringResource(R.string.legal_notice_text)),
+            Preference.PreferenceItem.TextPreference(
+                title = stringResource(R.string.benene),
+                subtitle = if (bananas == 0) {
+                    stringResource(R.string.benene_count_text_none)
+                } else {
+                    stringResource(R.string.benene_count_text, bananas)
+                },
+                onClick = {
+                    settings.general.bananas.set(bananas + 1)
+                },
+                icon = painterResource(R.drawable.benene),
+                iconTileColor = Color(0xFFE1B101),
+            ),
 
             Preference.PreferenceGroup(
                 title = stringResource(R.string.title_downloads),
@@ -473,20 +453,6 @@ object ZaynGeneralSettings : SearchableSettings {
                     ),
                 )
             ),
-            Preference.PreferenceItem.TextPreference(
-                title = stringResource(R.string.benene),
-                subtitle = if (bananas == 0) {
-                    stringResource(R.string.benene_count_text_none)
-                } else {
-                    stringResource(R.string.benene_count_text, bananas)
-                },
-                onClick = {
-                    settings.general.bananas.set(bananas + 1)
-                },
-                icon = painterResource(R.drawable.benene),
-                iconTileColor = Color(0xFFE1B101),
-            ),
-            Preference.PreferenceItem.InfoPreference(title = stringResource(R.string.legal_notice_text)),
         )
     }
 }
