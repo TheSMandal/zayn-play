@@ -486,6 +486,27 @@ val WIDEVINE_DRM_UUID = Uuid(-0x121074568629b532L, -0x5c37d8232ae2de13L)
  */
 val PLAYREADY_DRM_UUID = Uuid(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
 
+suspend fun newExtractorLink(
+    source: String,
+    name: String,
+    url: String,
+    type: ExtractorLinkType? = null,
+    initializer: suspend ExtractorLink.() -> Unit = { }
+): ExtractorLink {
+
+    @Suppress("DEPRECATION_ERROR")
+    val builder =
+        ExtractorLink(
+            source = source,
+            name = name,
+            url = url,
+            type = type ?: INFER_TYPE
+        )
+
+    builder.initializer()
+    return builder
+}
+
 suspend fun newDrmExtractorLink(
     source: String,
     name: String,
