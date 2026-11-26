@@ -34,7 +34,6 @@ import com.lagradost.cloudstream3.ui.settings.SettingsFragmentScreen.launchSafe
 import com.lagradost.cloudstream3.utils.BackupUtils
 import com.lagradost.cloudstream3.utils.BackupUtils.restorePrompt
 import com.lagradost.cloudstream3.utils.InAppUpdater.installPreReleaseIfNeeded
-import com.lagradost.cloudstream3.utils.UIHelper.navigate
 import com.lagradost.cloudstream4.AppSettings
 import com.lagradost.cloudstream4.rememberAppSettings
 import com.lagradost.cloudstream4.viewmodels.GithubAction
@@ -231,14 +230,6 @@ object ZaynUpdatesSettings : SearchableSettings {
                             }
                         }
                     ),*/
-                    Preference.PreferenceItem.TextPreference(
-                        title = stringResource(R.string.test_extensions),
-                        subtitle = stringResource(R.string.test_extensions_summary),
-                        icon = painterResource(R.drawable.baseline_network_ping_24),
-                        iconTileColor = Color(0xFFD97706),
-                        onClick = {
-                            activity?.navigate(R.id.navigation_test_providers)
-                        })
                 )
             ),
             Preference.PreferenceGroup(
