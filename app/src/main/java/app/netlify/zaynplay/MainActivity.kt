@@ -291,6 +291,15 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 EngineLogger.log("engine", "initial plugin load threw ${e.message}")
             }
+            // (v0.2.1-g) APIHolder.initAll() was never called: apply
+            // MainAPI.init() / clone-site overrides to every loaded API.
+            // (loadPlugin also calls it per plugin; this covers the bulk
+            // load path end-to-end.)
+            try {
+                com.lagradost.cloudstream3.APIHolder.initAll()
+            } catch (e: Exception) {
+                EngineLogger.log("engine", "APIHolder.initAll threw ${e.message}")
+            }
             zaynEngine.markReady()
             pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
         }
