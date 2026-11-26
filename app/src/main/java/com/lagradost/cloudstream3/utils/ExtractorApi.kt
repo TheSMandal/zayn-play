@@ -342,9 +342,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.uuid.Uuid
-import kotlin.uuid.toJavaUuid
-import kotlin.uuid.toKotlinUuid
+// kotlin.uuid.Uuid is Kotlin 2.0-only; java.util.UUID is the 1.9.24
+// equivalent (same most/least-significant-bits layout). The alias keeps
+// every other use site untouched.
+import java.util.UUID as Uuid
 
 /**
  * For use in the ConcatenatingMediaSource.
@@ -466,7 +467,7 @@ val INFER_TYPE: ExtractorLinkType? = null
  *
  * ClearKey is supported on Android devices running Android 5.0 (API Level 21) and up.
  */
-val CLEARKEY_DRM_UUID = Uuid.fromLongs(-0x1d8e62a7567a4c37L, 0x781AB030AF78D30EL)
+val CLEARKEY_DRM_UUID = Uuid(-0x1d8e62a7567a4c37L, 0x781AB030AF78D30EL)
 
 /**
  * [Uuid] for the Widevine DRM scheme.
@@ -474,7 +475,7 @@ val CLEARKEY_DRM_UUID = Uuid.fromLongs(-0x1d8e62a7567a4c37L, 0x781AB030AF78D30EL
  *
  * Widevine is supported on Android devices running Android 4.3 (API Level 18) and up.
  */
-val WIDEVINE_DRM_UUID = Uuid.fromLongs(-0x121074568629b532L, -0x5c37d8232ae2de13L)
+val WIDEVINE_DRM_UUID = Uuid(-0x121074568629b532L, -0x5c37d8232ae2de13L)
 
 /**
  * [Uuid] for the PlayReady DRM scheme.
@@ -483,66 +484,7 @@ val WIDEVINE_DRM_UUID = Uuid.fromLongs(-0x121074568629b532L, -0x5c37d8232ae2de13
  * PlayReady is supported on all AndroidTV devices. Note that most other Android devices do not
  * provide PlayReady support.
  */
-val PLAYREADY_DRM_UUID = Uuid.fromLongs(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
-
-// Deprecate after next stable
-
-// @Deprecated("Use CLEARKEY_DRM_UUID", ReplaceWith("CLEARKEY_DRM_UUID"), level = DeprecationLevel.WARNING)
-val CLEARKEY_UUID = CLEARKEY_DRM_UUID.toJavaUuid()
-
-// @Deprecated("Use WIDEVINE_DRM_UUID", ReplaceWith("WIDEVINE_DRM_UUID"), level = DeprecationLevel.WARNING)
-val WIDEVINE_UUID = WIDEVINE_DRM_UUID.toJavaUuid()
-
-// @Deprecated("Use PLAYREADY_DRM_UUID", ReplaceWith("PLAYREADY_DRM_UUID"), level = DeprecationLevel.WARNING)
-val PLAYREADY_UUID = PLAYREADY_DRM_UUID.toJavaUuid()
-
-suspend fun newExtractorLink(
-    source: String,
-    name: String,
-    url: String,
-    type: ExtractorLinkType? = null,
-    initializer: suspend ExtractorLink.() -> Unit = { }
-): ExtractorLink {
-
-    @Suppress("DEPRECATION_ERROR")
-    val builder =
-        ExtractorLink(
-            source = source,
-            name = name,
-            url = url,
-            type = type ?: INFER_TYPE
-        )
-
-    builder.initializer()
-    return builder
-}
-
-// Deprecate after next stable
-/* @Deprecated(
-    message = "Use Kotlin Uuid (kotlin.uuid.Uuid) instead of Java UUID.",
-    level = DeprecationLevel.WARNING,
-) */
-suspend fun newDrmExtractorLink(
-    source: String,
-    name: String,
-    url: String,
-    type: ExtractorLinkType? = null,
-    uuid: java.util.UUID,
-    initializer: suspend DrmExtractorLink.() -> Unit = { }
-): DrmExtractorLink {
-    @Suppress("DEPRECATION_ERROR")
-    val builder =
-        DrmExtractorLink(
-            source = source,
-            name = name,
-            url = url,
-            uuid = uuid.toKotlinUuid(),
-            type = type ?: INFER_TYPE
-        )
-
-    builder.initializer()
-    return builder
-}
+val PLAYREADY_DRM_UUID = Uuid(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
 
 suspend fun newDrmExtractorLink(
     source: String,
@@ -675,11 +617,11 @@ open class DrmExtractorLink private constructor(
 
     @Deprecated(message = "Use Kotlin Uuid", level = DeprecationLevel.HIDDEN)
     fun setUuid(uuid: java.util.UUID) {
-        this.uuid = uuid.toKotlinUuid()
+        this.uuid = uuid
     }
 
     @Deprecated(message = "Use Kotlin Uuid", level = DeprecationLevel.HIDDEN)
-    fun getUuid(): java.util.UUID = this.uuid.toJavaUuid()
+    fun getUuid(): java.util.UUID = this.uuid
 }
 
 /** Class holds extracted media info to be passed to the player.
