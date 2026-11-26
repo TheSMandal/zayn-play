@@ -291,7 +291,11 @@ class GithubViewModel(
         )
 
         // If on stable, only check that the display name matches
-        if (!prerelease && release.displayName == versionName) {
+        // Zayn Play: the release asset is named "ZaynPlay-X.Y.Z.apk", so
+        // displayName is "ZaynPlay-X.Y.Z" while versionName is just "X.Y.Z".
+        // Compare only the X.Y.Z part, otherwise the same version is
+        // offered again on every check.
+        if (!prerelease && Regex("""(\d+)\.(\d+)\.(\d+)""").find(release.displayName)?.value == versionName) {
             updateState {
                 copy(dialog = baseDialog.copy(state = GithubUpdateDialogState.NoUpdateFound))
             }
