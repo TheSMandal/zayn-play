@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
         webView.addJavascriptInterface(object {
             @JavascriptInterface
             fun setFullscreen(on: Boolean) {
-                runOnUiThread { setImmersive(on) }
+                runOnUiThread { setImmersiveMode(on) }
             }
         }, "ZaynAppNative")
 
@@ -130,7 +130,7 @@ class MainActivity : AppCompatActivity() {
      * screen. Restored when leaving the player; the normal UI (status bar,
      * gesture bar, dock) is untouched outside fullscreen.
      */
-    private fun setImmersive(on: Boolean) {
+    private fun setImmersiveMode(on: Boolean) {
         WindowCompat.setDecorFitsSystemWindows(window, !on)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (on) {
