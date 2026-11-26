@@ -26,7 +26,6 @@ import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lagradost.cloudstream3.CommonActivity.activity
-import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.SearchQuality
@@ -129,16 +128,16 @@ object ZaynLayoutSettings : SearchableSettings {
                         icon = painterResource(R.drawable.palette_24px),
                         iconTileColor = Color(0xFF7C3AED),
                         title = stringResource(R.string.app_theme_settings),
-                        entries = stringArrayResource(R.array.themes_names_values).zip(
-                            stringArrayResource(R.array.themes_names)
-                        ).toMap().toPersistentMap().mutate { map ->
-                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) { // remove monet on android 11 and less
-                                map.remove("Monet")
-                            }
-                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) { // Remove system on android 9 and less
-                                map.remove("System")
-                            }
-                        },
+                        // Zayn Play: exactly three options — System / Dark /
+                        // Light (user decision 2026-11-25, preview line ~2658).
+                        // Stored values are the engine's own: "System",
+                        // "Black" (dark), "Light". Deleted themes are
+                        // migrated to System in CommonActivity.loadThemes.
+                        entries = mapOf(
+                            "System" to stringResource(R.string.zayn_theme_system),
+                            "Black" to stringResource(R.string.zayn_theme_dark),
+                            "Light" to stringResource(R.string.zayn_theme_light),
+                        ).toPersistentMap(),
                         iconProvider = { k, _ ->
                             val theme = modeToTheme(perfToMode(k), CloudStreamPrimaryColor.NORMAL)
                             RoundColor(theme.background)
@@ -166,6 +165,15 @@ object ZaynLayoutSettings : SearchableSettings {
                             }
                             return@ListPreference false
                         }),
+                    // Preview Layout > Looks: Poster title location sits
+                    // here, right after App Layout (preview scr-set-ui).
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = settings.ui.bottomTitle,
+                        title = stringResource(R.string.bottom_title_settings),
+                        subtitle = stringResource(R.string.bottom_title_settings_des),
+                        icon = painterResource(R.drawable.title_24px),
+                        iconTileColor = Color(0xFF0891B2),
+                    ),
                 )
             ),
 
@@ -270,23 +278,6 @@ object ZaynLayoutSettings : SearchableSettings {
                         icon = painterResource(R.drawable.filter_alt_24px),
                         iconTileColor = Color(0xFF059669),
                         entries = SearchQuality.entries.associateWith { stringResource(it.toStringRes()) }),
-                    Preference.PreferenceItem.MultiSelectListPreference(
-                        title = stringResource(R.string.display_subbed_dubbed_settings),
-                        icon = painterResource(R.drawable.audio_capture_24px),
-                        iconTileColor = Color(0xFF059669),
-                        preference = settings.provider.displayDubSub,
-                        entries = mapOf(
-                            DubStatus.None.name to stringResource(R.string.none),
-                            DubStatus.Dubbed.name to stringResource(R.string.app_dubbed_text),
-                            DubStatus.Subbed.name to stringResource(R.string.app_subbed_text),
-                        )),
-                    Preference.PreferenceItem.SwitchPreference(
-                        preference = settings.ui.bottomTitle,
-                        title = stringResource(R.string.bottom_title_settings),
-                        subtitle = stringResource(R.string.bottom_title_settings_des),
-                        icon = painterResource(R.drawable.title_24px),
-                        iconTileColor = Color(0xFF0891B2),
-                    ),
                     Preference.PreferenceItem.SliderPreference(
                         preference = settings.ui.posterSize,
                         title = stringResource(R.string.poster_size_settings),
