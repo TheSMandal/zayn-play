@@ -23,35 +23,46 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import app.netlify.zaynplay.engine.EngineApp
 import app.netlify.zaynplay.engine.EngineLogger
 import app.netlify.zaynplay.engine.EngineStore
+import app.netlify.zaynplay.engine.ZaynEngine
+import com.lagradost.api.setContext
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.network.initClient
+import com.lagradost.cloudstream3.plugins.PluginManager
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
-import java.util.concurrent.Future
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
- * Zayn Play — UI-only build (v0.2.0-phaseA).
+ * Zayn Play — UI-only build (v0.2.0-phaseB).
  *
  * The whole app UI is the approved preview (assets/zaynplay-app.html),
- * shown in a single WebView. Phase A of the engine phase adds only the
- * bridge skeleton: a second JavascriptInterface ("ZaynEngineNative") whose
- * dispatcher answers engineStatus / settingsGet / settingsSet and replies
- * engine_not_ready for everything else. No providers, no real player, no
- * downloads yet — the demo video and demo repo state are gone, and the UI
- * fails visibly (toast) whenever it calls an unimplemented engine method.
- * The engine port itself comes in a later phase.
+ * shown in a single WebView. Phase B of the engine phase ports the
+ * CloudStream engine core (vendored, decoupled — see
+ * app/netlify/zaynplay/engine/ZaynEngine.kt): the "ZaynEngineNative"
+ * bridge now implements E1–E11 + E26–E28 (repos, providers, home feed,
+ * search, details, settings, update check). Player / downloads /
+ * accounts / updater are still engine_not_ready (Phase C). No
+ * CloudStream UI anywhere — the page is the approved preview only.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
 
-    // Engine bridge (phase A): the store behind settingsGet/settingsSet,
-    // a small IO pool for bridge work, and the in-flight calls by id.
-    // No new Gradle dependency is used: plain threads, not coroutines.
+    // Engine bridge (phase B): the store behind settingsGet/settingsSet,
+    // the real dispatcher (ZaynEngine), an IO coroutine scope for bridge
+    // work, and the in-flight calls by id.
     private lateinit var engineStore: EngineStore
-    private val engineExecutor = Executors.newCachedThreadPool()
-    private val engineJobs = ConcurrentHashMap<String, Future<*>>()
+    private lateinit var zaynEngine: ZaynEngine
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val engineJobs = ConcurrentHashMap<String, Job>()
 
     // True while the player is fullscreen: the immersive hide must be
     // re-applied after every rotation / focus change / resume, because the
@@ -189,41 +200,53 @@ class MainActivity : AppCompatActivity() {
             }
         }, "ZaynAppNative")
 
-        // Engine bridge skeleton (phase A, engine-design.md §4.2): a second
+        // Engine bridge (phase B, engine-design.md §4.2): a second
         // interface, "ZaynEngineNative", with one async entry point. call()
         // arrives on a WebView thread and returns at once — the work runs on
-        // the IO pool and the reply is posted to the main thread, which is
-        // the only thread allowed to call evaluateJavascript. The existing
-        // "ZaynAppNative" 4 methods above are untouched. Until the engine
-        // port lands, only engineStatus / settingsGet / settingsSet are
-        // implemented; every other method name gets engine_not_ready.
+        // the IO coroutine scope and the reply is posted to the main thread,
+        // which is the only thread allowed to call evaluateJavascript. The
+        // existing "ZaynAppNative" 4 methods above are untouched.
+        // Engine init: the DataStore-backed EngineApp shim, the NiceHttp
+        // client (Conscrypt + 50 MB cache + DNS from settings), the
+        // api-level context for WebViewResolver, then the initial plugin
+        // load (online + local .cs3) — engineReady means that load was
+        // attempted, even if it failed.
         engineStore = EngineStore(this)
+        EngineApp.init(this, engineStore)
+        app.initClient(this)
+        setContext(applicationContext)
+        zaynEngine = ZaynEngine(this, engineStore)
+        engineScope.launch {
+            try {
+                PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllOnlinePlugins(this@MainActivity)
+                PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllLocalPlugins(this@MainActivity, false)
+            } catch (e: Exception) {
+                EngineLogger.log("engine", "initial plugin load threw ${e.message}")
+            }
+            zaynEngine.markReady()
+            pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
+        }
         webView.addJavascriptInterface(object {
             @JavascriptInterface
             fun call(id: String, method: String, json: String) {
-                val task = Runnable {
+                val job = engineScope.launch {
                     val params = try {
                         JSONObject(json)
                     } catch (e: Exception) {
                         engineReply(id, engineError("invalid_input", "Bad request"))
-                        return@Runnable
+                        return@launch
                     }
                     EngineLogger.log("bridge", "$method id=$id")
-                    val response = try {
-                        dispatchEngineCall(method, params)
-                    } catch (e: Exception) {
-                        EngineLogger.log("bridge", "$method id=$id threw ${e.message}")
-                        engineError("unknown", "Engine error")
-                    }
+                    val response = zaynEngine.call(method, params)
                     engineJobs.remove(id)
                     engineReply(id, response)
                 }
-                engineJobs[id] = engineExecutor.submit(task)
+                engineJobs[id] = job
             }
 
             @JavascriptInterface
             fun cancel(id: String) {
-                engineJobs.remove(id)?.cancel(true)
+                engineJobs.remove(id)?.cancel()
             }
         }, "ZaynEngineNative")
 
@@ -284,60 +307,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        // Engine bridge: drop in-flight calls and stop the IO pool.
-        engineJobs.values.forEach { it.cancel(true) }
+        // Engine bridge: drop in-flight calls and stop the IO scope.
+        engineJobs.values.forEach { it.cancel() }
         engineJobs.clear()
-        engineExecutor.shutdownNow()
+        engineScope.cancel()
         super.onDestroy()
     }
 
     /**
-     * Engine bridge dispatcher (phase A). Only three methods are real;
-     * everything else answers engine_not_ready until the engine port lands.
-     * Runs on the IO pool — never on the WebView thread, never on main.
+     * Engine bridge dispatcher (phase B): all methods live in ZaynEngine
+     * (E1–E11 + E26–E28 real; the rest engine_not_ready until Phase C).
+     * Runs on the IO coroutine scope — never on the WebView thread, never
+     * on main.
      */
-    private fun dispatchEngineCall(method: String, params: JSONObject): JSONObject {
-        return when (method) {
-            "engineStatus" -> engineOk(
-                JSONObject()
-                    .put("version", "0.2.0")
-                    .put("engineReady", false)
-                    // Phase A: no plugin system yet, so all counts are 0.
-                    .put("pluginsLoaded", 0)
-                    .put("reposInstalled", 0)
-                    .put("providersOn", 0)
-            )
-            "settingsGet" -> engineOk(
-                JSONObject().put("settings", engineStore.settingsSnapshot())
-            )
-            "settingsSet" -> {
-                val key = params.optString("key", "")
-                if (!params.has("value")) {
-                    return engineError("invalid_input", "Missing value")
-                }
-                val value = params.opt("value")
-                when (val err = engineStore.setSetting(key, value)) {
-                    null -> engineOk(JSONObject().put("key", key).put("value", value))
-                    "unknown_setting" -> engineError("unknown_setting", "Unknown setting: $key")
-                    "invalid_value" -> engineError("invalid_value", "Invalid value for $key")
-                    else -> engineError("unknown", "Could not save $key")
-                }
-            }
-            else -> {
-                EngineLogger.log("bridge", "$method -> engine_not_ready")
-                engineError(
-                    "engine_not_ready",
-                    "Engine not ready yet — this feature comes in the next update"
+    private fun engineError(code: String, message: String): JSONObject =
+        JSONObject().put("ok", false).put("code", code).put("message", message)
+
+    /** Push a one-way engine event into the page (window.__zaynEvent). */
+    private fun pushEngineEvent(name: String, data: JSONObject) {
+        runOnUiThread {
+            if (::webView.isInitialized) {
+                webView.evaluateJavascript(
+                    "window.__zaynEvent && window.__zaynEvent(${JSONObject.quote(name)}, $data)",
+                    null
                 )
             }
         }
     }
-
-    private fun engineOk(data: Any?): JSONObject =
-        JSONObject().put("ok", true).put("data", data ?: JSONObject.NULL)
-
-    private fun engineError(code: String, message: String): JSONObject =
-        JSONObject().put("ok", false).put("code", code).put("message", message)
 
     /** Post a bridge reply to the main thread, then into the page. */
     private fun engineReply(id: String, response: JSONObject) {
