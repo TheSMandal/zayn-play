@@ -6,8 +6,11 @@ import android.os.Bundle
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
@@ -49,6 +53,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -64,9 +70,11 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityOptionsCompat
 import coil3.compose.AsyncImage
 import com.lagradost.cloudstream3.BuildConfig
@@ -123,8 +131,7 @@ object SettingsFragmentScreen : Screen {
             subtitle = persistentListOf(
                 R.string.extension_language,
                 R.string.title_downloads,
-                R.string.pref_category_bypass,
-                R.string.pref_category_links
+                R.string.pref_category_bypass
             )
         ),
         SettingsNavigation(
@@ -134,19 +141,12 @@ object SettingsFragmentScreen : Screen {
             icon = R.drawable.play_arrow_24px,
             tileColor = Color(0xFFE8261C),
             subtitle = persistentListOf(
-                R.string.pref_category_subtitles,
                 R.string.pref_category_player_features,
+                R.string.pref_category_subtitles,
                 R.string.pref_category_gestures,
-                R.string.pref_category_player_layout,
                 R.string.pref_category_cache
             )
         ),
-        /*SettingsNavigation(
-            title = R.string.category_providers,
-            navigation = R.id.action_navigation_global_to_navigation_settings_providers,
-            screen = SettingsProvidersScreen,
-            icon = R.drawable.build_24px,
-        ),*/
         SettingsNavigation(
             title = R.string.category_ui,
             navigation = R.id.action_navigation_global_to_navigation_settings_ui,
@@ -155,33 +155,19 @@ object SettingsFragmentScreen : Screen {
             tileColor = Color(0xFF7C3AED),
             subtitle = persistentListOf(
                 R.string.pref_category_looks,
-                R.string.pref_category_ui_features,
-                R.string.search_poster_img_des,
-                R.string.poster_ui_settings
+                R.string.poster_ui_settings,
+                R.string.pref_category_ui_features
             )
         ),
         SettingsNavigation(
-            title = R.string.category_updates,
-            navigation = R.id.action_navigation_global_to_navigation_settings_updates,
-            screen = ZaynUpdatesSettings,
-            icon = R.drawable.mobile_arrow_down_24px,
-            tileColor = Color(0xFFEA580C),
+            title = R.string.category_providers,
+            navigation = R.id.action_navigation_global_to_navigation_settings_providers,
+            screen = SettingsProvidersScreen,
+            icon = R.drawable.baseline_grid_view_24,
+            tileColor = Color(0xFF059669),
             subtitle = persistentListOf(
-                R.string.pref_category_app_updates,
-                R.string.pref_category_backup,
-                R.string.pref_category_extensions,
-                R.string.pref_category_actions
-            )
-        ),
-        SettingsNavigation(
-            title = R.string.category_account,
-            navigation = R.id.action_navigation_global_to_navigation_settings_account,
-            screen = ZaynAccountSettings,
-            icon = R.drawable.encrypted_24px,
-            tileColor = Color(0xFF0891B2),
-            subtitle = persistentListOf(
-                R.string.pref_category_accounts,
-                R.string.pref_category_security
+                R.string.extension_language,
+                R.string.preferred_media_settings
             )
         ),
         SettingsNavigation(
@@ -189,8 +175,30 @@ object SettingsFragmentScreen : Screen {
             navigation = R.id.action_navigation_global_to_navigation_settings_extensions,
             screen = null,
             icon = R.drawable.extension_24px,
-            tileColor = Color(0xFF059669),
+            tileColor = Color(0xFFD97706),
             subtitle = persistentListOf(R.string.add_repository)
+        ),
+        SettingsNavigation(
+            title = R.string.category_updates,
+            navigation = R.id.action_navigation_global_to_navigation_settings_updates,
+            screen = ZaynUpdatesSettings,
+            icon = R.drawable.mobile_arrow_down_24px,
+            tileColor = Color(0xFF0891B2),
+            subtitle = persistentListOf(
+                R.string.pref_category_app_updates,
+                R.string.pref_category_backup
+            )
+        ),
+        SettingsNavigation(
+            title = R.string.category_account,
+            navigation = R.id.action_navigation_global_to_navigation_settings_account,
+            screen = ZaynAccountSettings,
+            icon = R.drawable.encrypted_24px,
+            tileColor = Color(0xFFDB2777),
+            subtitle = persistentListOf(
+                R.string.pref_category_accounts,
+                R.string.pref_category_security
+            )
         ),
     )
 
@@ -240,9 +248,49 @@ object SettingsFragmentScreen : Screen {
                     DataStoreHelper.getCurrentAccount() ?: default
                 }
 
-                Row(
+                // Zayn Play Settings header (preview scr-settings ~1934-1941):
+                // page title first, then the gradient profile card.
+                Text(
+                    text = stringResource(R.string.title_settings),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(
+                        start = 18.dp, end = 18.dp, top = 14.dp, bottom = 4.dp
+                    ),
+                )
+                // Zayn Play profile (setup Profile step) overrides the
+                // account picture/name; falls back to the account image.
+                val zaynAvatar = ZaynProfile.getAvatar(LocalContext.current)
+                val image = when {
+                    zaynAvatar != null && ZaynProfile.presetDrawableRes(zaynAvatar) != null ->
+                        ZaynProfile.presetDrawableRes(zaynAvatar)
+
+                    zaynAvatar != null && ZaynProfile.isFileAvatar(zaynAvatar) -> zaynAvatar
+                    else -> account.customImage
+                        ?: profileImages.getOrNull(account.defaultImageIndex)
+                        ?: profileImages.first()
+                }
+                val isDarkCard = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .padding(14.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = if (isDarkCard) {
+                                    listOf(Color(0xFF232833), Color(0xFF171A21))
+                                } else {
+                                    listOf(Color(0xFFFFFFFF), Color(0xFFEEF0F4))
+                                },
+                            )
+                        )
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant,
+                            RoundedCornerShape(18.dp),
+                        )
                         .focusOutline()
                         .clickable {
                             activity.navigate(
@@ -250,40 +298,46 @@ object SettingsFragmentScreen : Screen {
                                 Bundle().apply { putBoolean("isFromMainActivity", true) }
                             )
                         }
-                        .padding(
-                            vertical = MaterialTheme.padding.large,
-                            horizontal = MaterialTheme.padding.medium
-                        )
+                        .padding(17.dp),
                 ) {
-                    // Zayn Play profile (setup Profile step) overrides the
-                    // account picture/name; falls back to the account image.
-                    val zaynAvatar = ZaynProfile.getAvatar(LocalContext.current)
-                    val image = when {
-                        zaynAvatar != null && ZaynProfile.presetDrawableRes(zaynAvatar) != null ->
-                            ZaynProfile.presetDrawableRes(zaynAvatar)
-
-                        zaynAvatar != null && ZaynProfile.isFileAvatar(zaynAvatar) -> zaynAvatar
-                        else -> account.customImage
-                            ?: profileImages.getOrNull(account.defaultImageIndex)
-                            ?: profileImages.first()
-                    }
-
-                    AsyncImage(
-                        contentScale = ContentScale.Crop,
-                        model = image,
-                        modifier = Modifier.circleBorder(50.dp),
-                        contentDescription = null,
-                    )
-                    Spacer(modifier = Modifier.width(MaterialTheme.padding.medium))
-                    Column {
-                        Text(
-                            text = ZaynProfile.getName(LocalContext.current) ?: account.name,
-                            style = MaterialTheme.typography.titleLarge,
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(
+                            contentScale = ContentScale.Crop,
+                            model = image,
+                            modifier = Modifier.circleBorder(54.dp),
+                            contentDescription = null,
                         )
-                        Text(
-                            text = stringResource(R.string.title_settings),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = ZaynProfile.getName(LocalContext.current) ?: account.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = stringResource(R.string.zayn_local_account),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // LOCAL pill (preview .free): green tint, bold.
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (isDarkCard) Color(0x243DDC84) else Color(0x210A7A44),
+                                    RoundedCornerShape(99.dp),
+                                )
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.zayn_local),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDarkCard) Color(0xFF3DDC84) else Color(0xFF0A7A44),
+                            )
+                        }
                     }
                 }
 
