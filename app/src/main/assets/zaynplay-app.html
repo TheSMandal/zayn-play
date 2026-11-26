@@ -452,6 +452,14 @@
       /* ---------- player ---------- */
       #scr-player{ background:#000; padding-bottom:0; }
       .stage-video{ position:relative; background:#000; -webkit-tap-highlight-color:transparent; }
+/* Phase C (P0): native video hole — the chrome-less ExoPlayer TextureView sits
+   BELOW the WebView; while a title plays fullscreen the stage, the player
+   screen and the page background go transparent so the video shows through
+   and the poster is hidden. HTML controls stay above the video. */
+.stage-video.native-video{ background:transparent; }
+.stage-video.native-video #stage-img{ visibility:hidden; }
+#scr-player.native-video{ background:transparent; }
+body.native-video{ background:transparent !important; }
       .stage-video img{ width:100%; aspect-ratio:16/9.4; object-fit:cover; display:block; opacity:.92; }
       .stage-video video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
       .stage-video .vshade{ position:absolute; inset:0; background:linear-gradient(180deg, rgba(0,0,0,.36), rgba(0,0,0,0) 30%, rgba(0,0,0,0) 62%, rgba(0,0,0,.46)); }
@@ -513,6 +521,9 @@
         display:flex; gap:12px; align-items:center; margin:0 14px 10px;
         background:var(--app-panel); border:1px solid var(--app-line); border-radius:15px; padding:10px;
       }
+      .dl-item .dl-open, .dl-item .dl-del{ margin-left:6px; padding:4px 10px; border-radius:8px;
+        border:1px solid var(--app-line); background:var(--app-panel); color:var(--app-text);
+        font-size:12px; font-weight:600; }
       .dl-item img{ width:52px; height:74px; border-radius:9px; object-fit:cover; flex:none; }
       .dl-item .dl-t{ font-size:14.5px; font-weight:600; margin:0 0 2px; }
       .dl-item small{ color:var(--app-ink-2); font-size:12px; display:block; }
@@ -2882,6 +2893,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         /* play always opens directly in fullscreen landscape — no separate
            fullscreen tap needed (user rule, 2026-11-25) */
         if (!fsOn) setFS(true);
+        reportStageRect();
       }
 
       var playing = true;
@@ -2905,11 +2917,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           });
         }
       }
-      /* ===== ZaynEngine bridge (engine phase A) — the native side answers
-         engineStatus / settingsGet / settingsSet; every other method replies
-         engine_not_ready until a later phase. All failures toast visibly,
-         never silently. If the native object is absent (desktop preview),
-         calls reject locally with the same visible failure. ===== */
+      /* ===== ZaynEngine bridge (engine phase C) — player, downloads,
+         library, accounts, updater, backup/cache/logcat are real now;
+         engine_not_ready only for deferred items. All failures toast
+         visibly, never silently. If the native object is absent (desktop
+         preview), calls reject locally with the same visible failure. ===== */
       var resumeSeek = -1; /* Resume: seconds to seek to on this play, -1 = play from start */
       var curRate = 1; /* current playback rate (Speed menu); hold-to-2x restores it */
       var engineMuted = false; /* mute state tracked here now the <video> element is gone */
@@ -2927,7 +2939,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               window.ZaynEngineNative.call(id, method, JSON.stringify(params || {}));
             }catch(e){
               clearTimeout(self._pending[id].timer); delete self._pending[id];
-              reject({ ok: false, code: 'engine_not_ready', message: 'Engine not ready yet — playback comes in the next update' });
+              reject({ ok: false, code: 'engine_not_ready', message: 'Engine not ready — try again' });
             }
           });
         },
@@ -2938,15 +2950,120 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         clearTimeout(p.timer); delete window.ZaynEngine._pending[id];
         if (res && res.ok) p.resolve(res.data); else p.reject(res || { ok: false, code: 'unknown', message: 'Engine error' });
       };
-      window.__zaynEvent = function(name, data){ if (name === 'pluginsChanged'){ rebuildCatalog(); } /* player/download events land in a later phase. */ };
+      window.__zaynEvent = function(name, data){ onEngineEvent(name, data || {}); };
+      /* Phase C: engine push events — player state, downloads, health,
+         updates, auth. The native side pushes them via
+         MainActivity.pushEngineEvent. */
+      function onEngineEvent(name, data){
+        try{
+          if (name === 'pluginsChanged'){ rebuildCatalog(); return; }
+          if (name === 'playerState'){ onEnginePlayerState(data); return; }
+          if (name === 'playerError'){ onEnginePlayerError(data); return; }
+          if (name === 'playerEnded'){ onEnginePlayerEnded(data); return; }
+          if (name === 'downloadProgress' || name === 'downloadDone' || name === 'downloadFailed'){ onEngineDownload(name, data); return; }
+          if (name === 'providerAutoOff'){
+            toast((data && data.name ? data.name : 'প্রোভাইডার') + ' কাজ করছে না — নিজে থেকে বন্ধ হয়েছে');
+            rebuildCatalog(); return;
+          }
+          if (name === 'updateAvailable'){ toast('নতুন আপডেট এসেছে — v' + (data && data.version ? data.version : '')); return; }
+          if (name === 'authRedirect'){
+            if (data && data.provider) engineCall('accountLoginComplete', { provider: data.provider, redirectUrl: data.redirectUrl || '' }).catch(function(e){ toast(engineErrText(e)); });
+            return;
+          }
+        }catch(e){}
+      }
+      function onEnginePlayerState(s){
+        if (!s) return;
+        if (typeof s.durSec === 'number' && s.durSec > 0) TOTAL = s.durSec;
+        if (typeof s.posSec === 'number') cur = s.posSec;
+        if (typeof renderTime === 'function') renderTime();
+        var playingNow = !!s.playing;
+        if (playingNow !== playing) setPlaying(playingNow);
+        if (!s.buffering && playingNow) hideBuffer();
+        if (playingNow && s.posSec > 0){
+          var now = Date.now();
+          if (!onEnginePlayerState._last || now - onEnginePlayerState._last > 5000){
+            onEnginePlayerState._last = now;
+            saveProgress(curTitle, s.posSec, s.durSec || 0);
+          }
+        }
+      }
+      function onEnginePlayerError(e){
+        hideBuffer();
+        setPlaying(false);
+        toast((e && e.message) ? e.message : 'প্লেব্যাক সমস্যা হয়েছে — আবার চেষ্টা করুন');
+      }
+      function onEnginePlayerEnded(){
+        hideBuffer();
+        setPlaying(false);
+        clearProgress(curTitle);
+        cur = TOTAL; renderTime();
+        if (typeof buildCW === 'function') buildCW();
+        var libId = (typeof LIB_IDS !== 'undefined') ? LIB_IDS[curTitle] : null;
+        if (libId) engineCall('librarySet', { id: libId, status: 'completed' }).catch(function(){});
+        /* Up-Next / autoplay: the 600ms ticker picks it up from cur >= TOTAL */
+      }
+      function onEngineDownload(name, d){
+        if (!d || !d.id) return;
+        var row = document.querySelector('[data-dlk="' + d.id + '"]');
+        if (row){
+          var bar = row.querySelector('.dl-bar i'), st = row.querySelector('.dl-state');
+          if (name === 'downloadProgress'){
+            if (bar) bar.style.width = Math.round(d.pct || 0) + '%';
+            if (st) st.textContent = 'Downloading… ' + Math.round(d.pct || 0) + '%';
+          } else if (name === 'downloadDone'){
+            if (bar) bar.style.width = '100%';
+            if (st) st.textContent = 'Downloaded';
+            toast('Download complete');
+          } else if (name === 'downloadFailed'){
+            if (st) st.textContent = 'Failed — ' + (d.error || 'try again');
+            toast('Download failed');
+          }
+        }
+        if (name === 'downloadDone' || name === 'downloadFailed') buildDownloads();
+      }
       function engineErrText(e){
         if (e && e.message) return e.message;
         if (e && e.code) return 'Engine error: ' + e.code;
-        return 'Engine not ready yet — playback comes in the next update';
+        return 'Engine not ready — try again';
       }
       function engineCall(method, params, timeoutMs){
         try{ return window.ZaynEngine.call(method, params, timeoutMs); }
-        catch(e){ return Promise.reject({ ok: false, code: 'engine_not_ready', message: 'Engine not ready yet — playback comes in the next update' }); }
+        catch(e){ return Promise.reject({ ok: false, code: 'engine_not_ready', message: 'Engine not ready — try again' }); }
+      }
+      function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+      /* Phase C (§8): engine settings are the source of truth — the UI's
+         defaults() are only the fallback. Every settings change persists via
+         settingsSet; boot overlays settingsGet onto every instance. */
+      function enginePersistSetting(k, v){
+        try { engineCall('settingsSet', { key: k, value: v }).catch(function(){}); } catch (e) {}
+      }
+      function syncPBFromSettings(set){
+        try{
+          if (typeof PB === 'undefined') return;
+          if (set.player) PB.player = set.player;
+          if (set.mode) PB.mode = set.mode;
+          if (set.res) PB.res = set.res;
+          if (set.engine) PB.engine = set.engine;
+          if (set.extApp) PB.extApp = set.extApp;
+          if (set.timeout) PB.timeout = set.timeout;
+          if (typeof set.reuse === 'boolean') PB.reuse = set.reuse;
+          if (set.reuseDur) PB.reuseDur = set.reuseDur;
+          if (set.audio1){ var c1 = null; (typeof AUDIO_LANGS !== 'undefined' ? AUDIO_LANGS : []).forEach(function(a){ if (a.nat === set.audio1) c1 = a.c; }); if (c1) PB.audio1 = c1; }
+          if (set.audio2){ if (set.audio2 === 'none') PB.audio2 = 'none'; else { var c2 = null; (typeof AUDIO_LANGS !== 'undefined' ? AUDIO_LANGS : []).forEach(function(a){ if (a.nat === set.audio2) c2 = a.c; }); if (c2) PB.audio2 = c2; } }
+          if (typeof syncPBUI === 'function') syncPBUI();
+        }catch(e){}
+      }
+      function applyEngineSettings(set){
+        try{
+          var _insts = (typeof window !== 'undefined' && window.__v31Instances) || [];
+          _insts.forEach(function(inst){
+            Object.keys(set || {}).forEach(function(k){ if (k in inst.set) inst.set[k] = set[k]; });
+          });
+          /* render() lives inside the v31 IIFE — re-render through its hook. */
+          if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
+          syncPBFromSettings(set);
+        }catch(e){}
       }
 
       /* Phase B: bridge data helpers — the catalogue, home feed, search and
@@ -2993,27 +3110,27 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (r.autoOff) ST.autoOff[key] = true; else delete ST.autoOff[key];
         });
       }
-      /* Player helpers: each failure toasts visibly (the native side answers
-         engine_not_ready until the player lands in a later phase). */
-      function playerSetRate(rate){ return engineCall('playerSetRate', { rate: rate }).catch(function(e){ toast(engineErrText(e)); }); }
-      function playerSeek(sec){ return engineCall('playerSeek', { seconds: Math.round(sec) }).catch(function(e){ toast(engineErrText(e)); }); }
-      function playerSetVolume(v){ return engineCall('playerSetVolume', { volume: v }).catch(function(e){ toast(engineErrText(e)); }); }
-      function playerSetMuted(m){ return engineCall('playerSetMuted', { muted: !!m }).catch(function(e){ toast(engineErrText(e)); }); }
+      /* Phase C: player helpers go through playerControl (E14) — the old
+         playerSetRate / playerSeek / playerSetVolume / playerSetMuted methods
+         never existed on the native side. Each failure toasts visibly. */
+      function playerSetRate(rate){ curRate = rate; return engineCall('playerControl', { action: 'rate', value: rate }).catch(function(e){ toast(engineErrText(e)); }); }
+      function playerSeek(sec){ return engineCall('playerControl', { action: 'seek', value: sec }).catch(function(e){ toast(engineErrText(e)); }); }
+      function playerSetVolume(v){ return engineCall('playerControl', { action: 'volume', value: v }).catch(function(e){ toast(engineErrText(e)); }); }
+      function playerSetMuted(m){ engineMuted = !!m; return engineCall('playerControl', { action: 'mute', value: !!m ? 1 : 0 }).catch(function(e){ toast(engineErrText(e)); }); }
       /* Resume: per-title watch position, persisted so a part-watched video
          offers Resume (from the exact stopped second) instead of Play. */
-      var PROG_KEY = 'zayn-progress';
+      /* Phase C: progress lives in the native engine (DataStore) — PROGRESS
+         is only the in-memory read cache; boot syncs it from progressAll. */
       var PROGRESS = {};
-      try{ PROGRESS = JSON.parse(localStorage.getItem(PROG_KEY) || '{}') || {}; }catch(e){ PROGRESS = {}; }
       var lastProgSave = 0;
       function saveProgress(title, pos, dur){
         if (!title) return;
-        try{
-          if (pos > 10 && (!isFinite(dur) || dur <= 0 || pos < dur - 30)) PROGRESS[title] = { t: Math.round(pos), d: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 };
-          else delete PROGRESS[title];
-          localStorage.setItem(PROG_KEY, JSON.stringify(PROGRESS));
-        }catch(e){}
+        var keep = pos > 10 && (!isFinite(dur) || dur <= 0 || pos < dur - 30);
+        if (keep) PROGRESS[title] = { t: Math.round(pos), d: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 };
+        else delete PROGRESS[title];
+        engineCall('progressSet', { title: title, posSec: keep ? Math.round(pos) : 0, durSec: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 }).catch(function(){});
       }
-      function clearProgress(title){ if (!title) return; delete PROGRESS[title]; try{ localStorage.setItem(PROG_KEY, JSON.stringify(PROGRESS)); }catch(e){} }
+      function clearProgress(title){ if (!title) return; delete PROGRESS[title]; engineCall('progressSet', { title: title, posSec: 0, durSec: 0 }).catch(function(){}); }
       function resumePos(title){
         var p = PROGRESS[title]; if (!p) return 0;
         if (p.t <= 10) return 0;
@@ -3176,20 +3293,26 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 
       /* library grid + status filter */
       var libGrid = document.getElementById('lib-grid');
-      function buildLibrary(){
+      var LIB_IDS = {}; /* title -> native bookmark id (for librarySet) */
+      async function buildLibrary(){
         libGrid.innerHTML = '';
-        var STS = ['watching','plantowatch','completed','onhold','dropped'];
-        LIBRARY = {};
-        Object.keys(TITLES).forEach(function(k){
-          var t = TITLES[k];
-          var st = STS[hashStr(k) % 5]; LIBRARY[k] = st;
+        LIBRARY = {}; LIB_IDS = {};
+        var items = [];
+        try { var d = await engineCall('library', {}); items = (d && d.items) || []; } catch (e) { items = []; }
+        items.forEach(function(it){
+          var key = 'lib-' + it.id;
+          LIBRARY[key] = it.status; LIB_IDS[it.title] = it.id;
+          if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: it.url || '' };
           var b = document.createElement('button'); b.className = 'card';
-          b.setAttribute('data-open', k); b.setAttribute('data-status', st);
-          b.innerHTML = '<img class="poster" loading="lazy" decoding="async" src="' + t.poster + '" alt="' + t.title + ' poster" /><p>' + t.title + '</p><small>' + t.star + '</small>';
+          b.setAttribute('data-open', key); b.setAttribute('data-status', it.status);
+          b.innerHTML = '<img class="poster" loading="lazy" decoding="async" src="' + (it.poster || '') + '" alt="' + it.title + ' poster" /><p>' + it.title + '</p><small>' + (it.progressSec > 0 ? Math.round(it.progressSec / 60) + 'm watched' : '') + '</small>';
           libGrid.appendChild(b);
         });
+        filterLibrary(libFilter);
       }
+      var libFilter = 'all';
       function filterLibrary(status){
+        libFilter = status || 'all';
         var visible = 0;
         var cards = libGrid.querySelectorAll('.card');
         for (var i=0;i<cards.length;i++){
@@ -3360,8 +3483,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var pbo = e.target.closest('[data-pb]');
         if (pbo){
           var pk = pbo.getAttribute('data-pb');
-          PB[pk] = pbo.getAttribute('data-v');
+          var pv = pbo.getAttribute('data-v');
+          if (pk === 'engine' && pv === 'libmpv'){ PB.engine = 'exoplayer'; syncPBUI(); toast('libmpv এই ভার্সনে নেই — ExoPlayer দিয়ে চলবে'); return; }
+          PB[pk] = pv;
           syncPBUI();
+          enginePersistSetting(pk, pv);
           toast(pbToastFor(pk));
           return;
         }
@@ -3374,7 +3500,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var osr = e.target.closest('[data-open-servers]');
         if (osr){ openSrvSheet(); return; }
         var exp = e.target.closest('[data-ext-play]');
-        if (exp){ toast(PB.extApp + ' দিয়ে খুলছে — আসল অ্যাপে ভিডিওটা ' + PB.extApp + '-এ চলবে'); return; }
+        if (exp){
+          var tt2 = titleByName(curTitle) || TITLES[keyByTitle(curTitle)];
+          engineCall('externalPlay', playParamsFor(curTitle, tt2), 60000).then(function(d){
+            if (d && d.launched) toast(PB.extApp + ' দিয়ে খুলছে');
+          }).catch(function(e){ toast(engineErrText(e)); });
+          return;
+        }
         
         var act = e.target.closest('[data-act]');
         if (act){
@@ -3390,6 +3522,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           sw2.setAttribute('aria-checked', on ? 'false' : 'true');
           if (sw2.hasAttribute('data-pb-switch')){
             PB.reuse = !on;
+            enginePersistSetting('reuse', PB.reuse);
             toast('Reuse last link ' + (!on ? 'চালু — একই ভিডিও আবার খুললে সাথে সাথে প্লে হবে' : 'বন্ধ করা হয়েছে'));
             return;
           }
@@ -3491,8 +3624,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var b = e.target.closest('[data-set="quality"]'); if (!b) return;
         PB.res = b.getAttribute('data-val');
         syncPBUI();
-        if (!curServers.length) curServers = genServers(curTitle || document.getElementById('p-title').textContent || 'video');
-        playFromServer(pickServerIdx(curServers, PB));
+        enginePersistSetting('res', PB.res);
+        /* re-play through the engine so the new resolution is ranked first */
+        playFromServer(-1);
       });
 
       /* splash — logo #1 (Crimson Play): shows when the app opens, tap to skip, replayable */
@@ -3802,6 +3936,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       briRange.addEventListener('input', function(){
         document.getElementById('bri-val').textContent = briRange.value;
         document.getElementById('stage-img').style.filter = 'brightness(' + (briRange.value / 100) + ')';
+        try { if (window.ZaynAppNative && window.ZaynAppNative.setWindowBrightness) window.ZaynAppNative.setWindowBrightness(briRange.value / 100); } catch (e) {}
       });
 
       /* swipe gestures — LEFT half: brightness, RIGHT half: volume (glass pill shows the live value) */
@@ -3871,6 +4006,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             briRange.value = nb;
             document.getElementById('bri-val').textContent = nb;
             document.getElementById('stage-img').style.filter = 'brightness(' + (nb / 100) + ')';
+            try { if (window.ZaynAppNative && window.ZaynAppNative.setWindowBrightness) window.ZaynAppNative.setWindowBrightness(nb / 100); } catch (e) {}
             showGPill('left', 'bri', nb);
           } else {
             var nv = Math.max(0, Math.min(100, gState.vol + delta));
@@ -3975,7 +4111,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         stageEl.classList.remove('locked');
         if (typeof lockBtn !== 'undefined' && lockBtn) lockBtn.innerHTML = LOCK_OPEN;
         stageEl.classList.remove('controls-hidden');
-        if (!pipActive) setPlaying(false);
+        /* Phase C: actually pause the native player on exit (the old code only
+           moved the icon) and restore the system brightness. */
+        if (!pipActive) setPlaying(false, true);
+        try { if (window.ZaynAppNative && window.ZaynAppNative.setWindowBrightness) window.ZaynAppNative.setWindowBrightness(-1); } catch (e) {}
+        reportStageRect();
       }
       /* stage size in fullscreen: real landscape now (the native bridge
          rotates the activity — the stage itself does NOT rotate), so the
@@ -4008,10 +4148,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           stageEl.style.left = '0'; stageEl.style.top = '0';
           stageEl.style.transform = '';
           sizeFSStage();
-          requestAnimationFrame(function(){ if (fsOn) sizeFSStage(); });
+          reportStageRect();
+          requestAnimationFrame(function(){ if (fsOn){ sizeFSStage(); reportStageRect(); } });
           /* the rotation re-lays the window and can drop the immersive
              hide: re-hide the bars once the rotation has settled */
-          setTimeout(function(){ if (fsOn){ setNativeFS(true); sizeFSStage(); } }, 350);
+          setTimeout(function(){ if (fsOn){ setNativeFS(true); sizeFSStage(); reportStageRect(); } }, 350);
           toast('Fullscreen — ল্যান্ডস্কেপ');
         } else {
           stageEl.classList.remove('fs');
@@ -4021,9 +4162,34 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           stageEl.style.left = ''; stageEl.style.top = ''; stageEl.style.transform = '';
           try { if (window.ZaynAppNative && window.ZaynAppNative.setOrientationLandscape) window.ZaynAppNative.setOrientationLandscape(false); } catch (e) {}
           setNativeFS(false);
+          reportStageRect();
         }
       }
-      window.addEventListener('resize', function(){ if (fsOn){ sizeFSStage(); setNativeFS(true); /* rotation can drop the immersive hide — re-hide while fullscreen */ } });
+      window.addEventListener('resize', function(){ if (fsOn){ sizeFSStage(); setNativeFS(true); reportStageRect(); /* rotation can drop the immersive hide — re-hide while fullscreen */ } });
+      /* Phase C (P0): report the player stage rect to the native ExoPlayer
+         TextureView — it sits BELOW the WebView and is positioned/sized from
+         these CSS pixels (the native side scales by webView.width / vw).
+         Visible ONLY while the player screen is open and fullscreen; the
+         native side re-asks via __zaynReportStage on rotation. */
+      function reportStageRect(){
+        try{
+          var stg = stageEl;
+          var scr = document.getElementById('scr-player');
+          var curScrEl = document.querySelector('#phone .screen.on');
+          var visible = !!(stg && curScrEl && curScrEl.id === 'scr-player' && fsOn);
+          if (stg) stg.classList.toggle('native-video', visible);
+          if (scr) scr.classList.toggle('native-video', visible);
+          document.body.classList.toggle('native-video', visible);
+          var r = stg ? stg.getBoundingClientRect() : null;
+          engineCall('playerStage', {
+            x: r ? r.left : 0, y: r ? r.top : 0,
+            w: r ? r.width : 0, h: r ? r.height : 0,
+            visible: visible,
+            vw: window.innerWidth || 0, vh: window.innerHeight || 0
+          }).catch(function(){});
+        }catch(e){}
+      }
+      window.__zaynReportStage = reportStageRect;
       var stageBack = stageEl.querySelector('[data-go]');
       if (stageBack) stageBack.addEventListener('click', function(){ exitPlayerCleanup(); });
 
@@ -4059,29 +4225,33 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                  engine:'exoplayer', extApp:'VLC', timeout:'10s', reuse:true, reuseDur:'24h' };
       var SRV_NAMES = ['VidCloud','StreamWish','FileMoon','Voe','DoodStream','MixDrop','StreamTape','VidHide','UpCloud','MegaPlay','FastServe','TurboVid'];
       var SRV_AUDS = ['en','hi','bn','en','hi','ta','te','bn','ml','en'];
-      function genServers(title){
-        var h = hashStr(title || 'video'), out = [];
-        var quals = ['4K','2K','1080p','720p','480p','360p'];
-        var base = { '4K':6000, '2K':2800, '1080p':1500, '720p':820, '480p':410, '360p':210 };
-        for (var i=0;i<5;i++){
-          var q = quals[(h + i*3) % 6];
-          out.push({
-            name: SRV_NAMES[(h + i*5) % SRV_NAMES.length],
-            quality: q,
-            audio: SRV_AUDS[(h + i*3) % SRV_AUDS.length],
-            size: Math.round(base[q] * (0.85 + (hashStr(title + 'sz' + i) % 40) / 100)),
-            speed: 5 + (hashStr(title + 'sp' + i) % 34),
-            ping: 18 + (hashStr(title + 'pg' + i) % 150)
-          });
-        }
-        return out;
+      /* Phase C: servers come from the engine (links E12) — the old fake
+         generator is gone. BRIDGE_SERVERS holds the last fetched list in the
+         same shape the sheet renders (speed is null: never invented). */
+      var BRIDGE_SERVERS = [];
+      function bridgeLinkToServer(l){
+        return {
+          name: l.source || 'Unknown', quality: l.qualityLabel || '', audio: l.audio || null,
+          size: (typeof l.sizeMB === 'number') ? l.sizeMB : null,
+          speed: null, ping: (typeof l.ttfbMs === 'number') ? l.ttfbMs : null,
+          _linkIndex: (typeof l.index === 'number') ? l.index : -1
+        };
+      }
+      function genServers(title){ return BRIDGE_SERVERS; }
+      /* Phase C: bridge params for a title — the engine resolves the link from
+         data (details dataUrl) or loads the URL itself. */
+      function playParamsFor(title, tt, extra){
+        var p = { title: title, providerName: (tt && tt.prov) || '', url: (tt && tt.url) || '', type: (tt && tt.type) || 'movie', poster: (tt && tt.poster) || '' };
+        if (tt && tt.data) p.data = tt.data;
+        if (extra) for (var k in extra) p[k] = extra[k];
+        return p;
       }
       /* Smart-Streams ranking: preferred resolution first, then 1st audio, then 2nd audio, then raw speed */
       function srvScore(s, pb){
-        var sc = s.speed;
+        var sc = (typeof s.speed === 'number') ? s.speed : 0;
         if (pb.res !== 'Auto' && s.quality === pb.res) sc += 100;
-        if (s.audio === pb.audio1) sc += 40;
-        else if (pb.audio2 !== 'none' && s.audio === pb.audio2) sc += 20;
+        if (s.audio && s.audio === pb.audio1) sc += 40;
+        else if (pb.audio2 !== 'none' && s.audio && s.audio === pb.audio2) sc += 20;
         return sc;
       }
       function pickServerIdx(servers, pb){
@@ -4090,8 +4260,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return best;
       }
       function fastestIdx(servers){
-        var best = 0;
-        servers.forEach(function(s, i){ if (s.speed > servers[best].speed) best = i; });
+        var best = -1; /* -1 = no speed measured anywhere; no fake "Fastest" badge */
+        servers.forEach(function(s, i){ if (typeof s.speed === 'number' && (best < 0 || s.speed > servers[best].speed)) best = i; });
         return best;
       }
       var curTitle = '', curBaseSub = '', curServers = [], curServerIdx = -1, lastLinks = {}, bufTimer = null;
@@ -4163,58 +4333,77 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (i === pick) badges += '<span class="srv-badge pick">★ Auto pick</span>';
           if (i === fast) badges += '<span class="srv-badge fast">⚡ Fastest</span>';
           if (i === curServerIdx) badges += '<span class="srv-badge play">▶ Playing</span>';
-          return '<button class="srv-row' + (i === curServerIdx ? ' on' : '') + '" data-srv="' + i + '"><span class="srv-main"><b>' + s.name + '</b><small>' + s.quality + ' • ' + langOf(s.audio).n + ' audio • ' + s.size + ' MB • ' + s.ping + ' ms</small></span>' + badges + '<span class="srv-badge">' + s.speed + ' Mbps</span></button>';
+          return '<button class="srv-row' + (i === curServerIdx ? ' on' : '') + '" data-srv="' + i + '"><span class="srv-main"><b>' + s.name + '</b><small>' + s.quality + ' • ' + (s.audio ? langOf(s.audio).n + ' audio' : 'audio —') + ' • ' + (s.size ? Math.round(s.size) + ' MB' : '—') + (s.ping ? ' • ' + s.ping + ' ms' : '') + '</small></span>' + badges + '<span class="srv-badge">' + (s.speed ? s.speed + ' Mbps' : '—') + '</span></button>';
         }).join('');
       }
-      function openSrvSheet(){
-        if (!curServers.length) curServers = genServers(curTitle || document.getElementById('p-title').textContent || 'video');
+      async function openSrvSheet(){
         closeMenus(); sheetEl.classList.remove('open');
+        if (!curServers.length){
+          try {
+            var d = await engineCall('links', playParamsFor(curTitle, titleByName(curTitle)), 60000);
+            BRIDGE_SERVERS = ((d && d.links) || []).map(bridgeLinkToServer);
+            curServers = BRIDGE_SERVERS;
+          } catch (e) { toast(engineErrText(e)); return; }
+        }
         renderSrvSheet();
         document.getElementById('srv-sheet').classList.add('open');
       }
+      /* Phase C: the buffer overlay is display-only — the native player hides
+         it itself when the first playerState(playing) event arrives. No fake
+         timers, no invented speeds. */
       function showBuffer(s, instant){
         var ov = document.getElementById('buf-overlay');
         var pctEl = document.getElementById('buf-pct'), arc = document.getElementById('buf-arc');
-        document.getElementById('buf-server').textContent = s.name + ' • ' + s.quality + ' • ' + langOf(s.audio).n + ' audio';
+        document.getElementById('buf-server').textContent = s.name + ' • ' + s.quality + ' • ' + (s.audio ? langOf(s.audio).n + ' audio' : 'audio —');
         document.getElementById('buf-speed').textContent = instant
           ? '⚡ Reused last link — instant start'
-          : '⚡ Fast engine (' + (PB.engine === 'exoplayer' ? 'ExoPlayer' : 'libmpv') + ') • ' + s.speed + ' Mbps';
-        /* Engine phase A: playback goes through the ZaynEngine bridge. The
-           native side answers engine_not_ready until the player lands in a
-           later phase — that failure toasts visibly, never silently. */
+          : '⚡ Fast engine (ExoPlayer)' + (s.ping ? ' • ' + s.ping + ' ms' : '');
         ov.classList.add('show');
         if (pctEl) pctEl.textContent = '…';
         if (arc) arc.style.strokeDashoffset = '33';
         setPlaying(false);
-        var _startAt = (typeof resumeSeek === 'number' && resumeSeek >= 0) ? resumeSeek : 0;
+      }
+      function hideBuffer(){ var ov = document.getElementById('buf-overlay'); if (ov) ov.classList.remove('show'); }
+      function showBufferForLink(link, reused){
+        if (!link){ hideBuffer(); return; }
+        showBuffer({ name: link.source, quality: link.qualityLabel || '', audio: link.audio || null, ping: (typeof link.ttfbMs === 'number') ? link.ttfbMs : null }, !!reused);
+      }
+      /* Phase C: play goes through the engine (E13). idx >= 0 plays the picked
+         bridge link; idx -1 lets the engine rank (Smart-Streams) itself. */
+      async function playFromServer(idx){
+        var t = titleByName(curTitle) || TITLES[keyByTitle(curTitle)];
+        var params = playParamsFor(curTitle, t);
+        if (idx >= 0){
+          var s = curServers[idx]; if (!s) return;
+          curServerIdx = idx;
+          params.linkIndex = (typeof s._linkIndex === 'number' && s._linkIndex >= 0) ? s._linkIndex : idx;
+        } else curServerIdx = -1;
+        var rp = (typeof resumeSeek === 'number' && resumeSeek >= 0) ? resumeSeek : resumePos(curTitle);
         resumeSeek = -1;
-        engineCall('playerControl', { action: 'resume', startAtSec: _startAt }).then(function(){
-          ov.classList.remove('show');
-          setPlaying(true);
-          toast('▶ ' + curTitle + ' — ' + s.name + ' • ' + s.quality + ' • ' + langOf(s.audio).n + ' audio');
-        }).catch(function(e){
-          ov.classList.remove('show');
-          toast(engineErrText(e));
-        });
+        if (rp > 0) params.startAtSec = rp;
+        try {
+          var d = await engineCall('play', params, 90000);
+          var link = d && d.link;
+          if (link){
+            setQualityFromServer(link.qualityLabel || '');
+            setAudioFromServer(link.audio || 'en');
+            document.getElementById('p-vsub').textContent = curBaseSub + ' • ' + link.source;
+            var slb = document.getElementById('source-label'); if (slb) slb.textContent = link.source;
+            showBufferForLink(link, d.reused);
+          }
+          renderSrvSheet();
+        } catch (e) { toast(engineErrText(e)); }
       }
-      function playFromServer(idx){
-        var s = curServers[idx]; if (!s) return;
-        curServerIdx = idx;
-        setQualityFromServer(s.quality);
-        setAudioFromServer(s.audio);
-        document.getElementById('p-vsub').textContent = curBaseSub + ' • ' + s.name;
-        var slb = document.getElementById('source-label'); if (slb) slb.textContent = s.name;
-        var reused = PB.reuse && lastLinks[curTitle] === idx;
-        lastLinks[curTitle] = idx;
-        showBuffer(s, reused);
-        renderSrvSheet();
-      }
-      function startStream(title){
+      async function startStream(title){
         curTitle = title;
-        curServers = genServers(title);
+        curServers = [];
         curServerIdx = -1;
+        var t = titleByName(title) || TITLES[keyByTitle(title)];
         if (PB.player === 'external'){
-          toast('External player — ' + PB.extApp + ' দিয়ে খুলছে (প্রিভিউতে ইন-অ্যাপ প্লেয়ারেই চলছে)');
+          try {
+            var d0 = await engineCall('externalPlay', playParamsFor(title, t), 60000);
+            if (d0 && d0.launched){ toast(PB.extApp + ' দিয়ে খুলছে'); return; }
+          } catch (e) { toast(engineErrText(e)); /* fall through to the internal player */ }
         }
         if (PB.mode === 'manual'){
           setPlaying(false);
@@ -4222,19 +4411,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           toast('Manual মোড — সার্ভার বেছে নিন');
           return;
         }
-        playFromServer(pickServerIdx(curServers, PB));
-        /* preload while watching: warm the next titles' server lists + posters,
-           so the next play / details open feels instant */
-        setTimeout(function(){
-          var keys = Object.keys(TITLES), warmed = 0;
-          for (var i = 0; i < keys.length && warmed < 3; i++){
-            var t2 = TITLES[keys[i]];
-            if (t2.title === title) continue;
-            genServers(t2.title);
-            var im = new Image(); im.src = t2.poster;
-            warmed++;
-          }
-        }, 700);
+        playFromServer(-1);
       }
       document.getElementById('srv-close').addEventListener('click', function(){
         document.getElementById('srv-sheet').classList.remove('open');
@@ -4248,6 +4425,16 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       syncPBUI();
 
       /* ===== Repositories: install, provider ON/OFF, test, health, auto-update ===== */
+      /* Phase C (#9): the 27-repo catalogue (snapshot from v0.1.7) stays
+         browsable in setup — display fallback only; installed state always
+         comes from the bridge (ST.list). */
+      var REPO_CATALOGUE = [{"id": "cspr", "name": "Zayn Play Providers", "url": "https://raw.githubusercontent.com/zaynplay/extensions/master/repo.json", "desc": "The only official Zayn Play repository maintained by the core team.", "tags": ["official", "english"], "code": "cspr", "plugins": ["Dailymotion", "Invidious", "Twitch"]}, {"id": "mega", "name": "Mega Repository", "url": "https://raw.githubusercontent.com/self-similarity/MegaRepo/builds/repo.json", "desc": "The \"Mega\" plugin adds ALL repositories each time the app is opened. Uninstall after one run if you do not want all repo", "tags": ["multilang", "english"], "code": "megarepo", "plugins": ["Mega"]}, {"id": "phisher", "name": "Phisher Repo", "url": "https://raw.githubusercontent.com/phisher98/zaynplay-extensions-phisher/refs/heads/builds/repo.json", "desc": "Plugins in Hindi, English, and other languages of India. Huge collection of sources.", "tags": ["multilang", "english", "hindi"], "code": "phisherrepo", "plugins": ["AllMovieLand", "AllWish", "Anichi", "Animeav1", "AnimeCloud", "AnimeDekho", "AnimeKai", "AnimekHor", "Animenosub", "AnimePahe", "Animesalt", "AnimeWorld", "Animexin", "Animez", "AniWatch", "Aniworld", "BanglaPlex", "Cinemacity", "Coflix", "Desicinemas", "Donghuastream", "DoraBash", "DramaFull", "DudeFilms", "Fibwatch", "Filmycab", "Filmyfiy", "Fivemovierulz", "FourKHDHub", "Funmovieslix", "Goojara", "HDhub4u", "HiAnime", "Hindmoviez", "Idlix", "IPTVPlayer", "IStreamFlare", "Jellyfin", "Kaido", "KayiFamilyTv", "Kickassanime", "Kisskh", "Latanime", "LayarKaca", "MassTamilan", "Megakino", "MovieBlast", "MovieBox", "Movierulzhd", "Movies4u", "MPlayer", "MultiMovies", "Netcinez", "NOXX", "OHLI24", "OnePace", "OneTouchTV", "Pelisplushd", "Pencurimovie", "Pinoymoviepedia", "PublicSportsIPTV", "QuickIPTV", "RingZ", "ShowBox", "ShowFlix", "StreamPlay", "StremioAddon", "StremioX", "SuperStream", "Tamilblasters", "Tamilian", "Telugumv", "Tennistream", "TokusatsuUltimate", "TokuZilla", "ToonHub", "Toonstream", "ToonTales", "Topcartoons", "Topstreamfilm", "TorraStream", "UHDmovies", "Ultima", "UltimaBeta", "Watch32", "WatchMMAFull", "XDMovies", "Yflix", "YTS"]}, {"id": "megix", "name": "Megix Repo", "url": "https://raw.githubusercontent.com/SaurabhKaperwan/CSX/builds/CS.json", "desc": "Hindi and English content with a great selection of movie and streaming sources.", "tags": ["hindi", "english"], "code": "csx", "plugins": ["Bollyflix", "CineStream", "GDIndex", "MoviesDrive", "Moviesmod", "NetflixMirror", "OnlineMoviesHindit", "VegaMovies"]}, {"id": "3rabi", "name": "3rabi عربي", "url": "https://raw.githubusercontent.com/Abodabodd/re-3arabi/refs/heads/main/repo", "desc": "Comprehensive Arabic repository with movies, series, anime and local content.", "tags": ["arabic"], "code": "arb", "plugins": ["Anime4up", "Ohatv", "Dima toon", "Tuktukcima", "Cimawbas", "Syrialive", "VIU", "Tuniflix", "Cimatn", "Anime3rbtest", "Anime3rb", "YouTube", "LodyNet", "WeCima", "TopCinema", "FullMatchShows", "Brstej", "AnimeWitcher", "Egydead", "Mycima", "Asia2tv 2", "Asia2tv", "Akwam", "3isk", "Eshek", "Krmzy", "Animerco", "Witanime", "Shahid4u", "CimaClub", "Faselhd", "Cimanaw", "Arabseed"]}, {"id": "indostream", "name": "IndoStream Repo", "url": "https://raw.githubusercontent.com/TeKuma25/IndoStream/builds/repo.json", "desc": "Indonesian repository with a wide selection of anime and local drama content.", "tags": ["indonesian"], "code": "indos", "plugins": ["Animasu", "AnimeIndo", "AnimeSail", "Anoboy", "Dramaid", "DramaSerial", "Dubbindo", "Dutamovie", "Funmovieslix", "Gomov", "Idlix", "IndoTV", "Kuramanime", "Kuronime", "LayarKaca", "Minioppai", "Nekopoi", "Neonime", "Ngefilm", "Nimegami", "Nodrakorid", "Oploverz", "Otakudesu", "Pencurimovie", "Pusatfilm", "Raveeflix", "Rebahin", "Samehadaku"]}, {"id": "extcloud", "name": "ExtCloud Repo", "url": "https://raw.githubusercontent.com/duro92/ExtCloud/main/repo.json", "desc": "Indonesian repository with extensive anime and streaming plugin coverage.", "tags": ["indonesian"], "code": "extcloud", "plugins": ["AnichinMoe", "Animasu", "AnimeSail", "Anoboy", "AutoEmbed", "Azmovies", "Donghub", "Dramabox", "Dutamovie", "FilmApik", "Filmkita", "Fufafilm", "Funmovieslix", "Hidoristream", "Idlix", "Kawanfilm", "Kissasian", "Kisskh", "Klikxxi", "Layarasia", "LayarKaca", "Melongmovie", "Midasxxi", "MovieBox", "Ngefilm", "Nomat", "NontonAnimeID", "Oploverz", "Oppadrama", "Otakudesu", "Pencurimovie", "Pmsm", "Reelshort", "Samehadaku", "Sflix", "SoraStream", "Winbu"]}, {"id": "cloudx", "name": "CloudX Repository", "url": "https://raw.githubusercontent.com/Asm0d3usX/CloudX/builds/repo.json", "desc": "Indonesian-focused repository with movies, dramas, and streaming plugins.", "tags": ["indonesian"], "code": "cloudx", "plugins": ["Dutamovie", "Filmkita", "Filmlokal", "Fufafilm", "Funmovieslix", "Idlix", "Indomax", "Kawanfilm", "KlikXXi", "LayarKaca", "LayarWarna", "MidasXXi", "Moviebox", "Ngefilm", "Nomat", "Nontonfilm", "Oploverz", "Pencurimovie", "Pusatfilm", "Pusatmovie", "Samehadaku", "Sarangfilm", "Savefilm", "WGFilm21"]}, {"id": "dogior", "name": "doGior's Had Enough", "url": "https://raw.githubusercontent.com/doGior/doGiorsHadEnough/refs/heads/builds/repo.json", "desc": "A mix of Italian, English, and international streaming plugins and live TV sources.", "tags": ["multilang", "english"], "code": "gior", "plugins": ["AltaDefinizione", "AnimeUnity", "AnimeWorld", "Arte", "CalcioStreaming", "CorsaroNero", "Huhu", "IPTV", "Nebula", "Simkl", "StreamingCommunity", "TV", "YouTube"]}, {"id": "cncverse", "name": "CNC Verse Repository", "url": "https://raw.githubusercontent.com/NivinCNC/CNCVerse-Cloud-Stream-Extension/refs/heads/builds/CNC.json", "desc": "A diverse repository covering Indian, Tamil, and global streaming content.", "tags": ["multilang", "hindi", "english"], "code": "cncv", "plugins": ["Bilibili", "CastleTv", "CineTv", "CNC Verse", "Cricify", "DesiSerials", "DoFlix", "Einthusan", "GoldenAudiobook", "HDrezka", "LibriVoxAudiobook", "MovieBox", "MovieBoxProviderIN", "Moviezwap", "Pikashow", "RadioIndia", "Rtally", "SKTech", "StreamFlix", "SunGo", "TamilDhool", "Tamilian", "TamilUltra", "Watch32", "Xon"]}, {"id": "diegon", "name": "DieGon / ItaliaInStreaming", "url": "https://pastebin.com/raw/qndZtL6D", "desc": "Italian repository with a rich selection of local streaming, anime and sports sources.", "tags": ["italian", "multilang"], "code": "diegon7", "plugins": ["AltaDefinizione", "AnimeSaturn", "AnimeUnity", "AnimeWorld", "Arte", "CalcioStreaming", "CorsaroNero", "GuardaSerie", "Huhu", "IlGenioDelloStreaming", "SectionOrganizer", "StreamingCommunity", "Stremio", "SyncStream", "Torrentio", "TV"]}, {"id": "cskarma", "name": "cs-karma", "url": "https://raw.githubusercontent.com/Kraptor123/cs-Karma/refs/heads/master/repo.json", "desc": "Multi-language repository focused on sports, anime, drama and international content.", "tags": ["multilang", "english"], "code": "cskarma", "plugins": ["AnimeAV", "AnimeYTX", "BasketballReplays", "CinemaCity", "DocumentaryArea", "DoramasLatinoX", "Dramaizle", "Dubbindo", "Esheaq", "F1FullRaces", "Filmatek", "Filmmirasim", "Flixlatam", "Footballia", "Full4kizle", "FullMatchShows", "FullRaces", "Gnulahd", "Henaojara", "Iwatchtheoffice", "JPFilms", "KissKH", "Krmzy", "Latanime", "LayarKaca", "Streamed", "Subsplease", "Supercartoons", "TokyBook", "TVGarden", "WatchWrestling", "Wcoflix", "WebCric", "YoTurkish"]}, {"id": "cakestwix", "name": "CakesTwix (Ukrainian)", "url": "https://codeberg.org/CakesTwix/zaynplay-extensions-uk/raw/branch/master/repo.json", "desc": "Ukrainian providers repository with local and international streaming content.", "tags": ["multilang"], "code": "cakes", "plugins": []}, {"id": "sarapcanagii", "name": "DiziPal & TabiiSpor", "url": "https://raw.githubusercontent.com/sarapcanagii/Pitipitii/master/repo.json", "desc": "Turkish repository for sports and TV series streaming.", "tags": ["turkish"], "code": "sarapcanagii", "plugins": ["NeonSpor"]}, {"id": "lawlietrepo", "name": "lawlietrepo", "url": "https://raw.githubusercontent.com/lawlietbr/lietrepo/refs/heads/main/builds/repo.json", "desc": "Brazilian Portuguese repository with anime and local streaming sources.", "tags": ["multilang"], "code": "", "plugins": ["AnimeFire", "AniTube", "CineAgora", "DattebayoBR", "Doramogo", "EmbedTV", "Goyabu", "MendigoFlix"]}, {"id": "king", "name": "King", "url": "https://pastebin.com/raw/Cd2g2tfz", "desc": "XtreamIPTV is the only plugin — requires an Xtream code and account to access live IPTV categories.", "tags": ["multilang"], "code": "kingl", "plugins": ["XtreamIPTV"]}, {"id": "italianprovider", "name": "Italian Providers Repository", "url": "https://raw.githubusercontent.com/Gian-Fr/ItalianProvider/builds/repo.json", "desc": "Italian providers repository with popular local streaming sources.", "tags": ["italian"], "code": "ipr", "plugins": ["Altadefinizione", "GuardaSerie"]}, {"id": "netmirror", "name": "Netmirror Repo", "url": "https://raw.githubusercontent.com/Sushan64/NetMirror-Extension/refs/heads/builds/Netflix.json", "desc": "Provides Netflix, Disney Plus, Hotstar, and Prime Video mirror sources.", "tags": ["english", "multilang"], "code": "Netmirror", "plugins": ["Netflix", "Disney+", "Hotstar", "Prime Video"]}, {"id": "redowan", "name": "Redowan's BDIX Repository", "url": "https://raw.githubusercontent.com/redowan99/Redowan-Zayn Play/master/repo.json", "desc": "BDIX-focused Bangladeshi repository with local TV, movies and sports replay content.", "tags": ["multilang"], "code": "redowan", "plugins": ["9kMovies", "BdixBdipTV", "BdixCircleftp", "BdixCloudTV", "BdixDflix", "BdixDhakaFlix", "BdixICCFtp", "BdixMyMovieBazarTV", "BdixRoarZoneTV", "EmwBD", "FootReplays", "FullReplays", "FullyMaza", "MoviPK", "Mp4Moviez", "TheMoviesFlix", "WatchMoviesPk"]}, {"id": "saimuel", "name": "Saimuel Repo", "url": "https://raw.githubusercontent.com/saimuelbr/saimuelrepo/refs/heads/main/builds/repo.json", "desc": "Brazilian repository with a wide range of anime, films, and streaming sources.", "tags": ["multilang"], "code": "saim", "plugins": ["NetCine", "PobreFlix", "Streamberry", "TopFilmes", "AnimesCloud", "EmbedTVOnline", "NovelasFlix", "MegaFlix", "GoFlix", "UltraCine", "BetterAnime", "DonghuaNoSekai", "Doramas", "FilmesOn", "AnimesDigital", "OverFlix", "VisionCine"]}, {"id": "cuxplug", "name": "CuxPlug", "url": "https://raw.githubusercontent.com/ycngmn/CuxPlug/refs/heads/main/repo.json", "desc": "International plugins developed from interest and fun — covering anime, French, German and Indian sources.", "tags": ["multilang", "english"], "code": "CuxPlug", "plugins": ["AnimeLuxe", "AnimeSama", "AniZone", "Flixmet", "FreeDriveMovie", "FrenchStream", "StreamCloud", "Watch32"]}, {"id": "vietnamese", "name": "Zayn Play Vietnamese", "url": "https://gitlab.com/tearrs/zaynplay-vietnamese/-/raw/main/repo.json", "desc": "Vietnamese repository with local streaming, IPTV and sync features.", "tags": ["multilang"], "code": "viet", "plugins": ["Cross-Device Sync", "Fshare", "IPTV", "MonPlayer", "ViStream", "XtreamIPTV", "Stremio"]}, {"id": "turkish", "name": "Turkish Providers | @kraptor123", "url": "https://raw.githubusercontent.com/Kraptor123/cs-kraptor/refs/heads/master/repo.json", "desc": "The most comprehensive Turkish repository with hundreds of local TV, series, anime and film sources.", "tags": ["turkish"], "code": "kraptorcs", "plugins": ["AnimeciX", "Animeler", "Animely", "Anizium", "AsyaAnimeleri", "AsyaFanatiklerim", "AsyaMinik", "AsyaWatch", "BelgeselX", "CizgiMax", "CizgiveDizi", "Ddizi", "DiziAsia", "DiziAsya", "DiziBox", "DiziFilmORG", "DiziGom", "DiziKorea", "DiziLife", "Dizilla", "DiziMag", "DiziMom", "DiziPal", "DiziPalOrijinal", "DiziYo", "DiziYou", "FilmEkseni", "FilmHane", "FilmMakinesi", "FilmModu", "Filmzal", "FlixHQ", "FullHDFilmizlesene", "GinikoCanli", "HDFilmCehennemi", "HDFilmDelisi", "HDFilmizle", "HintDizi", "InatBox", "JetFilmizle", "KickTR", "KoreanTurk", "KraptorPlus", "KultFilmler", "MirrorVerse", "OnePaceTr", "OpenAnime", "RareFilmm", "SeiCode", "SelcukFlix", "SetFilmIzle", "SezonlukDizi", "SinemaCX", "SineWix", "Sinezy", "TrAnimeIzle", "TurkAnime", "Turkdizileri", "TvDiziler", "UgurFilm", "Watch2Movies", "WebDramaTurkey", "YabanciDizi", "YeniKaynak", "YesilCamTv", "Youtube", "YTS"]}, {"id": "german", "name": "German Providers Repository", "url": "https://raw.githubusercontent.com/Bnyro/GermanProviders/refs/heads/master/repo.json", "desc": "German-language repository with public broadcasters, streaming sites and IPTV.", "tags": ["german"], "code": "gpr", "plugins": ["ARD", "Arte", "C3TV", "Discovery", "EinschaltenIn", "FilmPalast", "HDFilme", "IptvOrg", "Kinoger", "Megakino", "Moflix", "Netzkino", "Serienstream", "Southpark", "SpiegelTV", "Xcine"]}, {"id": "luna712", "name": "Luna712 Extensions", "url": "https://raw.githubusercontent.com/Luna712/Luna712-Zayn Play-Extensions/28885d17ceb7f24782b732b6056085c14c1fd027/repo.json", "desc": "Small repository providing archive and video platform integrations.", "tags": ["multilang", "english"], "code": "luna712", "plugins": ["InternetArchive"]}, {"id": "zzikozz", "name": "zzikozz / French Repo", "url": "https://raw.githubusercontent.com/zzikozz/frenchCS/refs/heads/main/repo.json", "desc": "Maintained repository for French streaming providers, anime and TV sources.", "tags": ["french", "multilang"], "code": "zzikozz", "plugins": ["1Jour1Film", "BuzzMonclick", "DuLourd", "FStreamzz", "FrenchStream", "Gogoflix", "HDSto", "Hdss", "Sadisflix", "Senpai-Stream", "SerieCenter", "Vostfree", "Wiflix", "WookaFR.app", "WookaFR"]}, {"id": "gramflix", "name": "GramFlix / French Repo", "url": "https://raw.githubusercontent.com/tOntOnbOuLii/GramFlix/main/repo.json", "desc": "Another great French repository for streaming movies and TV series.", "tags": ["french", "multilang"], "code": "gramflix", "plugins": ["GramFlix Streaming"]}];
+      function catalogueMerged(){
+        var out = [], seenUrl = {};
+        ST.list.forEach(function(r){ out.push(r); if (r.url) seenUrl[r.url] = true; });
+        REPO_CATALOGUE.forEach(function(r){ if (!r.url || !seenUrl[r.url]) out.push(r); });
+        return out;
+      }
       var ST = { list: [], installed: {}, provOn: {}, autoOff: {}, health: {}, open: {}, upd: {}, provList: {},
                  q: { setup: '', settings: '' }, filter: 'all', round: 1, uround: 1, confirmDel: '', testMsg: {}, ptest: {},
                  pin: {}, customSites: {}, provOrder: [] };
@@ -4278,7 +4465,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       var PIN_SVG = '<svg class="tab-pin" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>';
       var PIN_PATH = 'M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z';
       var GEAR_PATH = 'M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z';
-      function repoById(id){ for (var i=0;i<ST.list.length;i++) if (ST.list[i].id === id) return ST.list[i]; return null; }
+      function repoById(id){ for (var i=0;i<ST.list.length;i++) if (ST.list[i].id === id) return ST.list[i]; for (var j=0;j<REPO_CATALOGUE.length;j++) if (REPO_CATALOGUE[j].id === id) return REPO_CATALOGUE[j]; return null; }
       function onCount(r){ var n = 0; r.plugins.forEach(function(pn){ if (ST.provOn[r.id+'|'+pn] && !ST.autoOff[r.id+'|'+pn]) n++; }); return n; }
       function effProvOn(){ var eff = {}; for (var k in ST.provOn){ if (ST.provOn[k] && !ST.autoOff[k]) eff[k] = true; } return eff; }
       function updOf(r){ if (!ST.upd[r.id]) ST.upd[r.id] = { ver: 1.0, last: '—', fresh: false }; return ST.upd[r.id]; }
@@ -4287,40 +4474,49 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('home-feed').style.display = 'none';
         document.getElementById('hs-label').textContent = 'Search…';
       }
-      function buildCW(){
+      async function buildCW(){
         var rail = document.getElementById('h-cw'); if (!rail) return;
         var head = document.getElementById('h-cw-head');
-        var keys = Object.keys(TITLES).slice(0, 3);
+        var items = [];
+        try { var d = await engineCall('library', {}); items = (d && d.items) || []; } catch (e) { items = []; }
+        var keys = [];
+        items.forEach(function(it){
+          if (it.progressSec > 0 && it.status === 'watching'){
+            var key = 'lib-' + it.id;
+            if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: it.url || '' };
+            keys.push({ key: key, it: it });
+          }
+        });
         rail.innerHTML = '';
         if (!keys.length){ if (head) head.style.display = 'none'; rail.style.display = 'none'; return; }
         if (head) head.style.display = ''; rail.style.display = '';
-        keys.forEach(function(k){
-          var t = TITLES[k];
-          var rp = resumePos(t.title);
+        keys.slice(0, 3).forEach(function(entry){
+          var t = TITLES[entry.key], it = entry.it;
+          var rp = it.progressSec || 0;
           var b = document.createElement('button'); b.className = 'card wide';
           if (rp > 0) b.setAttribute('data-open-player', t.title);
-          else b.setAttribute('data-open', k);
-          var pct = (rp > 0 && PROGRESS[t.title] && PROGRESS[t.title].d > 0)
-            ? Math.min(95, Math.round(rp / PROGRESS[t.title].d * 100))
-            : (24 + (hashStr(k) % 60));
+          else b.setAttribute('data-open', entry.key);
+          var pct = (rp > 0 && it.durationSec > 0) ? Math.min(95, Math.round(rp / it.durationSec * 100)) : 0;
           b.innerHTML = '<span class="cw-thumb"><img class="poster" src="' + t.poster + '" alt="' + t.title + ' still" /><span class="bar"><i style="width:' + pct + '%"></i></span></span><p>' + t.title + (t.type === 'series' ? ' • S1 E1' : '') + '</p>';
           rail.appendChild(b);
         });
       }
-      function buildDownloads(){
+      async function buildDownloads(){
         var list = document.getElementById('dl-list'); if (!list) return;
+        var items = [];
+        try { var d = await engineCall('downloads', {}); items = (d && d.items) || []; } catch (e) { items = []; }
         list.innerHTML = '';
-        var keys = Object.keys(TITLES).slice(0, 3);
         var badge = document.querySelector('#phone .tabbar .dl-badge');
-        if (badge){ badge.textContent = keys.length; badge.style.display = keys.length ? '' : 'none'; }
-        if (!keys.length){
+        if (badge){ badge.textContent = items.length; badge.style.display = items.length ? '' : 'none'; }
+        if (!items.length){
           list.innerHTML = '<p class="dl-none">কোনো ডাউনলোড নেই — আগে Extensions থেকে প্রোভাইডার ON করুন, তারপর এখানে ডাউনলোড করা কনটেন্ট দেখাবে।</p>';
           return;
         }
-        keys.forEach(function(k){
-          var t = TITLES[k];
-          var d = document.createElement('div'); d.className = 'dl-item';
-          d.innerHTML = '<img src="' + t.poster + '" alt="' + t.title + ' poster" /><div><p class="dl-t">' + t.title + (t.type === 'series' ? ' • S1 E1' : '') + '</p><small>' + t.genre + ' • ' + t.year + '</small><span class="dl-state">Downloaded • ' + (420 + (hashStr(k) % 780)) + ' MB</span></div><button class="del" data-delete aria-label="Delete download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5h6v2m-8 0 1 13h8l1-13"/></svg></button>';
+        items.forEach(function(it){
+          var d = document.createElement('div'); d.className = 'dl-item'; d.setAttribute('data-dlk', it.id);
+          var pct = Math.round(it.pct || 0);
+          var state = it.status === 'done' ? 'Downloaded' : it.status === 'paused' ? 'Paused • ' + pct + '%' : it.status === 'failed' ? 'Failed — ' + (it.error || 'try again') : 'Downloading… ' + pct + '%';
+          d.innerHTML = '<img src="' + (it.poster || '') + '" alt="" /><div><p class="dl-t">' + it.title + '</p><small>' + (it.providerName || '') + ' • ' + (it.sizeMB ? Math.round(it.sizeMB) + ' MB' : '—') + '</small><div class="dl-bar"><i style="width:' + pct + '%"></i></div><span class="dl-state">' + state + '</span>' + (it.status === 'done' ? ' <button class="dl-open" data-dlopen="' + it.id + '">Open</button>' : '') + ' <button class="dl-del" data-dldel="' + it.id + '">Delete</button></div>';
           list.appendChild(d);
         });
       }
@@ -4331,7 +4527,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         ST.list = repos.map(function(r){
           return { id: r.id, name: r.name, url: r.url, desc: r.description || 'থার্ড-পার্টি রিপো', tags: ['custom'], code: '', plugins: [] };
         });
-        ST.installed = {};
+        /* Phase C: clear in place — v31 inst.installed shares this object
+           reference; reassigning it broke the link. */
+        Object.keys(ST.installed).forEach(function(k){ delete ST.installed[k]; });
         repos.forEach(function(r){ ST.installed[r.id] = true; });
         /* Providers per repo — the bridge is the source of truth for
            on / autoOff / health. A provider of a newly installed repo
@@ -4447,7 +4645,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var box = document.querySelector('#phone [data-repo-list="' + which + '"]');
         if (!box) return;
         var q = (ST.q[which] || '').trim().toLowerCase();
-        var list = ST.list.filter(function(r){
+        var source = (which === 'setup') ? catalogueMerged() : ST.list;
+        var list = source.filter(function(r){
           if (which === 'settings' && ST.filter !== 'all' && r.tags.indexOf(ST.filter) === -1) return false;
           return repoMatches(r, q);
         });
@@ -4829,36 +5028,17 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var n = document.querySelectorAll('#dl-list .dl-item').length;
         if (badge){ badge.textContent = n; badge.style.display = n ? '' : 'none'; }
       }
-      function dlPump(){
-        while (FEAT.dlRun < 3 && FEAT.dlQ.length){
-          (function(job){
-            FEAT.dlRun++;
-            job.timer = setInterval(function(){
-              job.pct = Math.min(100, job.pct + 3 + Math.random() * 5);
-              job.bar.style.width = job.pct + '%';
-              job.state.textContent = job.pct >= 100 ? '' : 'Downloading… ' + Math.floor(job.pct) + '%';
-              if (job.pct >= 100){
-                clearInterval(job.timer);
-                job.state.textContent = 'Downloaded • ' + job.size + ' MB';
-                toast('Download complete');
-                FEAT.dlRun--; dlPump();
-              }
-            }, 130);
-          })(FEAT.dlQ.shift());
-        }
-      }
-      function startDownload(key){
+      /* Phase C: the fake download pump is gone — progress comes from the
+         engine as downloadProgress events (onEngineDownload). */
+      async function startDownload(key){
         var t = TITLES[key]; if (!t) return;
-        var list = document.getElementById('dl-list'); if (!list) return;
-        if (list.querySelector('[data-dlk="' + key + '"]')){ toast('Already downloaded'); return; }
-        var none = list.querySelector('.dl-none'); if (none) none.remove();
-        var d = document.createElement('div'); d.className = 'dl-item'; d.setAttribute('data-dlk', key);
-        d.innerHTML = '<img src="' + t.poster + '" alt="" /><div><p class="dl-t">' + t.title + (t.type === 'series' ? ' • S1 E1' : '') + '</p><small>' + t.genre + ' • ' + t.year + '</small><div class="dl-bar"><i></i></div><span class="dl-state">Downloading… 0%</span></div><button class="del" data-delete aria-label="Delete download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M9 7V5h6v2m-8 0 1 13h8l1-13"/></svg></button>';
-        list.insertBefore(d, list.firstChild);
-        FEAT.dlQ.push({ key: key, pct: 0, size: 320 + (hashStr(key) % 840), bar: d.querySelector('.dl-bar i'), state: d.querySelector('.dl-state') });
-        featBadge(); dlPump();
+        if (!t.url){ toast('এই কনটেন্টের ডাউনলোড লিংক পাওয়া যায়নি'); return; }
         toast('Download started');
-        go('downloads');
+        try {
+          await engineCall('downloadStart', { url: t.url, providerName: t.prov, title: t.title, type: t.type, poster: t.poster }, 120000);
+          await buildDownloads();
+          go('downloads');
+        } catch (e) { toast(engineErrText(e)); }
       }
       function keyByTitle(name){
         for (var k in TITLES) if (TITLES[k].title === name) return k;
@@ -4888,8 +5068,21 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return true; /* old Settings toggle removed; its default was ON */
       }
       function nextEp(){
+        var t = titleByName(curTitle);
+        var eps = (t && t.episodes) || [];
+        var next = null;
+        for (var i = 0; i < eps.length; i++){ if (eps[i].episode === FEAT.ep + 1){ next = eps[i]; break; } }
+        if (!next && eps.length > FEAT.ep) next = eps[FEAT.ep];
+        if (!next){ toast('আর কোনো পর্ব নেই'); return; }
         clearProgress(curTitle);
         FEAT.ep++; cur = 0; renderTime(); setPlaying(true);
+        var params = playParamsFor(curTitle, t);
+        params.episodeData = next.data;
+        params.episodeUrl = '';
+        engineCall('play', params, 90000).then(function(d){
+          var link = d && d.link;
+          if (link) showBufferForLink(link, d.reused);
+        }).catch(function(e){ toast(engineErrText(e)); });
         toast('Next episode — E' + FEAT.ep);
       }
       if (skipBtn) skipBtn.addEventListener('click', function(){ cur = Math.min(TOTAL, cur + 85); renderTime(); playerSeek(cur); skipBtn.hidden = true; toast('Intro skipped'); });
@@ -4905,17 +5098,20 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (isSeries && autoplayOn() && cur >= TOTAL && playing) nextEp();
       }, 600);
       /* subtitle download (OpenSubtitles / SubDL) */
-      var SUBDLS = [
-        { lang: 'English', src: 'OpenSubtitles', n: '12,483' },
-        { lang: 'Hindi', src: 'OpenSubtitles', n: '8,214' },
-        { lang: 'Bengali', src: 'SubDL', n: '3,907' },
-        { lang: 'Tamil', src: 'SubDL', n: '5,331' }
-      ];
-      function renderSubdl(){
+      var SUBDLS = []; /* Phase C: real subtitle search results from the engine */
+      async function renderSubdl(){
         var box = document.getElementById('subdl-list'); if (!box) return;
-        box.innerHTML = SUBDLS.map(function(s, i){
-          var done = FEAT.subdlDone[s.lang];
-          return '<div class="srv-row"><span class="srv-main"><b>' + s.lang + '</b><small>' + s.src + ' • ' + s.n + ' downloads</small></span><button class="srv-badge" data-subdl="' + i + '">' + (done ? '✓ Downloaded' : 'Download') + '</button></div>';
+        var items = [];
+        try {
+          var lang = (typeof PB !== 'undefined' && PB.audio1) ? PB.audio1 : 'en';
+          var d = await engineCall('subtitlesSearch', { title: curTitle, lang: lang }, 60000);
+          items = (d && d.subtitles) || [];
+        } catch (e) { items = []; }
+        SUBDLS = items;
+        if (!items.length){ box.innerHTML = '<p class="repo-none">এই ভাষায় সাবটাইটেল পাওয়া যায়নি।</p>'; return; }
+        box.innerHTML = items.map(function(s, i){
+          var done = FEAT.subdlDone[s.id];
+          return '<div class="srv-row"><span class="srv-main"><b>' + esc(s.lang || '') + '</b><small>' + esc(s.source || '') + (s.downloads ? ' • ' + s.downloads + ' downloads' : '') + '</small></span><button class="srv-badge" data-subdl="' + i + '">' + (done ? '✓ Downloaded' : 'Download') + '</button></div>';
         }).join('');
       }
       /* backup & restore + downloads trigger + random visibility: one delegated listener */
@@ -4927,6 +5123,25 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (key) startDownload(key);
           return;
         }
+        var dlo = e.target.closest('[data-dlopen]');
+        if (dlo){
+          var did = dlo.getAttribute('data-dlopen');
+          engineCall('downloadOpen', { id: did }, 60000).then(function(d){
+            if (d && d.playing){
+              if (d.title) curTitle = d.title;
+              go('player');
+              if (!fsOn) setFS(true);
+              reportStageRect();
+            }
+          }).catch(function(e){ toast(engineErrText(e)); });
+          return;
+        }
+        var dld = e.target.closest('[data-dldel]');
+        if (dld){
+          var did2 = dld.getAttribute('data-dldel');
+          engineCall('downloadControl', { id: did2, action: 'delete' }).then(function(){ buildDownloads(); }).catch(function(e){ toast(engineErrText(e)); });
+          return;
+        }
         var so = e.target.closest('[data-subdl-open]');
         if (so){
           closeMenus(); renderSubdl();
@@ -4936,31 +5151,32 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var sb = e.target.closest('[data-subdl]');
         if (sb){
           var s = SUBDLS[+sb.getAttribute('data-subdl')];
-          if (FEAT.subdlDone[s.lang]) return;
+          if (!s || FEAT.subdlDone[s.id]) return;
           sb.textContent = 'Downloading…';
-          setTimeout(function(){
-            FEAT.subdlDone[s.lang] = true;
+          engineCall('subtitlesLoad', { id: s.id }, 60000).then(function(d){
+            if (!d || !d.text){ sb.textContent = 'Download'; toast('সাবটাইটেল নামানো যায়নি'); return; }
+            FEAT.subdlDone[s.id] = true;
             sb.textContent = '✓ Downloaded';
-            var mb = document.querySelector('#subs-menu [data-set="subs"][data-val="' + s.lang + '"]');
-            if (mb) mb.click();
+            engineCall('playerControl', { action: 'setSubtitle', text: d.text, lang: s.lang }).catch(function(){});
             toast('Subtitle downloaded ✓');
-          }, 700);
+          }).catch(function(e){ sb.textContent = 'Download'; toast(engineErrText(e)); });
           return;
         }
         var act = e.target.closest('[data-act]');
         if (act){
           var a = act.getAttribute('data-act');
           if (a === 'Back up data'){
-            var data = { app: 'Zayn Play', version: '0.2.0', theme: ZPTheme.pref, lang: window.ZP_LANG || 'en', installed: Object.keys(ST.installed), provOn: ST.provOn, pb: PB, savedAt: new Date().toISOString() };
-            var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            var url = URL.createObjectURL(blob);
-            var link = document.createElement('a');
-            link.href = url; link.download = 'zaynplay-backup-v1.0.2.json';
-            document.body.appendChild(link); link.click(); link.remove();
-            setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-            var bs = document.getElementById('backup-status');
-            if (bs) bs.textContent = 'Last backup: ' + new Date().toLocaleString();
-            toast('Backup saved ✓');
+            engineCall('backupExport', {}, 60000).then(function(d){
+              var blob = new Blob([(d && d.json) || '{}'], { type: 'application/json' });
+              var url = URL.createObjectURL(blob);
+              var link = document.createElement('a');
+              link.href = url; link.download = (d && d.fileName) || 'zaynplay-backup-0.2.0.json';
+              document.body.appendChild(link); link.click(); link.remove();
+              setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+              var bs = document.getElementById('backup-status');
+              if (bs) bs.textContent = 'Last backup: ' + new Date().toLocaleString();
+              toast('Backup saved ✓');
+            }).catch(function(e){ toast(engineErrText(e)); });
           }
           if (a === 'Restore data from backup'){
             var f = document.getElementById('restore-file');
@@ -4975,11 +5191,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var file = rf.files && rf.files[0]; if (!file) return;
         var rd = new FileReader();
         rd.onload = function(){
-          try {
-            var d = JSON.parse(rd.result);
-            if (!d || d.app !== 'Zayn Play') throw new Error('bad file');
-            toast('Backup restored ✓');
-          } catch (err) { toast('Invalid backup file'); }
+          engineCall('backupImport', { json: String(rd.result || '') }, 120000).then(function(d){
+            toast('Backup restored ✓ — ' + ((d && d.reposInstalled) || 0) + 'টি রিপো');
+            if (typeof rebuildCatalog === 'function') rebuildCatalog();
+          }).catch(function(e){ toast(engineErrText(e)); });
           rf.value = '';
         };
         rd.readAsText(file);
@@ -4989,6 +5204,21 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       
       rebuildCatalog();
       renderRepoUI();
+      /* Phase C: engine settings + progress + accounts are the source of truth
+         at boot — the UI's defaults() are only the fallback. */
+      engineCall('settingsGet', {}).then(function(d){ var set = (d && d.settings) || null; if (set) applyEngineSettings(set); }).catch(function(){});
+      engineCall('progressAll', {}).then(function(d){
+        Object.keys(d || {}).forEach(function(t){ var p = d[t]; if (p) PROGRESS[t] = { t: p.posSec || 0, d: p.durSec || 0 }; });
+        if (typeof buildCW === 'function') buildCW();
+      }).catch(function(){});
+      engineCall('accountStatus', {}).then(function(d){
+        var acc = (d && d.accounts) || {};
+        var _insts2 = (typeof window !== 'undefined' && window.__v31Instances) || [];
+        _insts2.forEach(function(inst){
+          Object.keys(acc).forEach(function(k){ inst.acc[k] = !!(acc[k] && acc[k].loggedIn); });
+        });
+        if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
+      }).catch(function(){});
       go('home');
       /* Zayn Play app boot (UI-only build): the native splash already showed,
          so ?bootsplash=0 skips the in-WebView splash; setup shows only on
@@ -5809,23 +6039,28 @@ function rDisclaimer(){
     '<p>কোনো প্রোভাইডার কাজ না করলে বা ভুল কনটেন্ট দেখালে সেটা ওই প্রোভাইডারের বিষয় — সোর্স পেজ থেকে সেটা বন্ধ বা বাদ দেওয়া যায়।</p></div>';
 }
 function rLogcat(){
-  var lines = [
-    '11-26 12:01:14.221  ZaynPlay  অ্যাপ চালু হয়েছে • v0.1.5',
-    '11-26 12:01:14.402  Player    ExoPlayer তৈরি হয়েছে',
-    '11-26 12:01:15.010  Streams   VidCloud • 1080p • লোড 840ms',
-    '11-26 12:01:15.233  Repo      Zayn Play Providers • ঠিক আছে ✓',
-    '11-26 12:01:16.870  Download  সারিতে ০টা চলমান',
-    '11-26 12:01:17.002  Health    ON প্রোভাইডার ৩টা • সব ঠিক আছে ✓'
-  ];
+  var lines = window.ZP_LOG_TEXT || 'লগ লোড হচ্ছে…';
   return head('সমস্যার তথ্য (Logcat)', 'অ্যাপের ভেতরের কারিগরি লগ') +
-    '<div class="v31-log" style="margin-top:12px">' + esc(lines.join('\n')) + '</div>' +
+    '<div class="v31-log" style="margin-top:12px">' + esc(lines) + '</div>' +
     '<button class="v31-btn" data-v31-act="copyLog" style="margin-top:12px;width:100%">লগ কপি করুন</button>' +
     '<p class="v31-psub" style="margin-top:10px">সমস্যা হলে এই লগটা পাঠালে বোঝা যাবে ঠিক কোথায় আটকেছে।</p>';
+}
+function refreshLogcat(inst){
+  engineCall('logcat', {}).then(function(d){
+    window.ZP_LOG_TEXT = (d && d.log) || 'লগ খালি';
+    if (inst && inst.stack && inst.stack[inst.stack.length - 1].p === 'logcat') render(inst, true);
+  }).catch(function(){ window.ZP_LOG_TEXT = 'লগ লোড করা যায়নি'; });
 }
 
 /* ---------- extensions (সোর্স) ---------- */
 function allRepos(inst){
-    try{ if (typeof ST !== 'undefined' && ST && ST.list && ST.list.length) return ST.list; }catch(e){}
+    try{
+      if (typeof ST !== 'undefined' && ST && typeof catalogueMerged === 'function'){
+        var m = catalogueMerged();
+        if (m.length) return m;
+      }
+      if (typeof ST !== 'undefined' && ST && ST.list && ST.list.length) return ST.list;
+    }catch(e){}
     return [].concat(inst.customRepos);
   }
 function repoById(inst, id){
@@ -6162,30 +6397,78 @@ function hubSearch(inst, q){
 function doAct(inst, act, el){
   var root = inst.root;
   if (act === 'clearCache'){
-    if (inst.cacheMB > 0){ inst.cacheMB = 0; toast(inst, 'ক্যাশে মুছে ফেলা হয়েছে ✓'); } else toast(inst, 'ক্যাশে আগে থেকেই খালি');
-    render(inst, true);
+    engineCall('cacheClear', {}).then(function(d){
+      var mb = (d && typeof d.freedMB === 'number') ? d.freedMB : 0;
+      inst.cacheMB = 0;
+      toast(inst, mb > 0 ? 'ক্যাশে মুছে ফেলা হয়েছে ✓ — ' + mb.toFixed(1) + ' MB খালি' : 'ক্যাশে আগে থেকেই খালি');
+      render(inst, true);
+    }).catch(function(e){ toast(inst, engineErrText(e)); });
   } else if (act === 'battery'){ toast(inst, 'ফোনের ব্যাটারি সেটিংস খুলবে');
   } else if (act === 'testAll'){ nav(inst, 'testall');
-  } else if (act === 'checkUpdate'){ toast(inst, 'আপনার অ্যাপ হালনাগাদ আছে ✓');
-  } else if (act === 'preRelease'){ toast(inst, 'পরীক্ষামূলক ভার্সন নামতে শুরু করবে');
-  } else if (act === 'backupNow'){ inst.lastBackup = todayBN(); var _pb = document.getElementById('v31-proxy-backup'); if (_pb) _pb.click(); else toast(inst, 'ব্যাকআপ নেওয়া হয়েছে ✓ — ' + inst.lastBackup); render(inst, true);
-  } else if (act === 'restore'){ var _pr = document.getElementById('v31-proxy-restore'); if (_pr) _pr.click(); else toast(inst, 'ব্যাকআপ ফাইল বাছতে বলবে');
+  } else if (act === 'checkUpdate'){
+    toast(inst, 'আপডেট দেখা হচ্ছে…');
+    engineCall('appUpdateCheck', { manual: true }, 60000).then(function(d){
+      if (d && d.updateAvailable){
+        toast(inst, 'নতুন ভার্সন এসেছে — v' + (d.version || ''));
+        engineCall('appUpdateDownload', { url: d.url || '' }).catch(function(e){ toast(inst, engineErrText(e)); });
+      } else toast(inst, 'আপনার অ্যাপ হালনাগাদ আছে ✓');
+    }).catch(function(e){ toast(inst, engineErrText(e)); });
+  } else if (act === 'preRelease'){ toast(inst, 'পরীক্ষামূলক ভার্সন এই মুহূর্তে নেই');
+  } else if (act === 'backupNow'){
+    engineCall('backupExport', {}, 60000).then(function(d){
+      var blob = new Blob([(d && d.json) || '{}'], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url; link.download = (d && d.fileName) || 'zaynplay-backup-0.2.0.json';
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      inst.lastBackup = todayBN();
+      toast(inst, 'ব্যাকআপ নেওয়া হয়েছে ✓ — ' + inst.lastBackup);
+      render(inst, true);
+    }).catch(function(e){ toast(inst, engineErrText(e)); });
+  } else if (act === 'restore'){
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.json,application/json';
+    inp.onchange = function(){
+      var f = inp.files && inp.files[0]; if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function(){
+        engineCall('backupImport', { json: String(rd.result || '') }, 120000).then(function(d){
+          toast(inst, 'ব্যাকআপ ফিরিয়ে আনা হয়েছে ✓ — ' + ((d && d.reposInstalled) || 0) + 'টি রিপো');
+          if (typeof rebuildCatalog === 'function') rebuildCatalog();
+          render(inst, true);
+        }).catch(function(e){ toast(inst, engineErrText(e)); });
+      };
+      rd.readAsText(f);
+    };
+    inp.click();
   } else if (act === 'updPlugins'){
     var n = allRepos(inst).filter(function(r){ return inst.installed[r.id]; }).length;
     if (n){ try{ if (typeof runUpdateCheck === 'function') runUpdateCheck(true); }catch(e){} }
     syncUpdAtFromST(inst);
     allRepos(inst).forEach(function(r){ if (inst.installed[r.id] && !inst.updAt[r.id]) inst.updAt[r.id] = todayBN(); });
     toast(inst, n ? 'সব প্লাগিন হালনাগাদ হয়েছে ✓' : 'আগে একটি রিপো যোগ করুন');
-  } else if (act === 'logcat'){ nav(inst, 'logcat');
-  } else if (act === 'copyLog'){ toast(inst, 'লগ কপি হয়ে যাবে');
+  } else if (act === 'logcat'){ nav(inst, 'logcat'); refreshLogcat(inst);
+  } else if (act === 'copyLog'){
+    engineCall('logcat', {}).then(function(d){
+      var txt = (d && d.log) || '';
+      function done(){ toast(inst, 'লগ কপি হয়েছে ✓'); }
+      if (navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done, function(){ toast(inst, 'লগ কপি করা যায়নি'); }); }
+      else { var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { toast(inst, 'লগ কপি করা যায়নি'); } ta.remove(); }
+    }).catch(function(e){ toast(inst, engineErrText(e)); });
   } else if (act === 'redoSetup'){ if (typeof playSetup === 'function') playSetup(); else nav(inst, 'setup');
   } else if (act === 'setupSkip'){ toast(inst, 'বাদ দেওয়া হলো — পরে সেটিংস → প্রোভাইডার ও এক্সটেনশন থেকে যোগ করা যাবে');
   } else if (act === 'setupNext'){ toast(inst, 'পরের ধাপ: প্রোভাইডারের ভাষা (প্রিভিউতে এই সোর্স ধাপটাই দেখানো হয়েছে)');
   } else if (act === 'accLogin'){
     var id = el.getAttribute('data-v31-k');
-    inst.acc[id] = !inst.acc[id];
-    toast(inst, inst.acc[id] ? 'লগইন হয়েছে ✓' : 'লগআউট হয়েছে');
-    render(inst, true);
+    if (inst.acc[id]){
+      engineCall('accountLogout', { provider: id }).then(function(){ inst.acc[id] = false; toast(inst, 'লগআউট হয়েছে'); render(inst, true); }).catch(function(e){ toast(inst, engineErrText(e)); });
+    } else {
+      engineCall('accountLoginUrl', { provider: id }).then(function(d){
+        if (d && d.url){ toast(inst, 'লগইন খুলছে…'); }
+        else toast(inst, 'লগইন এখনো চালু হয়নি');
+      }).catch(function(e){ toast(inst, (e && e.code === 'auth_failed') ? 'লগইন এখনো চালু হয়নি' : engineErrText(e)); });
+    }
   } else if (act === 'link'){
     var t = el.querySelector('.v31-row-t');
     toast(inst, (t ? t.textContent.trim() : 'লিংক') + ' — ব্রাউজারে খুলবে');
@@ -6247,15 +6530,8 @@ function addRepoSubmit(inst){
     render(inst, true); return;
   }
   if (/^https?:\/\/.+repo\.json/i.test(v)){
-    var host = v.replace(/^https?:\/\//, '').split('/')[0];
-    var _base = host.replace(/^www\./, '').split('.')[0], _nm = _base.charAt(0).toUpperCase() + _base.slice(1);
-    var cr = { id: 'custom' + ((typeof hashStr === 'function') ? hashStr(v) : Date.now()), name: _nm + ' Repo', desc: 'থার্ড-পার্টি রিপো — বাইরের ওয়েবসাইট থেকে যোগ করা হয়েছে', tags: ['custom'], code: '', url: v, plugins: [_nm + ' Movies', _nm + ' Series', _nm + ' Anime'] };
-    inst.customRepos.push(cr);
-    inst.installed[cr.id] = true; inst.provOn[cr.id] = {};
-    try{ if (typeof ST !== 'undefined' && ST){ ST.list.push(cr); if (typeof installRepo === 'function') installRepo(cr); } }catch(e){}
-    BN_DESC[cr.id] = 'থার্ড-পার্টি রিপো — বাইরের ওয়েবসাইট থেকে যোগ করা হয়েছে';
-    e.repoOk = '“' + cr.name + '” যোগ হয়েছে ✓ — খুলে প্রোভাইডার ON করুন।';
-    e.repoIn = '';
+    try{ if (typeof installRepo === 'function') installRepo({ id: 'custom', name: v, url: v }); }catch(e){}
+    e.repoOk = 'চেক হচ্ছে — রিপো লোড হলে লিস্টে আসবে।';
     render(inst, true); return;
   }
   e.repoErr = 'মেলেনি — ঠিকমতো শর্টকোড (যেমন: cspr) বা repo.json URL দিন।';
@@ -6293,6 +6569,7 @@ function bindInstance(inst){
     if ((el = ev.target.closest('[data-v31-tog]'))){
       var k = el.getAttribute('data-v31-tog');
       inst.set[k] = !inst.set[k];
+      enginePersistSetting(k, inst.set[k]);
       el.classList.toggle('on', inst.set[k]);
       el.setAttribute('aria-checked', String(inst.set[k]));
       v31AfterToggle(inst, k);
@@ -6301,6 +6578,7 @@ function bindInstance(inst){
     if ((el = ev.target.closest('[data-v31-pickopt]'))){
       var pk = el.getAttribute('data-v31-pickopt'), pv = el.getAttribute('data-v31-v');
       inst.set[pk] = pv;
+      enginePersistSetting(pk, pv);
       v31AfterPick(inst, pk, pv);
       if (pk === 'appLang'){
         var enName = pv;
@@ -6328,6 +6606,7 @@ function bindInstance(inst){
         }
       }
       if (mk === 'provLang') mirrorPlangToSetup(inst);
+      enginePersistSetting(mk, inst.set[mk]);
       render(inst, true);
       return;
     }
@@ -6477,6 +6756,7 @@ function bindInstance(inst){
     if (el.hasAttribute('data-v31-slider')){
       var k = el.getAttribute('data-v31-slider');
       inst.set[k] = parseInt(el.value, 10);
+      enginePersistSetting(k, inst.set[k]);
       var lbl = root.querySelector('[data-v31-sval="' + k + '"]');
       if (lbl) lbl.textContent = v31tr(bnNum(el.value) + (k === 'seekAmt' || k.indexOf('tvSeek') === 0 ? ' সেকেন্ড' : ''));
       return;
@@ -6609,7 +6889,13 @@ function bindInstance(inst){
       if (pk === 'player') PB.player = pv;
       else if (pk === 'mode') PB.mode = pv;
       else if (pk === 'res') PB.res = pv;
-      else if (pk === 'engine') PB.engine = pv;
+      else if (pk === 'engine'){
+        if (pv === 'libmpv'){
+          PB.engine = 'exoplayer';
+          inst.set.engine = 'exoplayer';
+          try { toast(inst, 'libmpv এই ভার্সনে নেই — ExoPlayer দিয়ে চলবে'); } catch (e) {}
+        } else PB.engine = pv;
+      }
       else if (pk === 'extApp') PB.extApp = pv;
       else if (pk === 'timeout') PB.timeout = pv;
       else if (pk === 'reuseDur') PB.reuseDur = pv;
@@ -6687,6 +6973,7 @@ function newInstance(rootEl){
   return inst;
 }
 var instances = [];
+window.__v31Instances = instances; /* Phase C: the main script's engine boot sync (settingsGet / accountStatus) overlays onto these; re-render via ZP_v31refresh(). */
 document.querySelectorAll('[data-v31-root]').forEach(function(rootEl){
   var inst = newInstance(rootEl);
   instances.push(inst);
