@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Zayn Play tokens (preview). Light values here; dark in values-night. -->
+    <color name="colorPrimary">#E8261C</color>
+    <color name="colorPrimaryDark">#C70F06</color>
+    <color name="colorAccent">#E8261C</color>
+
+    <color name="app_bg">#F2F3F7</color>
+
+    <!-- Splash #13, light (pearl) form -->
+    <color name="splash_wm">#141419</color>
+    <color name="splash_play">#D81F14</color>
+    <color name="splash_tag">#8C141419</color>
+    <color name="splash_credit">#8C141419</color>
+    <color name="splash_credit_b">#141419</color>
+</resources>

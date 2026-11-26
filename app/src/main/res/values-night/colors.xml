@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Zayn Play tokens, dark form (night). -->
+    <color name="app_bg">#0A0A0F</color>
+
+    <!-- Splash #13, dark form -->
+    <color name="splash_wm">#FFFFFF</color>
+    <color name="splash_play">#FF5147</color>
+    <color name="splash_tag">#8CFFFFFF</color>
+    <color name="splash_credit">#8CFFFFFF</color>
+    <color name="splash_credit_b">#FFFFFF</color>
+</resources>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play — UI-only build (v0.1.0). No engine, no providers, no player:
+     the whole UI is the approved preview, shown in a WebView. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Google Fonts (Hind Siliguri / Montserrat / Sora) load from the web;
+         the UI falls back to system fonts when offline. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <!-- Splash #13 (Bokeh Nights) — native, shows on cold start. -->
+        <activity
+            android:name=".SplashActivity"
+            android:exported="true"
+            android:noHistory="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/SplashTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The app itself: one WebView showing the approved preview UI.
+             uiMode is handled in-app (no activity restart on theme change),
+             so the WebView's prefers-color-scheme updates live. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|smallestScreenSize|layoutDirection" />
+    </application>
+</manifest>
