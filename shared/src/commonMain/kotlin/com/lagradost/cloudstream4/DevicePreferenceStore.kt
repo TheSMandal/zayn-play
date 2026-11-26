@@ -64,7 +64,7 @@ class UIPreferences(preferences: PreferenceStore) {
         "primary_color_key", "Normal"
     )
     val theme = preferences.getString(
-        "app_theme_key", "AmoledLight"
+        "app_theme_key", "System"
     )
     val layout = preferences.getInt(
         "app_layout_key", -1
@@ -165,7 +165,7 @@ class PlayerPreferences(preferences: PreferenceStore) {
     val showMediaInfo = preferences.getBoolean("show_media_info", false)
     val pipEnabled = preferences.getBoolean("pip_enabled_key", true)
     val resizeEnabled = preferences.getBoolean("player_resize_enabled_key", true)
-    val speedEnabled = preferences.getBoolean("playback_speed_enabled_key", false)
+    val speedEnabled = preferences.getBoolean("playback_speed_enabled_key", true)
     val compressorEnabled = preferences.getBoolean("compressor_enabled_key", false)
     val tiktokEnabled = preferences.getBoolean("speedup_key", false)
     val autoPlayEnabled = preferences.getBoolean("autoplay_next_key", true)
