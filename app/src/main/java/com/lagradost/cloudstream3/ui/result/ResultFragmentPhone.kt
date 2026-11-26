@@ -2,8 +2,8 @@ package com.lagradost.cloudstream3.ui.result
 
 import android.annotation.SuppressLint
 import android.app.Dialog
-import android.content.Intent
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
@@ -28,8 +28,6 @@ import androidx.lifecycle.viewModelScope
 import com.discord.panels.OverlappingPanelsLayout
 import com.discord.panels.PanelState
 import com.discord.panels.PanelsChildGestureRegionObserver
-import com.google.android.gms.cast.framework.CastButtonFactory
-import com.google.android.gms.cast.framework.CastContext
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.lagradost.cloudstream3.APIHolder
@@ -40,7 +38,6 @@ import com.lagradost.cloudstream3.MainActivity.Companion.afterPluginsLoadedEvent
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
-import com.lagradost.cloudstream3.base64Encode
 import com.lagradost.cloudstream3.databinding.FragmentResultBinding
 import com.lagradost.cloudstream3.databinding.FragmentResultSwipeBinding
 import com.lagradost.cloudstream3.databinding.ResultRecommendationsBinding
@@ -52,8 +49,6 @@ import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.observe
 import com.lagradost.cloudstream3.mvvm.observeNullable
 import com.lagradost.cloudstream3.mvvm.safe
-import com.lagradost.cloudstream3.services.SubscriptionWorkManager
-import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.APP_STRING_SHARE
 import com.lagradost.cloudstream3.ui.BaseFragment
 import com.lagradost.cloudstream3.ui.WatchType
 import com.lagradost.cloudstream3.ui.download.DOWNLOAD_ACTION_DOWNLOAD
@@ -64,7 +59,6 @@ import com.lagradost.cloudstream3.ui.player.CSPlayerEvent
 import com.lagradost.cloudstream3.ui.player.IPlayer
 import com.lagradost.cloudstream3.ui.player.PlayerView
 import com.lagradost.cloudstream3.ui.player.source_priority.QualityProfileDialog
-import com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment
 import com.lagradost.cloudstream3.ui.result.ResultFragment.bindLogo
 import com.lagradost.cloudstream3.ui.result.ResultFragment.getStoredData
 import com.lagradost.cloudstream3.ui.result.ResultFragment.updateUIEvent
@@ -74,7 +68,6 @@ import com.lagradost.cloudstream3.ui.setRecycledViewPool
 import com.lagradost.cloudstream3.ui.settings.pickDownloadPath
 import com.lagradost.cloudstream3.ui.settings.utils.getChooseFolderLauncher
 import com.lagradost.cloudstream3.utils.AppContextUtils.getNameFull
-import com.lagradost.cloudstream3.utils.AppContextUtils.isCastApiAvailable
 import com.lagradost.cloudstream3.utils.AppContextUtils.loadCache
 import com.lagradost.cloudstream3.utils.AppContextUtils.openBrowser
 import com.lagradost.cloudstream3.utils.AppContextUtils.updateHasTrailers
@@ -104,7 +97,6 @@ import com.lagradost.cloudstream3.utils.getImageFromDrawable
 import com.lagradost.cloudstream3.utils.setText
 import com.lagradost.cloudstream3.utils.setTextHtml
 import com.lagradost.cloudstream3.utils.txt
-import java.net.URLEncoder
 import java.util.concurrent.ConcurrentLinkedDeque
 import kotlin.math.roundToInt
 
@@ -328,6 +320,8 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
         if (!LoadResponse.isTrailersEnabled) return
         currentTrailers = trailers?.sortedBy { -it.first.quality } ?: emptyList()
         loadTrailer()
+        // Zayn Play: the Trailer mini-action only shows when a trailer exists.
+        resultBinding?.resultTrailerButton?.isVisible = currentTrailers.isNotEmpty()
     }
 
     override fun onDestroyView() {
@@ -485,12 +479,26 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
 
         // ===== ===== =====
 
-        binding.resultSearch.isGone = storedData.name.isBlank()
-        binding.resultSearch.setOnClickListener {
-            QuickSearchFragment.pushSearch(activity, storedData.name)
-        }
-
         resultBinding?.apply {
+            // Zayn Play mini-actions (preview .mini-actions): Library opens
+            // the watch-status picker (was the bookmark FAB); Trailer
+            // replays the hero trailer and scrolls back to it.
+            resultLibraryButton.setOnClickListener { view ->
+                val current = viewModel.watchStatus.value ?: WatchType.NONE
+                activity?.showBottomDialog(
+                    WatchType.entries.map { entry -> view.context.getString(entry.stringRes) }.toList(),
+                    current.ordinal,
+                    view.context.getString(R.string.action_add_to_bookmarks),
+                    showApply = false,
+                    {}) {
+                    viewModel.updateWatchStatus(WatchType.entries[it], context)
+                }
+            }
+            resultTrailerButton.setOnClickListener {
+                loadTrailer()
+                resultScroll?.smoothScrollTo(0, 0)
+            }
+
             resultReloadConnectionerror.setOnClickListener {
                 viewModel.load(
                     activity,
@@ -571,13 +579,7 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                 }
             }
 
-            resultScroll.setOnScrollChangeListener(NestedScrollView.OnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                val dy = scrollY - oldScrollY
-                if (dy > 0) { //check for scroll down
-                    binding.resultBookmarkFab.shrink()
-                } else if (dy < -5) {
-                    binding.resultBookmarkFab.extend()
-                }
+            resultScroll.setOnScrollChangeListener(NestedScrollView.OnScrollChangeListener { _, _, scrollY, _, _ ->
                 if (!isFullScreenPlayer && player.getIsPlaying()) {
                     if (scrollY > (resultBinding?.fragmentTrailer?.playerBackground?.height
                             ?: scrollY)
@@ -601,95 +603,10 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                 } else resultOverlappingPanels.closePanels()
             }
 
-            resultMiniSync.setOnClickListener {
-                if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
-                    resultOverlappingPanels.openStartPanel()
-                } else resultOverlappingPanels.closePanels()
-            }
-
-            /*
-            resultMiniSync.setRecycledViewPool(ImageAdapter.sharedPool)
-            resultMiniSync.adapter = ImageAdapter(
-                nextFocusDown = R.id.result_sync_set_score,
-                clickCallback = { action ->
-                    if (action == IMAGE_CLICK || action == IMAGE_LONG_CLICK) {
-                        if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
-                            resultOverlappingPanels.openStartPanel()
-                        } else resultOverlappingPanels.closePanels()
-                    }
-                })
-            */
-            resultSubscribe.setOnClickListener {
-                viewModel.toggleSubscriptionStatus(context) { newStatus: Boolean? ->
-                    if (newStatus == null) return@toggleSubscriptionStatus
-
-                    val message = if (newStatus) {
-                        // Kinda icky to have this here, but it works.
-                        SubscriptionWorkManager.enqueuePeriodicWork(context)
-                        R.string.subscription_new
-                    } else {
-                        R.string.subscription_deleted
-                    }
-
-                    val name = (viewModel.page.value as? Resource.Success)?.value?.title
-                        ?: com.lagradost.cloudstream3.utils.txt(R.string.no_data)
-                            .asStringNull(context) ?: ""
-                    showToast(
-                        com.lagradost.cloudstream3.utils.txt(message, name),
-                        Toast.LENGTH_SHORT
-                    )
-                }
-                context?.let { openBatteryOptimizationSettings(it) }
-            }
-            resultFavorite.setOnClickListener {
-                viewModel.toggleFavoriteStatus(context) { newStatus: Boolean? ->
-                    if (newStatus == null) return@toggleFavoriteStatus
-
-                    val message = if (newStatus) {
-                        R.string.favorite_added
-                    } else {
-                        R.string.favorite_removed
-                    }
-
-                    val name = (viewModel.page.value as? Resource.Success)?.value?.title
-                        ?: com.lagradost.cloudstream3.utils.txt(R.string.no_data)
-                            .asStringNull(context) ?: ""
-                    showToast(
-                        com.lagradost.cloudstream3.utils.txt(message, name),
-                        Toast.LENGTH_SHORT
-                    )
-                }
-            }
-            mediaRouteButton.apply {
-                val chromecastSupport = api?.hasChromecastSupport == true
-                alpha = if (chromecastSupport) 1f else 0.3f
-                if (!chromecastSupport) {
-                    setOnClickListener {
-                        showToast(
-                            R.string.no_chromecast_support_toast,
-                            Toast.LENGTH_LONG
-                        )
-                    }
-                }
-                activity?.let { act ->
-                    if (act.isCastApiAvailable()) {
-                        try {
-                            CastButtonFactory.setUpMediaRouteButton(act, this)
-                            CastContext.getSharedInstance(act.applicationContext) {
-                                it.run()
-                            }.addOnCompleteListener {
-                                isGone = !it.isSuccessful
-                            }
-                            // this shit leaks for some reason
-                            //castContext.addCastStateListener { state ->
-                            //    media_route_button?.isGone = state == CastState.NO_DEVICES_AVAILABLE
-                            //}
-                        } catch (e: Exception) {
-                            logError(e)
-                        }
-                    }
-                }
-            }
+            // Zayn Play: the details top bar is ONLY the back button
+            // (preview scr-details ~1754). Mini-sync, subscribe, favourite
+            // and cast are gone from here — favourite lives on as the
+            // Library mini-action, cast lives in the player.
         }
 
         playerBinding?.apply {
@@ -778,32 +695,6 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                     resumeAction(storedData, resume)
                 }
             }
-        }
-
-        observeNullable(viewModel.subscribeStatus) { isSubscribed ->
-            binding.resultSubscribe.isVisible = isSubscribed != null
-            if (isSubscribed == null) return@observeNullable
-
-            val drawable = if (isSubscribed) {
-                R.drawable.ic_baseline_notifications_active_24
-            } else {
-                R.drawable.baseline_notifications_none_24
-            }
-
-            binding.resultSubscribe.setImageResource(drawable)
-        }
-
-        observeNullable(viewModel.favoriteStatus) { isFavorite ->
-            binding.resultFavorite.isVisible = isFavorite != null
-            if (isFavorite == null) return@observeNullable
-
-            val drawable = if (isFavorite) {
-                R.drawable.ic_baseline_favorite_24
-            } else {
-                R.drawable.ic_baseline_favorite_border_24
-            }
-
-            binding.resultFavorite.setImageResource(drawable)
         }
 
         observeNullable(viewModel.episodes) { episodes ->
@@ -986,7 +877,9 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                         }
                     }
 
-                    populateChips(resultTag, d.tags)
+                    // Zayn Play genre chips (preview .chips button): panel
+                    // bg, 1px line border, ink-2 text, 999px pill, 13.5sp.
+                    populateChips(resultTag, d.tags, R.style.ZaynDetailChip, R.attr.grayTextColor)
 
                     resultComingSoon.isVisible = d.comingSoon
                     resultDataHolder.isGone = d.comingSoon
@@ -1014,36 +907,7 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                     }
 
                     binding.apply {
-                        resultSearch.isGone = d.title.isBlank()
-                        resultSearch.setOnClickListener {
-                            QuickSearchFragment.pushSearch(activity, d.title)
-                        }
-
-                        resultShare.setOnClickListener {
-                            try {
-                                val i = Intent(Intent.ACTION_SEND)
-                                val nameBase64 =
-                                    base64Encode(d.apiName.toString().toByteArray(Charsets.UTF_8))
-                                val urlBase64 = base64Encode(d.url.toByteArray(Charsets.UTF_8))
-                                val encodedUri = URLEncoder.encode(
-                                    "$APP_STRING_SHARE:$nameBase64?$urlBase64",
-                                    "UTF-8"
-                                )
-                                val redirectUrl =
-                                    "https://recloudstream.github.io/csredirect?redirectto=$encodedUri"
-                                i.type = "text/plain"
-                                i.putExtra(Intent.EXTRA_SUBJECT, d.title)
-                                i.putExtra(Intent.EXTRA_TEXT, redirectUrl)
-                                startActivity(Intent.createChooser(i, d.title))
-                            } catch (e: Exception) {
-                                logError(e)
-                            }
-                        }
                         setUrl(d.url)
-                        resultBookmarkFab.apply {
-                            isVisible = true
-                            extend()
-                        }
                     }
                 }
 
@@ -1052,7 +916,6 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                     resultErrorText.text = storedData.url.plus("\n") + data.errorString
                 }
 
-                binding.resultBookmarkFab.isVisible = data is Resource.Success
                 resultFinishLoading.isVisible = data is Resource.Success
 
                 resultLoading.isVisible = data is Resource.Loading
@@ -1108,8 +971,6 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
                 list.filter { it.isSynced && it.hasAccount }.joinToString { it.name }
 
             val newList = list.filter { it.isSynced && it.hasAccount }
-
-            binding.resultMiniSync.isVisible = newList.isNotEmpty()
         }
 
 
@@ -1265,28 +1126,20 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
         }
 
         observe(viewModel.watchStatus) { watchType ->
-            binding.resultBookmarkFab.apply {
-                setText(watchType.stringRes)
-                if (watchType == WatchType.NONE) {
-                    context?.colorFromAttribute(R.attr.white)
-                } else {
-                    context?.colorFromAttribute(R.attr.colorPrimary)
-                }?.let {
-                    val colorState = ColorStateList.valueOf(it)
-                    iconTint = colorState
-                    setTextColor(colorState)
-                }
-
-                setOnClickListener { fab ->
-                    activity?.showBottomDialog(
-                        WatchType.entries.map { fab.context.getString(it.stringRes) }.toList(),
-                        watchType.ordinal,
-                        fab.context.getString(R.string.action_add_to_bookmarks),
-                        showApply = false,
-                        {}) {
-                        viewModel.updateWatchStatus(WatchType.entries[it], context)
-                    }
-                }
+            // Zayn Play Library mini-action (preview .mini-actions
+            // button.added): accent border + accent text/icon when the
+            // title is in the library, plain otherwise.
+            resultBinding?.resultLibraryButton?.apply {
+                val ctx = context ?: return@observe
+                val added = watchType != WatchType.NONE
+                val isDark = (ctx.resources.configuration.uiMode
+                    and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                val accent = if (isDark) 0xFFFF5A3C.toInt() else 0xFFCF2E1F.toInt()
+                val normal = ctx.colorFromAttribute(R.attr.textColor)
+                val line = ctx.colorFromAttribute(R.attr.zaynLineColor)
+                setTextColor(if (added) accent else normal)
+                iconTint = ColorStateList.valueOf(if (added) accent else normal)
+                strokeColor = ColorStateList.valueOf(if (added) accent else line)
             }
         }
 
@@ -1460,23 +1313,9 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
             }
         }
 
+        // Zayn Play: no recommendations button in the top bar (preview
+        // scr-details) — the More Like This rail is on the page itself.
         binding?.apply {
-            resultRecommendationsBtt.isGone = isInvalid
-            resultRecommendationsBtt.setOnClickListener {
-                val nextFocusDown = if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
-                    resultOverlappingPanels.openEndPanel()
-                    R.id.result_recommendations
-                } else {
-                    resultOverlappingPanels.closePanels()
-                    R.id.result_description
-                }
-                resultBinding?.apply {
-                    resultRecommendationsBtt.nextFocusDownId = nextFocusDown
-                    resultSearch.nextFocusDownId = nextFocusDown
-                    resultOpenInBrowser.nextFocusDownId = nextFocusDown
-                    resultShare.nextFocusDownId = nextFocusDown
-                }
-            }
             resultOverlappingPanels.setEndPanelLockState(if (isInvalid) OverlappingPanelsLayout.LockState.CLOSE else OverlappingPanelsLayout.LockState.UNLOCKED)
 
             rec?.map { it.apiName }?.distinct()?.let { apiNames ->
