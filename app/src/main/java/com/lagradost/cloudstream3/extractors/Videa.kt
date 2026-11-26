@@ -34,7 +34,7 @@ class Videa : ExtractorApi() {
 
             val webUrl = getXmlUrl(currentUrl) { cookie -> /* no-op, cookie not used */ } ?: return
             val response = app.get(webUrl)
-            val body = response.body
+            val body = response.body ?: return
             val rawBytes = body.bytes()
             body.close()
 
