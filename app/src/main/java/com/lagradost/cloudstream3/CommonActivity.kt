@@ -319,7 +319,7 @@ object CommonActivity {
     fun updateTheme(act: Activity) {
         val settingsManager = PreferenceManager.getDefaultSharedPreferences(act)
         if (settingsManager
-                .getString(act.getString(R.string.app_theme_key), "AmoledLight") == "System"
+                .getString(act.getString(R.string.app_theme_key), "System") == "System"
             && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         ) {
             loadThemes(act)
@@ -343,21 +343,22 @@ object CommonActivity {
         if (act == null) return
         val settingsManager = PreferenceManager.getDefaultSharedPreferences(act)
 
+        // Zayn Play: only System / Dark ("Black") / Light exist. A stored
+        // value from a deleted theme (Amoled, Dracula, ...) is migrated to
+        // System once, so the picker never shows a stale selection.
+        val storedTheme =
+            settingsManager.getString(act.getString(R.string.app_theme_key), "System") ?: "System"
+        val themeKey = if (storedTheme in setOf("System", "Black", "Light")) storedTheme else "System"
+        if (themeKey != storedTheme) {
+            settingsManager.edit().putString(act.getString(R.string.app_theme_key), themeKey).apply()
+        }
+
         val currentTheme =
-            when (settingsManager.getString(act.getString(R.string.app_theme_key), "AmoledLight")) {
+            when (themeKey) {
                 "System" -> mapSystemTheme(act)
                 "Black" -> R.style.AppTheme
                 "Light" -> R.style.LightMode
-                "Amoled" -> R.style.AmoledMode
-                "AmoledLight" -> R.style.AmoledModeLight
-                "Monet" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                    R.style.MonetMode else R.style.AppTheme
-
-                "Dracula" -> R.style.DraculaMode
-                "Lavender" -> R.style.LavenderMode
-                "SilentBlue" -> R.style.SilentBlueMode
-
-                else -> R.style.AppTheme
+                else -> mapSystemTheme(act)
             }
 
         val currentOverlayTheme =
