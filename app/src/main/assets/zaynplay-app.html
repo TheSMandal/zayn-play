@@ -86,6 +86,107 @@
         position:relative; flex:none;
       }
       @media (max-width:900px){ .phone{ max-height:none; } }
+
+      /* ---------- tablet + TV layouts (v0.1.2) ----------
+         The native shell passes ?form=tablet|tv; the body class switches the
+         whole layout. Phone keeps its own layout untouched. Values are the
+         preview v30 tablet (landscape 16:10) and TV (16:9) designs. */
+      .tv-nav{ display:none; }
+      body.form-tablet .phone, body.form-tv .phone{
+        width:100%; max-height:none; aspect-ratio:auto; height:100dvh;
+        background:transparent; border-radius:0; padding:0; box-shadow:none;
+      }
+      body.form-tablet .phone-screen, body.form-tv .phone-screen{ border-radius:0; }
+      /* --- tablet (landscape 16:10) --- */
+      body.form-tablet .screen{ padding-bottom:112px; }
+      body.form-tablet .appbar{ padding:12px 24px 6px; }
+      body.form-tablet .home-search{ margin:10px 22px 0; width:calc(100% - 44px); min-height:48px; }
+      body.form-tablet .prov-row{ padding:12px 22px 2px; }
+      body.form-tablet .prov-row button{ min-height:40px; }
+      body.form-tablet .hero{ margin:12px 22px 0; }
+      body.form-tablet .hero img{ height:288px; }
+      body.form-tablet .hero .hero-in{ left:20px; right:20px; bottom:16px; }
+      body.form-tablet .hero .cta .btn-play{ min-height:48px; }
+      body.form-tablet .row-head{ padding:20px 24px 10px; }
+      body.form-tablet .rail{ gap:13px; padding:0 22px 6px; }
+      body.form-tablet .card{ width:128px; }
+      body.form-tablet .card .poster{ width:128px; height:181px; }
+      body.form-tablet .card.wide{ width:208px; }
+      body.form-tablet .card.wide .poster{ width:208px; height:123px; }
+      body.form-tablet .grid{ grid-template-columns:repeat(5,1fr); }
+      body.form-tablet .synopsis{ max-width:660px; }
+      body.form-tablet .ep img{ width:124px; height:74px; }
+      body.form-tablet .tabbar button{ font-size:10.5px; }
+      body.form-tablet .tabbar button svg{ width:21px; height:21px; }
+      body.form-tablet .toast{ bottom:110px; }
+      /* --- TV (16:9) --- */
+      body.form-tv .statusbar, body.form-tv .tabbar, body.form-tv .home-search{ display:none !important; }
+      body.form-tv .tv-nav{
+        flex:none; display:flex; align-items:center; gap:10px;
+        padding:18px 30px 12px; position:relative; z-index:20;
+      }
+      body.form-tv .tv-nav .brand .logo-mark{ width:38px; height:38px; }
+      body.form-tv .tv-nav .brand b{ font-size:19px; }
+      body.form-tv .tv-nav .sp{ flex:1; }
+      body.form-tv .tv-nav button{
+        border:1px solid var(--app-line); background:var(--app-panel); color:var(--app-ink);
+        border-radius:999px; padding:9px 21px; font-size:15px; font-weight:700; min-height:44px;
+      }
+      body.form-tv .tv-nav button.on{
+        background:linear-gradient(90deg,var(--app-accent),#c70f06); color:#fff; border-color:transparent;
+        box-shadow:0 12px 24px -10px rgba(232,38,28,.55);
+      }
+      body.form-tv .screen{ padding-bottom:34px; }
+      body.form-tv .prov-row{ padding:4px 30px 2px; }
+      body.form-tv .prov-row button{ font-size:14px; min-height:42px; }
+      body.form-tv .hero{ margin:12px 30px 0; border-radius:18px; }
+      body.form-tv .hero img{ height:264px; }
+      body.form-tv .hero .hero-in{ left:24px; right:24px; bottom:18px; }
+      body.form-tv .hero h2{ font-size:27px; }
+      body.form-tv #h-hero-meta{ font-size:13px; }
+      body.form-tv .hero .cta .btn-play{ flex:none; min-width:210px; min-height:50px; }
+      body.form-tv .hero .cta .btn-ghost{ width:50px; height:50px; }
+      body.form-tv .row-head{ padding:22px 32px 10px; }
+      body.form-tv .row-head h3{ font-size:17.5px; }
+      body.form-tv .rail{ gap:16px; padding:2px 30px 10px; }
+      body.form-tv .card{ width:158px; }
+      body.form-tv .card .poster{ width:158px; height:224px; }
+      body.form-tv .card p{ font-size:13.5px; }
+      body.form-tv .card .rank{ font-size:40px; }
+      body.form-tv .card.wide{ width:248px; }
+      body.form-tv .card.wide .poster{ width:248px; height:147px; }
+      body.form-tv .grid{ grid-template-columns:repeat(6,1fr); }
+      body.form-tv .search-box{ min-height:52px; margin:14px 30px 4px; }
+      body.form-tv .page-title{ font-size:22px; }
+      body.form-tv .detail-body h2{ font-size:26px; }
+      body.form-tv .synopsis{ font-size:14.5px; max-width:840px; }
+      body.form-tv .ep img{ width:140px; height:82px; }
+      body.form-tv .toast{ bottom:44px; font-size:13.5px; }
+      /* TV player: bigger centre controls (the player already opens fullscreen) */
+      body.form-tv #scr-player{ padding-bottom:0; }
+      body.form-tv .v-center{ gap:30px; }
+      body.form-tv .v-center .big{ width:76px; height:76px; }
+      body.form-tv .v-center .big svg{ width:30px; height:30px; }
+      body.form-tv .v-top{ padding:14px 20px; }
+      body.form-tv .v-top .vt{ font-size:15px; }
+      body.form-tv .v-bottom{ padding:0 22px 16px; }
+      body.form-tv .v-watermark{ right:30px; bottom:104px; font-size:16px; }
+      /* TV focus ring (remote / D-pad): bright white + red ring */
+      body.form-tv .tv-focus{
+        outline:3px solid #fff !important; outline-offset:3px;
+        box-shadow:0 0 0 7px rgba(232,38,28,.95), 0 18px 34px -12px rgba(0,0,0,.7) !important;
+      }
+      body.form-tv .card.tv-focus{
+        outline:none !important; box-shadow:none !important;
+        transform:scale(1.055); position:relative; z-index:4;
+      }
+      body.form-tv .card.tv-focus .poster{
+        box-shadow:0 0 0 3px #fff, 0 0 0 8px #e8261c, 0 24px 40px -14px rgba(0,0,0,.75) !important;
+      }
+      body.form-tv .tv-nav, body.form-tv .tv-nav button{ transition:transform .16s ease, box-shadow .16s ease; }
+      @media (prefers-reduced-motion: reduce){
+        body.form-tv .tv-nav, body.form-tv .tv-nav button{ transition:none; }
+      }
       .phone-screen{
         position:relative; width:100%; height:100%; border-radius:36px; overflow:hidden;
         background:linear-gradient(180deg,#10121a 0%, #0a0a10 30%, #07080c 100%); color:var(--app-ink);
@@ -241,22 +342,28 @@
       }
       .card.wide .cw-thumb .bar i{ border-radius:0; }
 
-      /* bottom nav */
+      /* bottom nav — floating glass dock (user pick, Option 1): detached pill
+         bar; the active tab is a red gradient pill like an active provider tab */
       .tabbar{
-        position:absolute; left:0; right:0; bottom:0; z-index:50;
-        background:rgba(12,13,18,.97); border-top:1px solid var(--app-line);
-        display:flex; padding:8px 6px calc(10px + env(safe-area-inset-bottom));
+        position:absolute; left:12px; right:12px; bottom:12px; z-index:50;
+        border-radius:28px; border:1px solid rgba(255,255,255,.13);
+        background:rgba(16,17,24,.72); backdrop-filter:blur(18px) saturate(1.5); -webkit-backdrop-filter:blur(18px) saturate(1.5);
+        box-shadow:0 20px 38px -16px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.14);
+        display:flex; padding:6px; gap:6px;
       }
       .tabbar button{
         flex:1; background:none; border:0; color:var(--app-ink-2); position:relative;
         display:flex; flex-direction:column; align-items:center; gap:3px;
-        font-size:10.5px; font-weight:600; padding:5px 0 2px; min-height:52px; border-radius:12px;
+        font-size:10px; font-weight:600; padding:5px 0 2px; min-height:44px; border-radius:999px;
       }
-      .tabbar button svg{ width:21px; height:21px; }
-      .tabbar button.on{ color:#fff; }
-      .tabbar button.on svg{ color:#ff5a3c; }
+      .tabbar button svg{ width:20px; height:20px; }
+      .tabbar button.on{
+        background:linear-gradient(90deg,var(--app-accent),#c70f06); color:#fff;
+        box-shadow:0 10px 20px -8px rgba(232,38,28,.55), inset 0 1px 0 rgba(255,255,255,.3);
+      }
+      .tabbar button.on svg{ color:#fff; }
       .tabbar .dl-badge{
-        position:absolute; top:0; right:50%; margin-right:-24px; background:var(--app-accent); color:#fff;
+        position:absolute; top:-6px; right:50%; margin-right:-24px; background:var(--app-accent); color:#fff;
         font-size:9.5px; font-weight:700; min-width:16px; height:16px; border-radius:99px;
         display:grid; place-items:center; padding:0 4px;
       }
@@ -735,6 +842,10 @@
       }
       .stage-video img, .stage-video video{ transition:filter .2s ease; }
       .stage-video .v-top, .stage-video .v-center, .stage-video .v-bottom{ transition:opacity .25s ease; }
+      /* single-tap hides the player controls (v0.1.2): the video, watermark
+         and seek/gesture pills stay visible; menus close when hiding */
+      .stage-video.controls-hidden .v-top, .stage-video.controls-hidden .v-center,
+      .stage-video.controls-hidden .v-bottom{ opacity:0; pointer-events:none; }
       .v-center button{
         width:48px; height:48px; border-radius:50%;
         background:rgba(17,21,29,.30); border:1px solid rgba(255,255,255,.22);
@@ -985,12 +1096,15 @@
       .phone-screen.theme-light .card .bar{ background:#dfe3ea; }
       .phone-screen.theme-light .card.wide .cw-thumb .bar{ background:rgba(255,255,255,.35); }
       .phone-screen.theme-light .tabbar{
-        background:rgba(255,255,255,.94); border-top-color:var(--app-line);
-        box-shadow:0 -12px 28px -18px rgba(20,25,40,.28);
+        background:rgba(255,255,255,.78); border-color:rgba(20,22,29,.12);
+        box-shadow:0 20px 38px -16px rgba(20,25,40,.28), inset 0 1px 0 rgba(255,255,255,.6);
       }
       .phone-screen.theme-light .tabbar button{ color:#68727f; }
-      .phone-screen.theme-light .tabbar button.on{ color:#14161d; }
-      .phone-screen.theme-light .tabbar button.on svg{ color:#e8261c; }
+      .phone-screen.theme-light .tabbar button.on{
+        background:linear-gradient(90deg,var(--app-accent),#c70f06); color:#fff;
+        box-shadow:0 10px 20px -8px rgba(232,38,28,.55), inset 0 1px 0 rgba(255,255,255,.3);
+      }
+      .phone-screen.theme-light .tabbar button.on svg{ color:#fff; }
       .phone-screen.theme-light .search-box input{ color:#14161d; }
       .phone-screen.theme-light .ps-all{ background:#ffffff; border-color:rgba(20,22,29,.28); color:#cf2e1f; }
       .phone-screen.theme-light .search-note b{ color:#cf2e1f; }
@@ -1201,6 +1315,7 @@
     .setup-step .repo-search{margin:12px 0 4px}
     .setup-step .repo-add{margin:12px 0 4px}
     .repo-card{background:rgba(127,127,127,.07);border:1px solid rgba(127,127,127,.14);border-radius:14px;padding:12px}
+    .demo-badge{display:inline-block;vertical-align:1px;margin-left:6px;padding:2px 8px;border-radius:20px;background:#E8261C;color:#fff;font-size:10px;font-weight:700;letter-spacing:.4px}
     .repo-top{display:flex;gap:10px;align-items:flex-start}
     .repo-ava{width:38px;height:38px;border-radius:11px;color:#fff;font-weight:800;font-size:17px;display:flex;align-items:center;justify-content:center;flex:none}
     .repo-info{flex:1;min-width:0}
@@ -1427,8 +1542,25 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
     </style>
   </head>
   <body>
+  <script>
+    /* form factor from the native shell (?form=phone|tablet|tv): the class
+       switches the whole layout to the tablet / TV design before first paint */
+    try{
+      var _fm = (location.search.match(/[?&]form=(tablet|tv)/) || [])[1];
+      if (_fm) document.body.classList.add('form-' + _fm);
+    }catch(e){}
+  </script>
     <div class="phone" id="phone">
       <div class="phone-screen theme-dark">
+              <!-- TV top nav (form-tv only): the bottom tab bar is hidden on TV -->
+              <nav class="tv-nav" aria-label="TV navigation">
+                <span class="brand"><span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 64 64"><defs><linearGradient id="lg-tv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5147"/><stop offset="1" stop-color="#b3000c"/></linearGradient></defs><rect x="4" y="4" width="56" height="56" rx="15" fill="url(#lg-tv)"/><g fill="#fff"><polygon points="19,13 47,13 31,41 49,41 49,53 17,53 33,25 19,25"/></g><polygon points="28.5,27.5 40,33 28.5,38.5" fill="#c4000b"/></svg></span><b>ZAYN <span>PLAY</span></b></span>
+                <span class="sp"></span>
+                <button class="on" data-go="home">Home</button>
+                <button data-go="search">Search</button>
+                <button data-go="library">Library</button>
+                <button data-go="settings">Settings</button>
+              </nav>
               <!-- splash: shows when the app opens (logo #1 — Crimson Play) -->
               <div class="splash hide" id="splash" role="img" aria-label="Zayn Play — ONE APPS EVERY UNIVERSE — Design by Samim Mandal">
                 <div class="splash-bokeh" aria-hidden="true">
@@ -2439,7 +2571,7 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
               providers[key] = { name: site.name, parent: pn, url: site.url, lang: site.lang,
                 flag: flagFor(pn, r), types: provTypes(pn), hasSettings: !!SETTINGS_PROVIDERS[pn],
                 color: PALETTE[hashStr(pn) % PALETTE.length], hero: keys[0],
-                heroTag: r.name.toUpperCase(), trending: keys.slice(0,5),
+                heroTag: r.name.toUpperCase() + (r.id === 'cspr' ? ' • ডেমো' : ''), trending: keys.slice(0,5),
                 series: keys.filter(function(k){ return titles[k].type === 'series'; }),
                 movies: keys.filter(function(k){ return titles[k].type === 'movie'; }) };
             });
@@ -2523,14 +2655,110 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
         var tab = TAB_FOR[name] || name;
         var tabs = document.querySelectorAll('#phone .tabbar button[data-go]');
         for (var j=0;j<tabs.length;j++) tabs[j].classList.toggle('on', tabs[j].getAttribute('data-go') === tab);
+        var tvtabs = document.querySelectorAll('#phone .tv-nav button[data-go]');
+        for (var m=0;m<tvtabs.length;m++) tvtabs[m].classList.toggle('on', tvtabs[m].getAttribute('data-go') === tab);
         var sw = document.querySelectorAll('.switcher button');
         var hasOwn = document.querySelector('.switcher button[data-go="' + name + '"]');
         var pressTarget = hasOwn ? name : tab;
         for (var k=0;k<sw.length;k++){
           sw[k].setAttribute('aria-pressed', sw[k].getAttribute('data-go') === pressTarget ? 'true' : 'false');
         }
+        if (document.body.classList.contains('form-tv')) setTimeout(tvResetFocus, 40);
       }
 
+      /* ---- TV D-pad / remote navigation (form-tv only, v0.1.2) ----
+         Ported from the preview v30 TV engine: spatial focus movement
+         (score = primary distance + perpendicular x 2.2, 8px threshold),
+         Enter/Space activates, Escape/Backspace goes back. On a real TV
+         there is no pointer, so TV mode is always "armed". */
+      var tvFocusEl = null;
+      function isTvForm(){ return document.body.classList.contains('form-tv'); }
+      function tvFocusables(){
+        var out = [];
+        if (!document.querySelector('.phone-screen.fs-on')){
+          var nav = document.querySelectorAll('#phone .tv-nav button');
+          for (var i=0;i<nav.length;i++) out.push(nav[i]);
+        }
+        var scr = document.querySelector('#phone .screen.on');
+        if (scr){
+          var els = scr.querySelectorAll('button, input, select, textarea, [data-open-player]');
+          for (var j=0;j<els.length;j++){
+            var el = els[j];
+            if (el.offsetParent === null) continue;
+            if (el.disabled) continue;
+            if (el.closest('.tabbar')) continue;
+            out.push(el);
+          }
+        }
+        return out;
+      }
+      function tvSetFocus(el){
+        if (tvFocusEl) tvFocusEl.classList.remove('tv-focus');
+        tvFocusEl = el || null;
+        if (tvFocusEl){
+          tvFocusEl.classList.add('tv-focus');
+          try{ tvFocusEl.scrollIntoView({ block:'nearest', inline:'nearest' }); }catch(e){}
+        }
+      }
+      function tvResetFocus(){
+        if (!isTvForm()) return;
+        var scr = document.querySelector('#phone .screen.on');
+        if (!scr){ tvSetFocus(null); return; }
+        var pref = null;
+        if (scr.id === 'scr-home') pref = document.getElementById('h-hero-play');
+        else if (scr.id === 'scr-details') pref = scr.querySelector('[data-open-player]');
+        else if (scr.id === 'scr-player') pref = document.getElementById('p-toggle');
+        if (pref && pref.offsetParent !== null){ tvSetFocus(pref); return; }
+        var f = tvFocusables();
+        tvSetFocus(f.length ? f[0] : null);
+      }
+      function tvMoveFocus(dir){
+        if (!tvFocusEl){ tvResetFocus(); return; }
+        var r = tvFocusEl.getBoundingClientRect();
+        var cx = r.left + r.width/2, cy = r.top + r.height/2;
+        var best = null, bestScore = Infinity;
+        tvFocusables().forEach(function(el){
+          if (el === tvFocusEl) return;
+          var b = el.getBoundingClientRect();
+          var ex = b.left + b.width/2, ey = b.top + b.height/2;
+          var dx = ex - cx, dy = ey - cy;
+          var primary, perp;
+          if (dir === 'right'){ if (dx <= 8) return; primary = dx; perp = Math.abs(dy); }
+          else if (dir === 'left'){ if (-dx <= 8) return; primary = -dx; perp = Math.abs(dy); }
+          else if (dir === 'down'){ if (dy <= 8) return; primary = dy; perp = Math.abs(dx); }
+          else { if (-dy <= 8) return; primary = -dy; perp = Math.abs(dx); }
+          var score = primary + perp * 2.2;
+          if (score < bestScore){ bestScore = score; best = el; }
+        });
+        if (best) tvSetFocus(best);
+      }
+      document.addEventListener('keydown', function(e){
+        if (!isTvForm()) return;
+        var t = e.target;
+        var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT');
+        if (e.key === 'Escape' || (e.key === 'Backspace' && !typing)){
+          e.preventDefault();
+          if (window.ZaynApp) ZaynApp.goBack(); else go('home');
+          setTimeout(tvResetFocus, 80);
+          return;
+        }
+        if (typing) return;
+        if (e.key === 'ArrowRight'){ e.preventDefault(); tvMoveFocus('right'); }
+        else if (e.key === 'ArrowLeft'){ e.preventDefault(); tvMoveFocus('left'); }
+        else if (e.key === 'ArrowDown'){ e.preventDefault(); tvMoveFocus('down'); }
+        else if (e.key === 'ArrowUp'){ e.preventDefault(); tvMoveFocus('up'); }
+        else if (e.key === 'Enter' || e.key === ' '){
+          e.preventDefault();
+          if (tvFocusEl) tvFocusEl.click();
+          setTimeout(tvResetFocus, 80);
+        }
+      });
+      /* a tap / click on TV also moves the remote focus there */
+      document.addEventListener('click', function(e){
+        if (!isTvForm()) return;
+        var f = e.target.closest ? e.target.closest('button, input, [data-open-player]') : null;
+        if (f) tvSetFocus(f);
+      });
       function cardHTML(key, smallText, rank){
         var t = TITLES[key];
         var inner = rank
@@ -2735,6 +2963,9 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
         populatePlayer(title);
         startStream(title);
         go('player');
+        /* controls start visible on every new title */
+        var stg0 = document.querySelector('#scr-player .stage-video');
+        if (stg0) stg0.classList.remove('controls-hidden');
         /* play always opens directly in fullscreen landscape — no separate
            fullscreen tap needed (user rule, 2026-11-25) */
         if (!fsOn) setFS(true);
@@ -3418,13 +3649,35 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
       document.getElementById('seek-back').addEventListener('click', function(){ doSeek(-10); });
       document.getElementById('seek-fwd').addEventListener('click', function(){ doSeek(10); });
       var suppressTapUntil = 0;
-      /* a plain tap on a side seeks right away (left −10s, right +10s);
-         a double-tap is simply two taps, so it seeks twice — the ±10s
-         buttons and the centre play/pause button work as before */
+      /* single tap = show / hide the controls (never seeks); double-tap =
+         ±10s seek. A tap waits ~280ms: a second tap on the same side turns
+         it into a double-tap seek, otherwise the single tap toggles the
+         controls. The ±10s buttons and the centre play/pause button work
+         as before. */
+      var tapTimer = null, tapSide = null;
+      function toggleControls(){
+        var stg = document.querySelector('#scr-player .stage-video');
+        var hidden = stg.classList.toggle('controls-hidden');
+        if (hidden){ closeMenus(); sheetEl.classList.remove('open'); volRail.classList.remove('open'); }
+      }
       function zoneTap(side){
         if (Date.now() < suppressTapUntil) return;
-        doSeek(side === 'left' ? -10 : 10);
+        if (tapTimer && tapSide === side){
+          clearTimeout(tapTimer); tapTimer = null; tapSide = null;
+          doSeek(side === 'left' ? -10 : 10);
+          return;
+        }
+        if (tapTimer){ clearTimeout(tapTimer); tapTimer = null; tapSide = null; }
+        tapSide = side;
+        tapTimer = setTimeout(function(){ tapTimer = null; tapSide = null; toggleControls(); }, 280);
       }
+      /* a tap on the middle of the stage (not on a button) also toggles the
+         controls — the tap zones cover the sides, .v-center covers the rest */
+      stageEl.addEventListener('click', function(e){
+        if (e.target.closest('button, input, a, .quality-menu, .vol-rail, .glass-sheet')) return;
+        if (Date.now() < suppressTapUntil) return;
+        toggleControls();
+      })
       document.getElementById('zone-l').addEventListener('click', function(){ zoneTap('left'); });
       document.getElementById('zone-r').addEventListener('click', function(){ zoneTap('right'); });
       renderTime();
@@ -3815,6 +4068,47 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
       var ST = { list: REPOS.slice(), installed: {}, provOn: {}, autoOff: {}, health: {}, open: {}, upd: {},
                  q: { setup: '', settings: '' }, filter: 'all', round: 1, uround: 1, confirmDel: '', testMsg: {}, ptest: {},
                  pin: {}, customSites: {} };
+      /* ===== DEMO first-check (v0.1.2) — the demo repo (cspr) comes
+         pre-installed with its three providers ON, so Home shows provider
+         tabs + posters on first launch and the demo video plays. ST is saved
+         to localStorage on every change (saveST runs in rebuildCatalog) and
+         restored on boot, so installs / provider switches survive a restart.
+         Demo defaults apply only when nothing was saved yet. REMOVE this
+         whole block in the engine phase, when real repos take over. ===== */
+      var DEMO_ST_KEY = 'zayn-st';
+      function demoDefaults(){
+        return { installed: { cspr: true },
+                 provOn: { 'cspr|Dailymotion': true, 'cspr|Invidious': true, 'cspr|Twitch': true } };
+      }
+      function saveST(){
+        try{
+          localStorage.setItem(DEMO_ST_KEY, JSON.stringify({
+            list: ST.list, installed: ST.installed, provOn: ST.provOn,
+            autoOff: ST.autoOff, pin: ST.pin, customSites: ST.customSites
+          }));
+        }catch(e){}
+      }
+      function loadST(){
+        try{
+          var raw = localStorage.getItem(DEMO_ST_KEY);
+          if (!raw) return false;
+          var s = JSON.parse(raw);
+          if (!s || typeof s !== 'object') return false;
+          if (Array.isArray(s.list) && s.list.length) ST.list = s.list;
+          if (s.installed && typeof s.installed === 'object') ST.installed = s.installed;
+          if (s.provOn && typeof s.provOn === 'object') ST.provOn = s.provOn;
+          if (s.autoOff && typeof s.autoOff === 'object') ST.autoOff = s.autoOff;
+          if (s.pin && typeof s.pin === 'object') ST.pin = s.pin;
+          if (s.customSites && typeof s.customSites === 'object') ST.customSites = s.customSites;
+          return true;
+        }catch(e){ return false; }
+      }
+      if (!loadST()){
+        var dd = demoDefaults();
+        ST.installed = dd.installed;
+        ST.provOn = dd.provOn;
+        saveST();
+      }
       function nsfwOn(){
         var sw = document.querySelector('#scr-set-providers [data-switch][aria-label="Enable NSFW on supported Extensions"]');
         return !!sw && sw.getAttribute('aria-checked') === 'true';
@@ -3874,6 +4168,7 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
         });
       }
       function rebuildCatalog(){
+        saveST();
         var c = buildCatalog({ list: ST.list, installed: ST.installed, provOn: effProvOn(), customSites: ST.customSites, nsfw: nsfwOn() });
         TITLES = c.titles; PROVIDERS = c.providers;
         var row = document.getElementById('prov-row');
@@ -3904,7 +4199,7 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
         var col = PALETTE[hashStr(r.id) % PALETTE.length];
         var h = '<div class="repo-card" data-rcard="' + r.id + '">';
         h += '<div class="repo-top"><span class="repo-ava" style="background:' + col + '">' + r.name.charAt(0).toUpperCase() + '</span>';
-        h += '<span class="repo-info"><b>' + r.name + '</b><small>' + r.desc + '</small><span class="repo-meta">' + r.tags.join(' • ') + ' • ' + r.plugins.length + ' providers' + (r.code ? ' • code: ' + r.code : '') + '</span></span>';
+        h += '<span class="repo-info"><b>' + r.name + (r.id === 'cspr' ? ' <span class="demo-badge">ডেমো</span>' : '') + '</b><small>' + r.desc + '</small><span class="repo-meta">' + r.tags.join(' • ') + ' • ' + r.plugins.length + ' providers' + (r.code ? ' • code: ' + r.code : '') + '</span></span>';
         if (!inst) h += '<button class="repo-act install" data-rinstall="' + r.id + '">Install</button>';
         else h += '<button class="repo-act open" data-ropen="' + r.id + '">' + (ST.open[r.id] ? 'বন্ধ করুন' : 'প্রোভাইডার') + '</button>';
         h += '</div>';
