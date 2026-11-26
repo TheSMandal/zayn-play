@@ -35,6 +35,7 @@ import app.netlify.zaynplay.engine.ZaynDownloads
 import app.netlify.zaynplay.engine.ZaynEngine
 import app.netlify.zaynplay.engine.ZaynPlayer
 import com.lagradost.api.setContext
+import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.network.initClient
 import com.lagradost.cloudstream3.plugins.PluginManager
@@ -273,6 +274,10 @@ class MainActivity : AppCompatActivity() {
         // attempted, even if it failed.
         engineStore = EngineStore(this)
         EngineApp.init(this, engineStore)
+        // (v0.2.6) Host-compat: plugins read the live activity via
+        // CommonActivity.INSTANCE.getActivity() (e.g. Cloudflare
+        // dialogs, donation prompts). Point it at this activity.
+        CommonActivity.setActivityInstance(this)
         app.initClient(this)
         setContext(applicationContext)
         // Phase C: the headless player + downloads, owned here. Their
@@ -376,6 +381,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // (v0.2.6) Re-point CommonActivity at this activity on every
+        // resume, so plugins always see the live one.
+        CommonActivity.setActivityInstance(this)
         // FIX 6: resume the WebView's rendering as soon as the activity
         // returns, so the last screen repaints at once instead of leaving
         // a black frame (window/WebView background) while it catches up.
