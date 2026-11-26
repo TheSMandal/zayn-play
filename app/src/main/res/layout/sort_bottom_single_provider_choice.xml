@@ -1,40 +1,76 @@
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play provider picker row (preview .pk-row): 48dp min-height,
+     13dp radius, name 14sp bold + 11sp sub-line, gear 32dp, check #ff8a70.
+     Selected row gets the red tint via zayn_picker_row_bg (activated). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-     >
-    <TextView
-        android:id="@+id/text1"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        style="@style/CheckLabel"
-        android:layout_gravity="center"
-        tools:text="hello" />
+    android:background="@drawable/zayn_picker_row_bg"
+    android:gravity="center_vertical"
+    android:minHeight="48dp"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp">
+
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
-        android:orientation="horizontal">
+        android:layout_weight="1"
+        android:orientation="vertical">
 
-        <ImageView
-            android:id="@+id/action_settings"
-            android:layout_width="wrap_content"
+        <TextView
+            android:id="@+id/text1"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_baseline_tune_24"
-            android:visibility="gone"
-            tools:visibility="visible"
-            android:contentDescription="@string/title_settings" />
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="?attr/textColor"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            tools:text="NetMirror" />
 
-        <ImageView
-            android:id="@+id/pinicon"
-            android:layout_width="50dp"
-            android:layout_height="24dp"
-            android:layout_gravity="center_vertical"
-            android:src="@drawable/pin_ic"
-            android:visibility="gone"
-            tools:visibility="visible"
-            tools:ignore="RtlHardcoded" />
+        <TextView
+            android:id="@+id/text2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="?attr/grayTextColor"
+            android:textSize="11sp"
+            tools:text="English" />
     </LinearLayout>
-</FrameLayout>
+
+    <ImageView
+        android:id="@+id/pinicon"
+        android:layout_width="50dp"
+        android:layout_height="24dp"
+        android:layout_gravity="center_vertical"
+        android:src="@drawable/pin_ic"
+        android:visibility="gone"
+        tools:ignore="RtlHardcoded"
+        tools:visibility="visible" />
+
+    <ImageView
+        android:id="@+id/action_settings"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/title_settings"
+        android:padding="6dp"
+        android:src="@drawable/ic_baseline_tune_24"
+        android:visibility="gone"
+        app:tint="#FF8A70"
+        tools:visibility="visible" />
+
+    <ImageView
+        android:id="@+id/check_icon"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="4dp"
+        android:src="@drawable/ic_baseline_check_24"
+        android:visibility="gone"
+        app:tint="#FF8A70"
+        tools:visibility="visible" />
+</LinearLayout>
