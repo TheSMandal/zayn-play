@@ -115,8 +115,17 @@ class EngineStore(private val context: Context) {
             "providerOrder" to emptyList<String>(),
             "providerPin" to JSONObject(),
             "jsdelivrProxy" to false,
-            "enableAdult" to false
+            "enableAdult" to false,
+            // v31 "which repos auto-download" multi-pick (inst.set.plugRepos).
+            "plugRepos" to emptyList<String>()
         )
+
+        /** Phase C stores (all JSON objects in the same DataStore). */
+        const val KEY_LIBRARY = "zayn/library"
+        const val KEY_PROGRESS = "zayn/progress"
+        const val KEY_DOWNLOADS = "zayn/downloads"
+        const val KEY_ACCOUNTS = "zayn/accounts"
+        const val KEY_LAST_LINK = "zayn/lastLink"
     }
 
     init {
@@ -299,5 +308,30 @@ class EngineStore(private val context: Context) {
             for (k in doomed) map.remove(k)
             writeMap(key, map)
         }
+    }
+
+    // ---- Phase C: generic JSON-object maps (library / progress /
+    // downloads / accounts / last-link). One DataStore string per map,
+    // values are JSON objects keyed by a stable id. ----
+
+    fun readJsonMap(key: String): JSONObject = readMap(key)
+
+    fun writeJsonMap(key: String, map: JSONObject) = writeMap(key, map)
+
+    fun mapEntry(key: String, entryId: String): JSONObject? {
+        val map = readMap(key)
+        return if (map.has(entryId)) map.optJSONObject(entryId) else null
+    }
+
+    fun putMapEntry(key: String, entryId: String, entry: JSONObject) {
+        val map = readMap(key)
+        map.put(entryId, entry)
+        writeMap(key, map)
+    }
+
+    fun removeMapEntry(key: String, entryId: String) {
+        val map = readMap(key)
+        map.remove(entryId)
+        writeMap(key, map)
     }
 }
