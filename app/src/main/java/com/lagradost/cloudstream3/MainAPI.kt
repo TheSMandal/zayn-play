@@ -1,3 +1,4 @@
+@file:OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
 @file:Suppress(
     "UNUSED",
     "UnusedReceiverParameter",
@@ -46,8 +47,8 @@ import kotlin.io.encoding.Base64
 import kotlin.jvm.JvmName
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
-import kotlin.time.Clock
-import kotlin.time.Instant
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 
 /**
  * API available only on prerelease builds.
@@ -1199,7 +1200,6 @@ fun TvType.isAnimeOp(): Boolean {
  * @property url Subtitle file url to download/load the file.
  * @see newSubtitleFile
  * */
-@ConsistentCopyVisibility
 data class SubtitleFile private constructor(
     var lang: String,
     var url: String,
@@ -1240,7 +1240,6 @@ suspend fun newSubtitleFile(
  * @property headers Optional headers for the audio file request.
  * @see newAudioFile
  * */
-@ConsistentCopyVisibility
 @Serializable
 data class AudioFile internal constructor(
     @JsonProperty("url") @SerialName("url") var url: String,
@@ -2755,7 +2754,7 @@ fun fetchUrls(text: String?): List<String> {
 fun isUpcoming(dateString: String?): Boolean {
     return runCatching {
         val fmt = DateTimeComponents.Format {
-            year(); char('-'); monthNumber(); char('-'); day()
+            year(); char('-'); monthNumber(); char('-'); dayOfMonth()
         }
         val components = DateTimeComponents.parse(dateString ?: return false, fmt)
         /**
