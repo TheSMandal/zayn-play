@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play glass circle button (preview .back-btn):
+     38dp circle, rgba(10,13,18,.6), white icon. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#99100D12" />
+</shape>
