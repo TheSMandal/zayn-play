@@ -1937,12 +1937,6 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
                     <button data-set="quality" data-val="480p" data-short="480p"><span>480p</span><small>SD</small></button>
                     <button data-set="quality" data-val="360p" data-short="360p"><span>360p</span><small>Data saver</small></button>
                   </div>
-                  <div class="quality-menu" id="ratio-menu" role="menu" aria-label="Aspect ratio">
-                    <button data-set="ratio" data-ratio="fit" data-val="Fit" data-short="Fit"><span>Fit</span><small>Full frame, no crop</small></button>
-                    <button data-set="ratio" data-ratio="fill" data-val="Fill" data-short="Fill" class="on"><span>Fill</span><small>Fills the screen</small></button>
-                    <button data-set="ratio" data-ratio="169" data-val="16:9" data-short="16:9"><span>16:9</span><small>Widescreen</small></button>
-                    <button data-set="ratio" data-ratio="43" data-val="4:3" data-short="4:3"><span>4:3</span><small>Classic TV</small></button>
-                  </div>
                   <div class="glass-sheet" id="set-sheet" role="dialog" aria-label="Player settings">
                     <div class="gs-head"><b>Player Settings</b><button class="gs-x" id="sheet-close" aria-label="Close settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
                     <div class="gs-row gs-slider"><span>Brightness</span><input type="range" id="bri-range" min="40" max="130" value="100" aria-label="Brightness" /><span class="gs-val" id="bri-val">100</span></div>
@@ -3387,9 +3381,34 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
           else menus[i].classList.remove('open');
         }
       }
-      ['subs-btn','audio-btn','speed-btn','quality-btn','ratio-btn'].forEach(function(bid){
+      ['subs-btn','audio-btn','speed-btn','quality-btn'].forEach(function(bid){
         var b = document.getElementById(bid);
         if (b) b.addEventListener('click', function(){ toggleMenu(bid.replace('-btn', '-menu')); });
+      });
+      /* Aspect ratio: tap the Aspect button to cycle directly — Fit → Fill →
+         16:9 → 4:3 → Fit … No menu opens for aspect ratio (tap only the
+         aspect control and it changes at once). */
+      var RATIO_OPTS = [
+        { ratio:'fit', val:'Fit', short:'Fit' },
+        { ratio:'fill', val:'Fill', short:'Fill' },
+        { ratio:'169', val:'16:9', short:'16:9' },
+        { ratio:'43', val:'4:3', short:'4:3' }
+      ];
+      var curRatioIdx = 1; /* default Fill — matches the pill label + no stage class */
+      function applyRatioOpt(opt){
+        var stg = document.querySelector('#scr-player .stage-video');
+        stg.classList.remove('r-fit'); stg.classList.remove('r-169'); stg.classList.remove('r-43');
+        if (opt.ratio === 'fit') stg.classList.add('r-fit');
+        else if (opt.ratio === '169') stg.classList.add('r-169');
+        else if (opt.ratio === '43') stg.classList.add('r-43');
+        var lbl = document.getElementById('ratio-label');
+        if (lbl) lbl.textContent = opt.short;
+        toast(SET_NAME.ratio + ': ' + opt.val);
+      }
+      var ratioBtn = document.getElementById('ratio-btn');
+      if (ratioBtn) ratioBtn.addEventListener('click', function(){
+        curRatioIdx = (curRatioIdx + 1) % RATIO_OPTS.length;
+        applyRatioOpt(RATIO_OPTS[curRatioIdx]);
       });
       /* Source button (replaces the old in-player Resolution/quality picker):
          quality auto-picks from the Settings preferred resolution; here the
@@ -3408,14 +3427,6 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
           if (lbl) lbl.textContent = b.getAttribute('data-short');
           var sv = document.getElementById('sheet-val-' + set);
           if (sv) sv.textContent = b.getAttribute('data-short');
-          if (set === 'ratio'){
-            var stg = document.querySelector('#scr-player .stage-video');
-            stg.classList.remove('r-fit'); stg.classList.remove('r-169'); stg.classList.remove('r-43');
-            var rv = b.getAttribute('data-ratio');
-            if (rv === 'fit') stg.classList.add('r-fit');
-            else if (rv === '169') stg.classList.add('r-169');
-            else if (rv === '43') stg.classList.add('r-43');
-          }
           /* DEMO video: the Speed choice really changes the sample's rate */
           if (set === 'speed'){ var dv = document.getElementById('demo-video'); var r = parseFloat(b.getAttribute('data-val')); if (dv && isFinite(r) && r > 0) dv.playbackRate = r; }
           b.closest('.quality-menu').classList.remove('open');
