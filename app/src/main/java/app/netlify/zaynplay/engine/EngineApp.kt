@@ -42,7 +42,7 @@ object EngineApp {
     fun syncFlagsFromStore() {
         val s = store ?: return
         jsdelivrProxy = s.getSettingBoolean("jsdelivrProxy", false)
-        dnsMode = dnsStringToInt(s.getSettingString("dns", "cloudflare"))
+        dnsMode = dnsStringToInt(s.getSettingString("dns", "system"))
     }
 
     /** jsDelivr proxy flag, read by RepositoryManager.convertRawGitUrl. */
