@@ -25,7 +25,7 @@ import com.lagradost.cloudstream3.utils.DataStore.setKey
 object EngineApp {
     // internal (not private): the public inline getKey fns access it;
     // public-API inline functions may not touch private members.
-    internal var appContext: Context? = null
+    @PublishedApi internal var appContext: Context? = null
     private var store: EngineStore? = null
 
     /** The application context; null until init() runs in MainActivity. */
