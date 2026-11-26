@@ -1,4 +1,6 @@
+@file:OptIn(InternalAPI::class)
 package app.netlify.zaynplay
+import com.lagradost.cloudstream3.InternalAPI
 
 import android.app.UiModeManager
 import android.content.Context
