@@ -388,16 +388,24 @@ object RepositoryManager {
         // network, never from the OkHttp cache (whose responses are
         // rewritten to max-stale=68y by CacheInterceptor, so a stale or
         // poisoned entry would otherwise be served forever).
+        // (v0.2.3) timeout=120s: a .cs3 on a slow network gets a fair
+        // chance; the callers bound it anyway (providerTest 45s,
+        // providerSetOn JS 60s), so this only stops the HTTP layer
+        // giving up first. Manifest fetch timeouts are untouched.
         val response = try {
             app.get(
                 convertRawGitUrl(pluginUrl),
+                timeout = 120,
                 cacheControlOverride = okhttp3.CacheControl.FORCE_NETWORK
             )
         } catch (e: Exception) {
             tempFile.delete()
-            lastDownloadError = "download_failed"
+            // (v0.2.3) A socket timeout is a timeout, not a generic
+            // download failure — the UI can say so honestly.
+            val code = if (e is java.net.SocketTimeoutException) "timeout" else "download_failed"
+            lastDownloadError = code
             EngineLogger.log("download", "GET failed ${file.name}: ${e.javaClass.simpleName} ${e.message}")
-            return PluginDownloadResult.Err("download_failed", "Could not reach the server (${e.javaClass.simpleName})")
+            return PluginDownloadResult.Err(code, "Could not reach the server (${e.javaClass.simpleName})")
         }
         if (!response.isSuccessful) {
             tempFile.delete()
@@ -421,9 +429,11 @@ object RepositoryManager {
             }
         } catch (e: Exception) {
             tempFile.delete()
-            lastDownloadError = "download_failed"
+            // (v0.2.3) Same timeout mapping as the GET catch above.
+            val code = if (e is java.net.SocketTimeoutException) "timeout" else "download_failed"
+            lastDownloadError = code
             EngineLogger.log("download", "body read failed ${file.name}: ${e.message}")
-            return PluginDownloadResult.Err("download_failed", "Download interrupted (${e.javaClass.simpleName})")
+            return PluginDownloadResult.Err(code, "Download interrupted (${e.javaClass.simpleName})")
         }
         if (tempFile.length() == 0L) {
             tempFile.delete()
