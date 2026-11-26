@@ -23,7 +23,9 @@ import com.lagradost.cloudstream3.utils.DataStore.setKey
  * mode), synced from EngineStore settings at init and on settingsSet.
  */
 object EngineApp {
-    private var appContext: Context? = null
+    // internal (not private): the public inline getKey fns access it;
+    // public-API inline functions may not touch private members.
+    internal var appContext: Context? = null
     private var store: EngineStore? = null
 
     /** The application context; null until init() runs in MainActivity. */
