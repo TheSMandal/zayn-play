@@ -57,6 +57,16 @@
         <item name="colorOnPrimary">@color/whiteText</item>
         <item name="grayTextColor">@color/grayTextColor</item>
         <item name="primaryGrayBackground">@color/primaryGrayBackground</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_dark</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_dark</item>
+        <item name="zaynNavActiveIcon">#FF5A3C</item>
+        <item name="zaynNavActiveLabel">#FFFFFF</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_dark</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_dark</item>
+        <item name="zaynPanelColor">#14161D</item>
+        <item name="zaynLineColor">#262A35</item>
+        <item name="zaynChipSelectedBackground">#FFFFFF</item>
+        <item name="zaynChipSelectedText">#0A0A0F</item>
         <item name="primaryBlackBackground">@color/primaryBlackBackground</item>
         <item name="splashBackground">@color/primaryBlackBackground</item>
         <item name="iconGrayBackground">@color/iconGrayBackground</item>
@@ -88,14 +98,42 @@
 
     <style name="AmoledModeLight" parent="AmoledMode">
         <item name="primaryGrayBackground">@color/amoledModeLight</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_dark</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_dark</item>
+        <item name="zaynNavActiveIcon">#FF5A3C</item>
+        <item name="zaynNavActiveLabel">#FFFFFF</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_dark</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_dark</item>
+        <item name="zaynPanelColor">#14161D</item>
+        <item name="zaynLineColor">#262A35</item>
+        <item name="zaynChipSelectedBackground">#FFFFFF</item>
+        <item name="zaynChipSelectedText">#0A0A0F</item>
         <item name="boxItemBackground">@color/amoledModeLight</item>
+    </style>
+
+    <style name="ZaynDetailChip" parent="@style/Widget.Material3.Chip.Filter">
+        <item name="chipBackgroundColor">?attr/zaynPanelColor</item>
+        <item name="chipStrokeColor">?attr/zaynLineColor</item>
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="chipCornerRadius">999dp</item>
+        <item name="chipMinHeight">36dp</item>
+        <item name="chipStartPadding">15dp</item>
+        <item name="chipEndPadding">15dp</item>
+        <item name="android:textSize">13.5sp</item>
+        <item name="android:textColor">?attr/grayTextColor</item>
+        <item name="textColor">?attr/grayTextColor</item>
     </style>
 
     <style name="ChipFilled" parent="@style/Widget.Material3.Chip.Filter">
         <item name="chipBackgroundColor">@color/chip_color</item>
-        <item name="chipStrokeColor">@color/white_transparent_toggle</item>
-        <!--        <item name="chipStrokeColor">@color/transparent</item>-->
-        <item name="chipStrokeWidth">2dp</item>
+        <item name="chipStrokeColor">?attr/zaynLineColor</item>
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="chipCornerRadius">999dp</item>
+        <item name="chipMinHeight">36dp</item>
+        <item name="chipStartPadding">15dp</item>
+        <item name="chipEndPadding">15dp</item>
+        <item name="android:textSize">13.5sp</item>
+        <item name="android:textStyle">bold</item>
         <item name="textColor">@color/chip_color_text</item>
         <item name="android:textColor">@color/chip_color_text</item>
         <item name="checkedIconTint">@color/chip_color_text</item>
@@ -123,12 +161,22 @@
 
     <style name="ChipParent">
         <item name="chipSpacingVertical">-5dp</item>
-        <item name="chipSpacingHorizontal">5dp</item>
+        <item name="chipSpacingHorizontal">8dp</item>
         <item name="textColor">?attr/textColor</item>
     </style>
 
     <style name="AmoledMode">
         <item name="primaryGrayBackground">@color/black</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_dark</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_dark</item>
+        <item name="zaynNavActiveIcon">#FF5A3C</item>
+        <item name="zaynNavActiveLabel">#FFFFFF</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_dark</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_dark</item>
+        <item name="zaynPanelColor">#14161D</item>
+        <item name="zaynLineColor">#262A35</item>
+        <item name="zaynChipSelectedBackground">#FFFFFF</item>
+        <item name="zaynChipSelectedText">#0A0A0F</item>
         <item name="primaryBlackBackground">@color/black</item>
         <item name="splashBackground">@color/black</item>
         <item name="iconGrayBackground">@color/primaryBlackBackground</item>
@@ -174,6 +222,16 @@
 
     <style name="LightMode">
         <item name="primaryGrayBackground">@color/lightPrimaryGrayBackground</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_light</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_light</item>
+        <item name="zaynNavActiveIcon">#E8261C</item>
+        <item name="zaynNavActiveLabel">#14161D</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_light</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_light</item>
+        <item name="zaynPanelColor">#FFFFFF</item>
+        <item name="zaynLineColor">#DFE3EA</item>
+        <item name="zaynChipSelectedBackground">#14161D</item>
+        <item name="zaynChipSelectedText">#FFFFFF</item>
         <item name="primaryBlackBackground">@color/lightBitDarkerGrayBackground</item>
         <item name="splashBackground">@color/lightPrimaryGrayBackground</item>
         <item name="iconGrayBackground">@color/lightGrayBackground</item>
@@ -190,6 +248,16 @@
 
     <style name="DraculaMode">
         <item name="primaryGrayBackground">@color/DraculaPrimaryGrayBackground</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_dark</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_dark</item>
+        <item name="zaynNavActiveIcon">#FF5A3C</item>
+        <item name="zaynNavActiveLabel">#FFFFFF</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_dark</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_dark</item>
+        <item name="zaynPanelColor">#14161D</item>
+        <item name="zaynLineColor">#262A35</item>
+        <item name="zaynChipSelectedBackground">#FFFFFF</item>
+        <item name="zaynChipSelectedText">#0A0A0F</item>
         <item name="primaryBlackBackground">@color/DraculaBitDarkerGrayBackground</item>
         <item name="splashBackground">@color/DraculaBitDarkerGrayBackground</item>
         <item name="iconGrayBackground">@color/DraculaGrayBackground</item>
@@ -204,6 +272,16 @@
 
     <style name="SilentBlueMode">
         <item name="primaryGrayBackground">@color/SilentBluePrimaryGrayBackground</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_dark</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_dark</item>
+        <item name="zaynNavActiveIcon">#FF5A3C</item>
+        <item name="zaynNavActiveLabel">#FFFFFF</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_dark</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_dark</item>
+        <item name="zaynPanelColor">#14161D</item>
+        <item name="zaynLineColor">#262A35</item>
+        <item name="zaynChipSelectedBackground">#FFFFFF</item>
+        <item name="zaynChipSelectedText">#0A0A0F</item>
         <item name="primaryBlackBackground">@color/SilentBlueBitDarkerGrayBackground</item>
         <item name="splashBackground">@color/SilentBlueBitDarkerGrayBackground</item>
         <item name="iconGrayBackground">@color/SilentBlueGrayBackground</item>
@@ -217,6 +295,16 @@
 
     <style name="LavenderMode">
         <item name="primaryGrayBackground">@color/LavenderPrimaryGrayBackground</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_dark</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_dark</item>
+        <item name="zaynNavActiveIcon">#FF5A3C</item>
+        <item name="zaynNavActiveLabel">#FFFFFF</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_dark</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_dark</item>
+        <item name="zaynPanelColor">#14161D</item>
+        <item name="zaynLineColor">#262A35</item>
+        <item name="zaynChipSelectedBackground">#FFFFFF</item>
+        <item name="zaynChipSelectedText">#0A0A0F</item>
         <item name="primaryBlackBackground">@color/LavenderBitDarkerGrayBackground</item>
         <item name="splashBackground">@color/LavenderBitDarkerGrayBackground</item>
         <item name="iconGrayBackground">@color/LavenderGrayBackground</item>
@@ -232,6 +320,16 @@
 
     <style name="MonetMode">
         <item name="primaryGrayBackground">@color/material_dynamic_neutral20</item>
+        <item name="zaynAppBackground">@drawable/zayn_app_bg_dark</item>
+        <item name="zaynNavBackground">@drawable/zayn_nav_bg_dark</item>
+        <item name="zaynNavActiveIcon">#FF5A3C</item>
+        <item name="zaynNavActiveLabel">#FFFFFF</item>
+        <item name="zaynGlassSheetBackground">@drawable/zayn_glass_sheet_dark</item>
+        <item name="zaynCardBackground">@drawable/zayn_card_bg_dark</item>
+        <item name="zaynPanelColor">#14161D</item>
+        <item name="zaynLineColor">#262A35</item>
+        <item name="zaynChipSelectedBackground">#FFFFFF</item>
+        <item name="zaynChipSelectedText">#0A0A0F</item>
         <item name="primaryBlackBackground">@color/material_dynamic_neutral10</item>
         <item name="splashBackground">@color/material_dynamic_neutral10</item>
         <item name="iconGrayBackground">@color/material_dynamic_neutral20</item>
@@ -734,6 +832,35 @@
         <item name="iconTint">@color/white</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textSize">15sp</item>
+    </style>
+
+    <!-- Zayn Play details mini-action (preview .mini-actions button):
+         panel bg, 1px line border, 11dp radius, column icon (18dp) over
+         12.5sp bold label, min-height 52dp, 9px 4px padding. -->
+    <style name="ZaynMiniActionButton" parent="Widget.Material3.Button">
+        <item name="backgroundTint">?attr/zaynPanelColor</item>
+        <item name="strokeColor">?attr/zaynLineColor</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="cornerRadius">11dp</item>
+        <item name="android:textColor">?attr/textColor</item>
+        <item name="textColor">?attr/textColor</item>
+        <item name="iconTint">?attr/textColor</item>
+        <item name="android:textSize">12.5sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="iconGravity">textTop</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">4dp</item>
+        <item name="android:paddingTop">9dp</item>
+        <item name="android:paddingBottom">9dp</item>
+        <item name="android:paddingLeft">4dp</item>
+        <item name="android:paddingRight">4dp</item>
+    </style>
+
+    <!-- Zayn Play bottom nav label (preview .tabbar: 10.5px, weight 600). -->
+    <style name="ZaynNavLabel">
+        <item name="android:textSize">10.5sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
     </style>
     <!-- This is so shit, because android has no native way to either changing the layout (android:layout) or changing the layout_height for no reason.
     So the only way to shrink the buttons is by using insetTop+insetBottom along with the drawable.
