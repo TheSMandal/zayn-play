@@ -70,11 +70,18 @@ dependencies {
     // PINNED: rhino 1.9.0+ needs minSdk 26.
     implementation("org.mozilla:rhino:1.8.1")
     // Media3 player stack (Phase C player; no media3-ui/cast/session).
-    implementation("androidx.media3:media3-exoplayer:1.9.3")
-    implementation("androidx.media3:media3-exoplayer-hls:1.9.3")
-    implementation("androidx.media3:media3-exoplayer-dash:1.9.3")
-    implementation("androidx.media3:media3-common:1.9.3")
-    implementation("androidx.media3:media3-datasource-okhttp:1.9.3")
+    // PINNED 1.4.1: the last release whose AAR metadata allows
+    // compileSdk 34 (verified: aar-metadata.properties minCompileSdk=34
+    // for all five modules). 1.5.1 already needs 35, and the toolchain is
+    // FROZEN at compileSdk 34 / AGP 8.5.2, so 1.9.3 fails
+    // checkDebugAarMetadata (CI run 45835898352, 10 issues, all media3).
+    // No Phase B code references androidx.media3, so the downgrade changes
+    // no behaviour; the Phase C player targets 1.4.1 APIs.
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
+    implementation("androidx.media3:media3-common:1.4.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
     // PINNED: conscrypt-android 2.5.3 crashes everything.
     implementation("org.conscrypt:conscrypt-android:2.5.2")
     // OkHttp 4.12.0 for the vendored NiceHttp source (its 5.3.2 binary is
