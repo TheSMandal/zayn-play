@@ -53,4 +53,16 @@
             <solid android:color="#14FFFFFF" />
         </shape>
     </item>
+    <!-- Logo in the starting window, at exactly the layout's logo position:
+         the layout centres the whole splash block (logo 104dp + 18dp gap +
+         wordmark ~32dp + 10dp gap + tagline ~13dp + 26dp gap + dots 7dp,
+         ≈210dp tall), so the logo centre sits ≈53dp ABOVE the true screen
+         centre; bottom="106dp" shifts the centred 104dp logo up by that
+         same 53dp, so it does not jump when the layout inflates. -->
+    <item
+        android:width="104dp"
+        android:height="104dp"
+        android:bottom="106dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_logo_mark" />
 </layer-list>
