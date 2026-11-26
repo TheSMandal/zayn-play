@@ -1,6 +1,9 @@
 package app.netlify.zaynplay.engine
 
 import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.Episode
@@ -22,18 +25,30 @@ import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.plugins.PluginWrapper
 import com.lagradost.cloudstream3.plugins.RepositoryData
 import com.lagradost.cloudstream3.plugins.RepositoryManager
+import com.lagradost.cloudstream3.utils.DrmExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
+import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * Phase B: the real bridge dispatcher (engine-design.md §4.3).
+ * Phase C adds E12–E25 + E29–E38 (player, downloads, library,
+ * accounts, updater, backup, cache, logcat).
  *
  * Implements E1–E11 + E26–E28 over the vendored PluginManager /
  * RepositoryManager / APIRepository. Everything else stays
@@ -50,11 +65,33 @@ import org.json.JSONObject
  *   a fixed message.
  * - All work runs on MainActivity's IO coroutine scope (never the
  *   WebView thread, never main).
+ *
+ * Phase C notes (see VERIFY-0.2.0-phaseC.md for the full list):
+ * - DataStoreHelper (841 lines, Compose-coupled) and DownloadManager
+ *   (2,154 lines, R/Toast/MainActivity-coupled) are NOT vendored; the
+ *   library/progress/download contracts are implemented in ZaynLibrary /
+ *   ZaynDownloads on the same DataStore with the same upstream
+ *   bookmark-id derivation.
+ * - Audio per link is derived from the link NAME (language words) —
+ *   ExtractorLink has no audio-language field (only audioTracks URLs);
+ *   audio is null when the provider supplies no name hint.
+ * - Speed is MEASURED (TTFB of a ranged HEAD per link, parallel, 3 s
+ *   cap) — never invented. A link that cannot be measured ranks after
+ *   measured ones.
  */
 class ZaynEngine(
     private val activity: Activity,
     private val store: EngineStore,
+    private val player: ZaynPlayer,
+    private val downloads: ZaynDownloads,
+    private val bridgeScope: CoroutineScope,
+    private val onStageRect: (JSONObject) -> Unit,
 ) {
+    private val library = ZaynLibrary(store)
+    private val subtitles = ZaynSubtitles()
+    private val accounts = ZaynAccounts(store)
+    private val updater = ZaynUpdater(activity)
+    private val subtitleCache = ConcurrentHashMap<String, String>()
     @Volatile
     var engineReady: Boolean = false
         private set
@@ -99,6 +136,62 @@ class ZaynEngine(
                 "settingsGet" -> ok(JSONObject().put("settings", store.settingsSnapshot()))
                 "settingsSet" -> settingsSet(params)
                 "pluginUpdateCheck" -> pluginUpdateCheck(params.optBoolean("manual", false))
+                // ---- Phase C: player (E12–E16) ----
+                "links" -> links(params)
+                "play" -> play(params)
+                "playerControl" -> playerControl(params)
+                "playerState" -> ok(player.stateSnapshot())
+                "externalPlay" -> externalPlay(params)
+                "playerStage" -> playerStage(params)
+                // ---- Phase C: subtitles (E17–E18) ----
+                "subtitlesSearch" -> subtitlesSearch(params)
+                "subtitlesLoad" -> subtitlesLoad(params.optString("id", ""))
+                // ---- Phase C: library / progress (E19–E21) ----
+                "library" -> ok(library.library())
+                "librarySet" -> librarySet(params)
+                "progressGet" -> ok(library.progressGet(params.optString("title", "")))
+                "progressSet" -> ok(
+                    library.progressSet(
+                        params.optString("title", ""),
+                        params.optInt("posSec", 0),
+                        params.optInt("durSec", 0),
+                    ),
+                )
+                "progressAll" -> ok(library.progressAll())
+                // ---- Phase C: downloads (E22–E25) ----
+                "downloads" -> ok(downloads.downloads())
+                "downloadStart" -> downloadStart(params)
+                "downloadControl" -> ok(
+                    downloads.control(
+                        params.optString("id", ""),
+                        params.optString("action", ""),
+                    ),
+                )
+                "downloadOpen" -> downloadOpen(params.optString("id", ""))
+                // ---- Phase C: updater (E29–E30) ----
+                "appUpdateCheck" -> ok(updater.checkUpdate())
+                "appUpdateDownload" -> ok(updater.downloadUpdate(params.optString("url", "")))
+                // ---- Phase C: accounts (E31–E34) ----
+                "accountLoginUrl" -> accountLoginUrl(params.optString("provider", ""))
+                "accountLoginComplete" -> ok(
+                    accounts.loginComplete(
+                        params.optString("provider", ""),
+                        params.optString("redirectUrl", ""),
+                        if (params.has("payload")) params.optString("payload") else null,
+                    ),
+                )
+                "accountStatus" -> ok(accounts.status())
+                "accountLogout" -> ok(accounts.logout(params.optString("provider", "")))
+                // ---- Phase C: backup / cache / log (E35–E38) ----
+                "backupExport" -> ok(backupExport())
+                "backupImport" -> backupImport(params.optString("json", ""))
+                "cacheClear" -> ok(cacheClear())
+                "logcat" -> ok(
+                    JSONObject().put(
+                        "log",
+                        EngineLogger.snapshot().takeLast(params.optInt("lines", 200)).joinToString("\n"),
+                    ),
+                )
                 else -> {
                     EngineLogger.log("bridge", "$method -> engine_not_ready")
                     err("engine_not_ready", "Engine not ready yet — this feature comes in the next update")
@@ -613,6 +706,589 @@ class ZaynEngine(
                 .put("updated", updated)
                 .put("upToDate", updated.length() == 0)
         )
+    }
+
+    // ---- E12–E16: player ----
+
+    /** Resolve the loadLinks input: explicit data/episodeData, else load(url) first. */
+    private suspend fun resolveLinkData(params: JSONObject, api: MainAPI): String? {
+        val direct = params.optString("episodeData", "").ifBlank { params.optString("data", "") }
+        if (direct.isNotBlank()) return direct
+        val url = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
+        if (url.isBlank()) return null
+        val loaded = try {
+            APIRepository(api).load(url)
+        } catch (e: Exception) {
+            null
+        }
+        val resp = (loaded as? Resource.Success<LoadResponse>)?.value ?: return null
+        return loadDataOf(resp)
+    }
+
+    private data class ResolvedLinks(
+        val api: MainAPI,
+        val links: List<ExtractorLink>,
+        val subtitles: List<SubtitleFile>,
+        val partial: Boolean,
+    )
+
+    private suspend fun resolveLinks(params: JSONObject): ResolvedLinks? {
+        val providerName = params.optString("providerName", "")
+        val api = resolveApi(providerName, null) ?: return null
+        val data = resolveLinkData(params, api) ?: return null
+        val timeoutSec = params.optInt("timeoutSec", 10).coerceIn(1, 120)
+        val foundLinks = mutableListOf<ExtractorLink>()
+        val foundSubs = mutableListOf<SubtitleFile>()
+        var partial = false
+        try {
+            withTimeout(timeoutSec * 1000L) {
+                val okLinks = APIRepository(api).loadLinks(data, false, { s -> foundSubs += s }) { l -> foundLinks += l }
+                if (!okLinks) partial = foundLinks.isEmpty()
+            }
+        } catch (e: TimeoutCancellationException) {
+            partial = true
+        }
+        return ResolvedLinks(api, foundLinks, foundSubs, partial)
+    }
+
+    private fun qualityLabel(q: Int): String = when (q) {
+        Qualities.P2160.value -> "4K"
+        Qualities.P1440.value -> "2K"
+        Qualities.Unknown.value, 0 -> ""
+        else -> "${q}p"
+    }
+
+    /**
+     * Audio language from the link NAME (language words). ExtractorLink
+     * has no audio-language field (only audioTracks URLs, no language),
+     * so this is null when the provider supplies no name hint — the
+     * ranking then falls through to speed, honestly.
+     */
+    private fun audioFromName(name: String): String? {
+        val n = " ${name.lowercase()} "
+        if (n.contains("dual audio") || n.contains("multi audio") || n.contains("dual-audio")) return null
+        val langs = listOf(
+            "english" to "en", "hindi" to "hi", "bengali" to "bn", "bangla" to "bn",
+            "tamil" to "ta", "telugu" to "te", "malayalam" to "ml", "marathi" to "mr",
+            "gujarati" to "gu", "urdu" to "ur", "kannada" to "kn", "odia" to "or",
+            "punjabi" to "pa", "japanese" to "ja", "korean" to "ko", "spanish" to "es",
+            "french" to "fr", "german" to "de", "portuguese" to "pt", "russian" to "ru",
+            "arabic" to "ar", "turkish" to "tr",
+        )
+        for ((word, code) in langs) if (n.contains(word)) return code
+        return null
+    }
+
+    /** Settings store audio as display names (English / বাংলা); map to codes. */
+    private fun audioCodeOf(name: String): String? {
+        val code = when (name.trim()) {
+            "English" -> "en"
+            "Hindi", "हिन्दी" -> "hi"
+            "Bengali", "বাংলা" -> "bn"
+            "Telugu", "తెలుగు" -> "te"
+            "Marathi", "मराठी" -> "mr"
+            "Tamil", "தமிழ்" -> "ta"
+            "Gujarati", "ગુજરાતી" -> "gu"
+            "Urdu", "اردو" -> "ur"
+            "Kannada", "ಕನ್ನಡ" -> "kn"
+            "Odia", "ଓଡ଼ିଆ" -> "or"
+            "Malayalam", "മലയാളം" -> "ml"
+            "Punjabi", "ਪੰਜਾਬੀ" -> "pa"
+            "Assamese" -> "as"
+            "Maithili" -> "mai"
+            "Nepali" -> "ne"
+            "Sanskrit" -> "sa"
+            "Kashmiri" -> "ks"
+            "Konkani" -> "kok"
+            "Dogri" -> "doi"
+            "Bodo" -> "brx"
+            "Santali" -> "sat"
+            "Sindhi" -> "sd"
+            "Manipuri" -> "mni"
+            "none" -> null
+            else -> null
+        }
+        if (code != null) return code
+        val trimmed = name.trim()
+        return if (trimmed.matches(Regex("[a-z]{2,3}(-[a-z]+)?"))) trimmed else null
+    }
+
+    private data class RankedLink(
+        val link: ExtractorLink,
+        val score: Int,
+        val ttfbMs: Long?,
+        val audio: String?,
+    )
+
+    /**
+     * Smart-Streams ranking (design §4.6): quality match +100, audio1
+     * +40, audio2 +20, then MEASURED TTFB (1-byte ranged request,
+     * parallel, 3 s cap) ascending. Unmeasured links rank after measured
+     * ones at the same score. Nothing is invented.
+     */
+    private suspend fun rankLinks(links: List<ExtractorLink>): List<RankedLink> {
+        val resPref = store.getSettingString("res", "Auto")
+        val a1 = audioCodeOf(store.getSettingString("audio1", "English"))
+        val a2 = audioCodeOf(store.getSettingString("audio2", "বাংলা"))
+        val playable = links.filter {
+            it.type != ExtractorLinkType.TORRENT && it.type != ExtractorLinkType.MAGNET
+        }
+        val scored = playable.map { link ->
+            var score = 0
+            val ql = qualityLabel(link.quality)
+            if (resPref != "Auto" && ql.isNotEmpty() && ql == resPref) score += 100
+            val audio = audioFromName(link.name)
+            if (audio != null && audio == a1) score += 40
+            else if (audio != null && a2 != null && audio == a2) score += 20
+            link to (score to audio)
+        }
+        // Measure TTFB for the top 8 by score only (keeps the call fast).
+        val top = scored.sortedByDescending { it.second.first }.take(8).map { it.first }
+        val ttfb = measureTtfb(top)
+        return scored.map { (link, scoreAudio) ->
+            RankedLink(link, scoreAudio.first, ttfb[link], scoreAudio.second)
+        }.sortedWith(
+            compareByDescending<RankedLink> { it.score }
+                .thenBy { it.ttfbMs ?: Long.MAX_VALUE },
+        )
+    }
+
+    private suspend fun measureTtfb(links: List<ExtractorLink>): Map<ExtractorLink, Long?> {
+        return coroutineScope {
+            links.map { link ->
+                async {
+                    val ms = try {
+                        withTimeout(3000) {
+                            val t0 = System.currentTimeMillis()
+                            val req = Request.Builder().url(link.url)
+                                .apply { link.getAllHeaders().forEach { (k, v) -> header(k, v) } }
+                                .header("Range", "bytes=0-0").build()
+                            com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use {
+                                it.body?.close()
+                                System.currentTimeMillis() - t0
+                            }
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+                    link to ms
+                }
+            }.awaitAll().toMap()
+        }
+    }
+
+    private fun linkJson(r: RankedLink, index: Int): JSONObject {
+        val l = r.link
+        return JSONObject()
+            .put("index", index)
+            .put("source", l.source)
+            .put("name", l.name)
+            .put("url", l.url)
+            .put("quality", l.quality)
+            .put("qualityLabel", qualityLabel(l.quality))
+            .put("type", l.type.name)
+            .put("referer", l.referer)
+            .put("headers", JSONObject(l.headers))
+            .put("audio", r.audio ?: JSONObject.NULL)
+            .put("ttfbMs", r.ttfbMs ?: JSONObject.NULL)
+    }
+
+    private suspend fun links(params: JSONObject): JSONObject {
+        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
+        if (resolved.links.isEmpty()) return err("no_links", "No playable links found")
+        val ranked = rankLinks(resolved.links)
+        if (ranked.isEmpty()) return err("no_links", "No playable links found")
+        val arr = JSONArray()
+        for ((i, r) in ranked.withIndex()) arr.put(linkJson(r, i))
+        val subs = JSONArray()
+        for (s in resolved.subtitles) {
+            subs.put(JSONObject().put("lang", s.lang).put("url", s.url).put("source", "provider"))
+        }
+        return ok(JSONObject().put("links", arr).put("subtitles", subs).put("partial", resolved.partial))
+    }
+
+    private suspend fun play(params: JSONObject): JSONObject {
+        if (store.getSettingString("engine", "exoplayer") == "libmpv") {
+            return err("playback_error", "libmpv is not available in this version")
+        }
+        val mode = params.optString("mode", store.getSettingString("mode", "auto"))
+        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
+        if (resolved.links.isEmpty()) return err("no_links", "No playable links found")
+        val ranked = rankLinks(resolved.links)
+        if (ranked.isEmpty()) return err("no_links", "No playable links found")
+        val linkIndex = if (params.has("linkIndex") && !params.isNull("linkIndex")) params.optInt("linkIndex", -1) else -1
+        if (mode == "manual" && linkIndex < 0) {
+            val arr = JSONArray()
+            for ((i, r) in ranked.withIndex()) arr.put(linkJson(r, i))
+            return ok(JSONObject().put("links", arr).put("manual", true))
+        }
+        val picked = if (linkIndex in ranked.indices) ranked[linkIndex] else ranked.first()
+        val link = picked.link
+        if (link is DrmExtractorLink) {
+            return err("playback_error", "This stream uses DRM, which is not supported")
+        }
+        val title = params.optString("title", "")
+        val reuse = store.getSettingBoolean("reuse", true)
+        var reused = false
+        if (reuse && title.isNotBlank()) {
+            val last = store.mapEntry(EngineStore.KEY_LAST_LINK, title)
+            if (last != null) {
+                val at = last.optLong("atMs", 0)
+                val durH = parseHours(store.getSettingString("reuseDur", "24h"))
+                if (last.optInt("linkIndex", -1) == ranked.indexOf(picked) &&
+                    System.currentTimeMillis() - at < durH * 3600_000L
+                ) reused = true
+            }
+        }
+        val startAtSec = when {
+            params.has("startAtSec") -> params.optInt("startAtSec", 0)
+            store.getSettingBoolean("resume", true) && title.isNotBlank() ->
+                library.progressGet(title).optInt("posSec", 0)
+            else -> 0
+        }
+        val subLangCode = audioCodeOf(store.getSettingString("subLang", "বাংলা")) ?: "bn"
+        val providerSub = resolved.subtitles.firstOrNull { it.langTag == subLangCode || it.lang == subLangCode }
+            ?: resolved.subtitles.firstOrNull()
+        val subtitleText = if (params.has("subtitleText") && !params.isNull("subtitleText")) params.optString("subtitleText") else null
+        val subtitleLang = if (params.has("subtitleLang")) params.optString("subtitleLang") else subLangCode
+        val playLink = ZaynPlayer.PlayLink(
+            url = link.url,
+            source = link.source,
+            qualityLabel = qualityLabel(link.quality),
+            audio = picked.audio,
+            referer = link.referer,
+            headers = link.getAllHeaders(),
+            type = link.type,
+        )
+        player.play(playLink, startAtSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes())
+        if (title.isNotBlank()) {
+            store.putMapEntry(
+                EngineStore.KEY_LAST_LINK,
+                title,
+                JSONObject().put("linkIndex", ranked.indexOf(picked)).put("atMs", System.currentTimeMillis()),
+            )
+            val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
+            library.markWatching(
+                pageUrl,
+                params.optString("providerName", ""),
+                title,
+                params.optString("type", "movie"),
+                params.optString("poster", ""),
+            )
+        }
+        // extractorVerifierJob while playing, where the provider implements it.
+        val extractorData = link.extractorData
+        if (extractorData != null) {
+            bridgeScope.launch {
+                try {
+                    APIRepository(resolved.api).extractorVerifierJob(extractorData)
+                } catch (e: Exception) {
+                    EngineLogger.log("player", "verifier job ended")
+                }
+            }
+        }
+        return ok(
+            JSONObject()
+                .put("playing", true)
+                .put(
+                    "link",
+                    JSONObject()
+                        .put("source", link.source)
+                        .put("qualityLabel", qualityLabel(link.quality))
+                        .put("audio", picked.audio ?: JSONObject.NULL),
+                )
+                .put("reused", reused),
+        )
+    }
+
+    private fun parseHours(raw: String): Long =
+        Regex("""(\d+)""").find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: 24L
+
+    private fun cacheSizeBytes(): Long {
+        val raw = store.getSettingString("bufDisk", "250 MB")
+        val num = Regex("""(\d+)""").find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: 250L
+        return num.coerceIn(16, 2048) * 1024L * 1024L
+    }
+
+    private suspend fun playerControl(params: JSONObject): JSONObject {
+        val action = params.optString("action", "")
+        return when (action) {
+            "toggle", "pause", "resume", "seek", "rate", "volume", "mute" -> {
+                val value = if (params.has("value") && !params.isNull("value")) params.optDouble("value") else null
+                ok(JSONObject().put("state", player.control(action, value)))
+            }
+            "setSubtitle" -> {
+                val text = if (params.has("text") && !params.isNull("text")) params.optString("text") else null
+                player.setSubtitleText(text, params.optString("lang", ""))
+                ok(JSONObject().put("state", player.stateSnapshot()))
+            }
+            "nextEp", "prevEp" -> {
+                // Episode switch is driven by play with the episode's data.
+                val epData = params.optString("episodeData", "")
+                if (epData.isBlank()) return err("invalid_input", "No next episode")
+                val playParams = JSONObject(params.toString())
+                playParams.put("data", epData)
+                play(playParams)
+            }
+            else -> err("invalid_input", "Unknown player action")
+        }
+    }
+
+    private suspend fun externalPlay(params: JSONObject): JSONObject {
+        val appName = params.optString("app", store.getSettingString("extApp", "VLC"))
+        val pkg = when (appName) {
+            "MX Player" -> "com.mxtech.videoplayer.ad"
+            "JustPlayer" -> "com.brouken.player"
+            else -> "org.videolan.vlc"
+        }
+        val installed = try {
+            activity.packageManager.getPackageInfo(pkg, 0)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
+        }
+        if (!installed) return err("app_not_installed", "$appName is not installed")
+        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
+        val ranked = rankLinks(resolved.links)
+        val picked = ranked.firstOrNull() ?: return err("no_links", "No playable links found")
+        if (picked.link is DrmExtractorLink) {
+            return err("playback_error", "This stream uses DRM, which is not supported")
+        }
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(Uri.parse(picked.link.url), "video/*")
+                setPackage(pkg)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.startActivity(intent)
+            ok(JSONObject().put("launched", true))
+        } catch (e: Exception) {
+            err("app_not_installed", "$appName could not be opened")
+        }
+    }
+
+    private fun playerStage(params: JSONObject): JSONObject {
+        onStageRect(params)
+        return ok(JSONObject().put("received", true))
+    }
+
+    // ---- E17–E18: subtitles ----
+
+    private suspend fun subtitlesSearch(params: JSONObject): JSONObject {
+        val title = params.optString("title", "")
+        if (title.isBlank()) return err("invalid_input", "Missing title")
+        val lang = params.optString("lang", "en").ifBlank { "en" }
+        val year = if (params.has("year") && !params.isNull("year")) params.optInt("year", 0).takeIf { it > 0 } else null
+        val rows = try {
+            subtitles.searchAddic7ed(title, year, lang)
+        } catch (e: Exception) {
+            EngineLogger.log("subs", "search failed")
+            return err("network_error", "Subtitle search failed")
+        }
+        for (i in 0 until rows.length()) {
+            val row = rows.optJSONObject(i) ?: continue
+            subtitleCache[row.optString("id")] = row.optString("url")
+        }
+        return ok(JSONObject().put("subtitles", rows))
+    }
+
+    private suspend fun subtitlesLoad(id: String): JSONObject {
+        if (id.startsWith("opensubtitles|") || id.startsWith("subdl|")) {
+            return err("auth_failed", "Subtitle download needs an account login first")
+        }
+        val url = subtitleCache[id] ?: id.substringAfter("|", "")
+        if (url.isBlank() || !url.startsWith("http")) return err("invalid_input", "Unknown subtitle")
+        val text = try {
+            subtitles.loadAddic7ed(url)
+        } catch (e: Exception) {
+            null
+        } ?: return err("network_error", "Could not download that subtitle")
+        return ok(JSONObject().put("text", text))
+    }
+
+    // ---- E19–E21: library / progress ----
+
+    private fun librarySet(params: JSONObject): JSONObject {
+        return ok(
+            library.librarySet(
+                params.optString("url", ""),
+                params.optString("providerName", ""),
+                params.optString("status", ""),
+                params.optString("title", ""),
+                params.optString("type", "movie"),
+                params.optString("poster", ""),
+            ),
+        )
+    }
+
+    // ---- E22–E25: downloads ----
+
+    private suspend fun downloadStart(params: JSONObject): JSONObject {
+        val title = params.optString("title", "")
+        val url = params.optString("url", "")
+        if (title.isBlank() || url.isBlank()) return err("invalid_input", "Missing title or link")
+        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
+        val ranked = rankLinks(resolved.links)
+        if (ranked.isEmpty()) return err("no_links", "No downloadable links found")
+        val wantQ = store.getSettingString("dlQuality", "Auto")
+        val picked = if (wantQ != "Auto") {
+            ranked.firstOrNull { qualityLabel(it.link.quality) == wantQ } ?: ranked.first()
+        } else {
+            ranked.first()
+        }
+        val link = picked.link
+        if (link is DrmExtractorLink) {
+            return err("playback_error", "This stream uses DRM, which is not supported")
+        }
+        if (link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET) {
+            return err("no_links", "Torrent downloads are not supported")
+        }
+        val id = "dl-" + (title + "|" + url).hashCode().toString().replace("-", "n")
+        val started = downloads.start(
+            id,
+            link,
+            title,
+            params.optString("type", "movie"),
+            params.optString("poster", ""),
+            params.optString("providerName", ""),
+            params.optString("episodeUrl", "").ifBlank { null },
+        )
+        if (started == null) {
+            return err("download_failed", "Wi-Fi only downloads are on — connect to Wi-Fi to download")
+        }
+        return ok(JSONObject().put("id", started).put("queued", true))
+    }
+
+    private fun downloadOpen(id: String): JSONObject {
+        val path = downloads.localPath(id) ?: return err("download_failed", "Download not found")
+        val isM3u8 = path.endsWith(".m3u8")
+        val link = ZaynPlayer.PlayLink(
+            url = "file://$path",
+            source = "Downloads",
+            qualityLabel = "",
+            audio = null,
+            referer = "",
+            headers = emptyMap(),
+            type = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
+            isLocalFile = true,
+        )
+        player.play(link, 0, null, null, null, cacheSizeBytes())
+        return ok(JSONObject().put("launched", true))
+    }
+
+    // ---- E31–E34: accounts ----
+
+    private fun accountLoginUrl(provider: String): JSONObject {
+        if (provider !in ZaynAccounts.PROVIDERS) return err("invalid_input", "Unknown account")
+        // Key-gated: no client key exists in the repo for any provider.
+        EngineLogger.log("accounts", "loginUrl $provider gated (no key)")
+        return err("auth_failed", "Login is not available yet")
+    }
+
+    // ---- E35–E38: backup / cache / log ----
+
+    private fun backupExport(): JSONObject {
+        val settings = store.settingsSnapshot()
+        val repos = JSONArray()
+        for (repo in RepositoryManager.getRepositories()) {
+            repos.put(JSONObject().put("name", repo.name).put("url", repo.url))
+        }
+        val json = JSONObject()
+            .put("format", "zaynplay-backup-0.2.0")
+            .put("app", "Zayn Play")
+            .put("version", "0.2.0")
+            .put("settings", settings)
+            .put("repos", repos)
+            .put("provOn", store.readJsonMap("zayn/provOn"))
+            .put("provAutoOff", store.readJsonMap("zayn/provAutoOff"))
+            .put("provHealth", store.readJsonMap("zayn/provHealth"))
+            .put("library", store.readJsonMap(EngineStore.KEY_LIBRARY))
+            .put("progress", store.readJsonMap(EngineStore.KEY_PROGRESS))
+            .put("downloads", store.readJsonMap(EngineStore.KEY_DOWNLOADS))
+            .put("savedAt", System.currentTimeMillis())
+        // NOTE: account tokens are deliberately NOT exported — a backup
+        // file can be shared, and tokens are secrets.
+        return JSONObject().put("json", json.toString(2)).put("fileName", "zaynplay-backup-0.2.0.json")
+    }
+
+    private suspend fun backupImport(jsonText: String): JSONObject {
+        val json = try {
+            JSONObject(jsonText)
+        } catch (e: Exception) {
+            return err("invalid_backup", "That file is not a Zayn Play backup")
+        }
+        val format = json.optString("format", "")
+        if (format != "zaynplay-backup-0.2.0" && !json.has("installed")) {
+            return err("invalid_backup", "That file is not a Zayn Play backup")
+        }
+        // Validate first: nothing is applied until the whole file parses.
+        val settingsObj = if (json.has("settings")) json.optJSONObject("settings") else null
+        val provOn = if (json.has("provOn")) json.optJSONObject("provOn") else null
+        val provAutoOff = if (json.has("provAutoOff")) json.optJSONObject("provAutoOff") else null
+        val libraryObj = if (json.has("library")) json.optJSONObject("library") else null
+        val progressObj = if (json.has("progress")) json.optJSONObject("progress") else null
+        val reposArr = if (json.has("repos")) json.optJSONArray("repos") else null
+        var restoredRepos = 0
+        if (reposArr != null) {
+            for (i in 0 until reposArr.length()) {
+                val r = reposArr.optJSONObject(i) ?: continue
+                val url = r.optString("url", "")
+                if (url.isBlank()) continue
+                if (RepositoryManager.getRepositories().any { it.url == url }) {
+                    restoredRepos++
+                    continue
+                }
+                val added = repoAdd(url)
+                if (added.optBoolean("ok", false)) restoredRepos++
+            }
+        }
+        // Legacy 0.1.7 format: {installed, provOn, pb, theme, lang}.
+        if (format != "zaynplay-backup-0.2.0") {
+            val legacyProvOn = json.optJSONObject("provOn")
+            if (legacyProvOn != null) store.writeJsonMap("zayn/provOn", legacyProvOn)
+            return ok(JSONObject().put("restored", true).put("reposInstalled", restoredRepos))
+        }
+        if (settingsObj != null) {
+            val keys = settingsObj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                store.setSetting(k, settingsObj.opt(k))
+            }
+        }
+        if (provOn != null) store.writeJsonMap("zayn/provOn", provOn)
+        if (provAutoOff != null) store.writeJsonMap("zayn/provAutoOff", provAutoOff)
+        if (libraryObj != null) store.writeJsonMap(EngineStore.KEY_LIBRARY, libraryObj)
+        if (progressObj != null) store.writeJsonMap(EngineStore.KEY_PROGRESS, progressObj)
+        return ok(JSONObject().put("restored", true).put("reposInstalled", restoredRepos))
+    }
+
+    private suspend fun cacheClear(): JSONObject {
+        fun dirSize(f: File): Long {
+            if (!f.exists()) return 0
+            if (f.isFile) return f.length()
+            return f.listFiles()?.sumOf { dirSize(it) } ?: 0
+        }
+        fun deleteContents(f: File) {
+            f.listFiles()?.forEach {
+                try {
+                    if (it.isDirectory) it.deleteRecursively() else it.delete()
+                } catch (e: Exception) {
+                }
+            }
+        }
+        val cacheDir = activity.cacheDir
+        val extCache = activity.externalCacheDir
+        val before = dirSize(cacheDir) + (extCache?.let { dirSize(it) } ?: 0)
+        // Release the player first (its SimpleCache lives in cacheDir).
+        kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
+            player.clearCache { cont.resume(Unit) }
+        }
+        deleteContents(cacheDir)
+        if (extCache != null) deleteContents(extCache)
+        val after = dirSize(cacheDir) + (extCache?.let { dirSize(it) } ?: 0)
+        val freedMB = (before - after).coerceAtLeast(0) / 1048576.0
+        EngineLogger.log("cache", "cleared ${"%.1f".format(freedMB)} MB")
+        return JSONObject().put("freedMB", freedMB)
     }
 
     // ---- mapping helpers ----
