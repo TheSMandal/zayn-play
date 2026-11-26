@@ -492,6 +492,12 @@ class ZaynEngine(
         code == "load_class_missing" -> "$providerName: file is missing its provider class — the repo file is broken"
         // (v0.2.4) New code: the .cs3 has no manifest.json.
         code == "load_no_manifest" -> "$providerName: file is missing its manifest — the repo file is broken"
+        // (v0.2.5) New codes from the direct ZipFile manifest read: the
+        // downloaded file is not a zip at all, the plugin file is gone
+        // from disk, or its manifest JSON does not parse.
+        code == "bad_zip" -> "$providerName: downloaded file is damaged — try again"
+        code == "file_missing" -> "$providerName: plugin file is missing — try again"
+        code == "bad_manifest" -> "$providerName: file info is unreadable — the repo file is broken"
         code == "load_failed" -> "$providerName: could not load — try again"
         else -> "Could not download $providerName"
     }
