@@ -59,7 +59,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
+import java.io.IOException
 import java.io.InputStreamReader
+import java.util.zip.ZipException
+import java.util.zip.ZipFile
 
 // Different keys for local and not since local can be removed at any time without app knowing, hence the local are getting rebuilt on every app start
 const val PLUGINS_KEY = "PLUGINS_KEY"
@@ -393,6 +396,106 @@ object PluginManager {
     /**
      * @return True if successful, false if not
      * */
+    // (v0.2.5) First 4 bytes of a file as hex, for forensics
+    // ("504b0304" = PK\x03\x04, a real zip). "empty" when the file has
+    // no bytes, "?" when it cannot be read at all.
+    private fun fileMagicHex(file: File): String {
+        return try {
+            val bytes = ByteArray(4)
+            val n = file.inputStream().use { it.read(bytes) }
+            if (n <= 0) "empty"
+            else bytes.take(n).joinToString("") { "%02x".format(it) }
+        } catch (_: Throwable) {
+            "?"
+        }
+    }
+
+    // (v0.2.5) Read a plugin's manifest DIRECTLY from its .cs3 zip with
+    // java.util.zip.ZipFile, instead of
+    // PathClassLoader.getResourceAsStream("manifest.json").
+    //
+    // Proven cause of the v0.2.4 "file is missing its manifest" failure:
+    // the real .cs3 files ARE valid zips containing manifest.json at the
+    // root (verified byte-for-byte live, SHA matches the repo manifest,
+    // Range-resume reconstruction verified), and the app's download
+    // returns a SHA-verified file — yet the classloader lookup returned
+    // null on the phone for every provider. That lookup goes through
+    // DexPathList / ClassPathURLStreamHandler and is device/ART
+    // dependent; a direct ZipFile read is deterministic and does not
+    // depend on it. The PathClassLoader is still created in loadPlugin
+    // below, but only to load the plugin class.
+    //
+    // Returns null (and sets lastLoadError/lastError + logs forensics:
+    // size, SHA-256, magic bytes, zip entries) when the file is missing,
+    // is not a zip, has no manifest.json, or the manifest JSON does not
+    // parse. A file that fails here can never load, so it is deleted to
+    // keep it from poisoning the startup scan (the next test
+    // re-downloads it fresh).
+    private fun readPluginManifest(file: File, fileName: String): BasePlugin.Manifest? {
+        if (!file.exists()) {
+            lastLoadError = "file_missing"
+            lastError = "Failed to load plugin $fileName"
+            EngineLogger.log("load", "file missing: ${file.name}")
+            Log.e(TAG, "Failed to load plugin $fileName: file missing")
+            return null
+        }
+        val fileSha = try { sha256(file) } catch (_: Throwable) { "?" }
+        val zip: ZipFile = try {
+            ZipFile(file)
+        } catch (e: ZipException) {
+            val magic = fileMagicHex(file)
+            lastLoadError = "bad_zip"
+            lastError = "Failed to load plugin $fileName"
+            EngineLogger.log(
+                "load",
+                "bad zip ${file.name}: size=${file.length()} sha=$fileSha magic=$magic (${e.message})"
+            )
+            Log.e(TAG, "Failed to load plugin $fileName: not a zip (magic=$magic)", e)
+            try { file.delete() } catch (_: Throwable) {}
+            return null
+        } catch (e: IOException) {
+            val magic = fileMagicHex(file)
+            lastLoadError = "bad_zip"
+            lastError = "Failed to load plugin $fileName"
+            EngineLogger.log(
+                "load",
+                "bad zip ${file.name}: size=${file.length()} sha=$fileSha magic=$magic (${e.javaClass.simpleName} ${e.message})"
+            )
+            Log.e(TAG, "Failed to load plugin $fileName: cannot open zip (magic=$magic)", e)
+            try { file.delete() } catch (_: Throwable) {}
+            return null
+        }
+        return zip.use { z ->
+            val entry = z.getEntry("manifest.json")
+            if (entry == null) {
+                val entries = z.entries().toList().joinToString(",") { it.name }
+                lastLoadError = "load_no_manifest"
+                lastError = "Failed to load plugin $fileName"
+                EngineLogger.log(
+                    "load",
+                    "no manifest in ${file.name}: size=${file.length()} sha=$fileSha entries=[$entries]"
+                )
+                Log.e(TAG, "Failed to load plugin $fileName: No manifest found (entries: $entries)")
+                try { file.delete() } catch (_: Throwable) {}
+                null
+            } else {
+                try {
+                    z.getInputStream(entry).use { stream ->
+                        InputStreamReader(stream).use { reader ->
+                            parseJson<BasePlugin.Manifest>(reader.readText())
+                        }
+                    }
+                } catch (e: Exception) {
+                    lastLoadError = "bad_manifest"
+                    lastError = "Failed to load plugin $fileName"
+                    EngineLogger.log("load", "bad manifest in ${file.name}: ${e.javaClass.simpleName} ${e.message}")
+                    Log.e(TAG, "Failed to load plugin $fileName: bad manifest", e)
+                    null
+                }
+            }
+        }
+    }
+
     internal suspend fun loadPlugin(context: Context, file: File, data: PluginData): Boolean {
         val fileName = file.nameWithoutExtension
         val filePath = file.absolutePath
@@ -429,25 +532,15 @@ object PluginManager {
                 return false
             }
 
-            val loader = PathClassLoader(filePath, context.classLoader)
-            var manifest: BasePlugin.Manifest
-            loader.getResourceAsStream("manifest.json").use { stream ->
-                if (stream == null) {
-                    // (v0.2.4) Set a distinct code BEFORE returning: this
-                    // return is inside the try, so the catch below never
-                    // runs and the failure used to be misread as
-                    // "network_error" by the bridge.
-                    lastLoadError = "load_no_manifest"
-                    lastError = "Failed to load plugin $fileName"
-                    EngineLogger.log("load", "no manifest in ${file.name}")
-                    Log.e(TAG, "Failed to load plugin  $fileName: No manifest found")
-                    currentlyLoading = null
-                    return false
-                }
-                InputStreamReader(stream).use { reader ->
-                    manifest = parseJson<BasePlugin.Manifest>(reader.readText())
-                }
+            // (v0.2.5) The manifest is read directly from the zip (see
+            // readPluginManifest); the PathClassLoader below only loads
+            // the plugin class.
+            val manifest = readPluginManifest(file, fileName) ?: run {
+                currentlyLoading = null
+                return false
             }
+
+            val loader = PathClassLoader(filePath, context.classLoader)
 
             val name: String = manifest.name ?: "NO NAME".also {
                 Log.d(TAG, "No manifest name for ${data.internalName}")
