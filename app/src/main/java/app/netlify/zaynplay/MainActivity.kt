@@ -1,6 +1,9 @@
 package app.netlify.zaynplay
 
+import android.app.UiModeManager
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
@@ -34,6 +37,12 @@ class MainActivity : AppCompatActivity() {
         // Light in the HTML) switches the UI live.
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
         super.onCreate(savedInstanceState)
+        // TV / tablet open in landscape by default, phone stays portrait.
+        // The page gets the same form factor (?form=...) so it can switch
+        // to the tablet / TV layout.
+        val form = formFactor()
+        requestedOrientation = if (form == "phone") ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.webview)
@@ -76,7 +85,7 @@ class MainActivity : AppCompatActivity() {
 
         // The native splash already showed (?bootsplash=0 skips the
         // in-WebView splash so the user is not shown it twice).
-        webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0")
+        webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0&form=$form")
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -103,5 +112,16 @@ class MainActivity : AppCompatActivity() {
         val night = resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         return if (night) Color.parseColor("#0A0A0F") else Color.parseColor("#F2F3F7")
+    }
+
+    /**
+     * Form factor for orientation + the page layout: "tv" for Android TV
+     * (UiModeManager type television), "tablet" for smallest width >= 600dp,
+     * "phone" otherwise.
+     */
+    private fun formFactor(): String {
+        val uiMode = (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType
+        if (uiMode == Configuration.UI_MODE_TYPE_TELEVISION) return "tv"
+        return if (resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
     }
 }
