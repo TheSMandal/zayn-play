@@ -53,6 +53,7 @@ import app.netlify.zaynplay.engine.sanitizeFilename
 import com.lagradost.cloudstream3.utils.extractorApis
 import com.lagradost.cloudstream3.utils.txt
 import dalvik.system.PathClassLoader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
@@ -432,7 +433,15 @@ object PluginManager {
             var manifest: BasePlugin.Manifest
             loader.getResourceAsStream("manifest.json").use { stream ->
                 if (stream == null) {
+                    // (v0.2.4) Set a distinct code BEFORE returning: this
+                    // return is inside the try, so the catch below never
+                    // runs and the failure used to be misread as
+                    // "network_error" by the bridge.
+                    lastLoadError = "load_no_manifest"
+                    lastError = "Failed to load plugin $fileName"
+                    EngineLogger.log("load", "no manifest in ${file.name}")
                     Log.e(TAG, "Failed to load plugin  $fileName: No manifest found")
+                    currentlyLoading = null
                     return false
                 }
                 InputStreamReader(stream).use { reader ->
@@ -602,8 +611,32 @@ object PluginManager {
         repositoryUrl: String,
         loadPlugin: Boolean
     ): Boolean {
+        return downloadPluginDetailed(
+            activity, pluginUrl, pluginHash, internalName, repositoryUrl, loadPlugin
+        ).first
+    }
+
+    /**
+     * (v0.2.4) Typed download+load: the success flag together with the
+     * exact failure code (null on success), so callers use the code from
+     * this call instead of reading the process-wide lastDownloadError /
+     * lastLoadError slots after the fact. Same codes downloadPlugin
+     * already set on those slots (http_<code> | timeout |
+     * download_failed | download_empty | hash_mismatch | download_io |
+     * dex_writable | load_class_missing | load_no_manifest |
+     * load_failed). The Boolean downloadPlugin overloads above delegate
+     * here, so behaviour for existing callers is unchanged.
+     */
+    suspend fun downloadPluginDetailed(
+        activity: Activity,
+        pluginUrl: String,
+        pluginHash: String?,
+        internalName: String,
+        repositoryUrl: String,
+        loadPlugin: Boolean
+    ): Pair<Boolean, String?> {
         val file = getPluginPath(activity, internalName, repositoryUrl)
-        return downloadPlugin(activity, pluginUrl, pluginHash, internalName, file, loadPlugin)
+        return downloadPluginDetailed(activity, pluginUrl, pluginHash, internalName, file, loadPlugin)
     }
 
     suspend fun downloadPlugin(
@@ -614,6 +647,19 @@ object PluginManager {
         file: File,
         loadPlugin: Boolean,
     ): Boolean {
+        return downloadPluginDetailed(
+            activity, pluginUrl, pluginHash, internalName, file, loadPlugin
+        ).first
+    }
+
+    suspend fun downloadPluginDetailed(
+        activity: Activity,
+        pluginUrl: String,
+        pluginHash: String?,
+        internalName: String,
+        file: File,
+        loadPlugin: Boolean,
+    ): Pair<Boolean, String?> {
         try {
             Log.d(TAG, "Downloading plugin: $pluginUrl to ${file.absolutePath}")
             // The plugin file needs to be salted with the repository url hash as to allow multiple repositories with the same internal plugin names
@@ -625,7 +671,7 @@ object PluginManager {
                 is RepositoryManager.PluginDownloadResult.Err -> {
                     lastDownloadError = downloaded.code
                     EngineLogger.log("download", "downloadPlugin failed $internalName: ${downloaded.code} — ${downloaded.detail}")
-                    return false
+                    return false to downloaded.code
                 }
             }
             lastDownloadError = null
@@ -642,20 +688,29 @@ object PluginManager {
                 // (v0.2.1-k) Do NOT unload the old version here: loadPlugin
                 // unloads it itself, only after the new plugin has been
                 // constructed from the new file (see loadPlugin).
-                loadPlugin(
+                val ok = loadPlugin(
                     activity,
                     newFile,
                     data
                 )
+                // (v0.2.4) Read the load code here, in this same call
+                // chain, instead of leaving the caller to read the
+                // process-wide slot after later awaits.
+                ok to if (ok) null else (lastLoadError ?: "load_failed")
             } else {
                 setPluginData(data)
-                true
+                true to null
             }
+        } catch (e: CancellationException) {
+            // (v0.2.4) Never launder a cancellation into
+            // "download_failed": a withTimeout kill must propagate as
+            // TimeoutCancellationException to the caller.
+            throw e
         } catch (e: Exception) {
             lastDownloadError = "download_failed"
             EngineLogger.log("download", "downloadPlugin threw $internalName: ${e.javaClass.simpleName} ${e.message}")
             logError(e)
-            return false
+            return false to "download_failed"
         }
     }
 
