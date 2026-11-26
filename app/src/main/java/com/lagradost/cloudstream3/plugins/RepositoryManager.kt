@@ -3,6 +3,10 @@ package com.lagradost.cloudstream3.plugins
 import android.content.Context
 import androidx.annotation.WorkerThread
 import com.fasterxml.jackson.annotation.JsonProperty
+import app.netlify.zaynplay.engine.EngineApp
+import app.netlify.zaynplay.engine.EngineApp
+import app.netlify.zaynplay.engine.EngineApp
+import app.netlify.zaynplay.engine.EngineApp
 import app.netlify.zaynplay.engine.EngineApp.getKey
 import app.netlify.zaynplay.engine.EngineApp.setKey
 import com.lagradost.cloudstream3.amap
@@ -199,7 +203,7 @@ object RepositoryManager {
             // Prevent corrupting the plugin file if the operation fails
             val tempFile = File.createTempFile(file.name, ".tmp", context.cacheDir)
 
-            val body = app.get(convertRawGitUrl(pluginUrl)).okhttpResponse.body
+            val body = app.get(convertRawGitUrl(pluginUrl)).okhttpResponse.body ?: return@safeAsync null
 
             body.byteStream().use { body ->
                 tempFile.outputStream().use { fileSteam ->
