@@ -703,14 +703,15 @@
 
                                 <com.google.android.material.button.MaterialButton
                                     android:id="@+id/result_play_movie"
-                                    style="@style/WhiteButton"
+                                    style="@style/ZaynWatchNowButton"
                                     android:layout_width="match_parent"
                                     android:layout_gravity="center_vertical"
                                     android:layout_marginStart="0dp"
                                     android:layout_marginEnd="0dp"
-                                    android:nextFocusUp="@id/result_bookmark_Button"
-                                    android:nextFocusDown="@id/result_download_movie"
-                                    android:text="@string/play_movie_button"
+                                    android:minHeight="46dp"
+                                    android:nextFocusUp="@id/result_description"
+                                    android:nextFocusDown="@id/download_button"
+                                    android:text="@string/zayn_home_watch_now"
                                     android:visibility="visible"
                                     app:icon="@drawable/ic_baseline_play_arrow_24">
 
@@ -736,12 +737,43 @@
                                     android:focusable="true"
                                     android:layout_width="match_parent" />-->
 
-                            <com.lagradost.cloudstream3.ui.download.button.DownloadButton
-                                android:id="@+id/download_button"
+                            <!-- Zayn Play mini-actions (preview scr-details ~1764-1768):
+                                 Library | Download | Trailer, three equal buttons. -->
+                            <LinearLayout
+                                android:id="@+id/result_mini_actions"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="5dp"
-                                app:download_layout="@layout/download_button_layout" />
+                                android:layout_marginTop="7dp"
+                                android:orientation="horizontal">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/result_library_button"
+                                    style="@style/ZaynMiniActionButton"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:layout_marginEnd="8dp"
+                                    android:text="@string/library"
+                                    app:icon="@drawable/ic_baseline_bookmark_24" />
+
+                                <com.lagradost.cloudstream3.ui.download.button.DownloadButton
+                                    android:id="@+id/download_button"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:layout_marginEnd="8dp"
+                                    app:download_layout="@layout/download_button_layout" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/result_trailer_button"
+                                    style="@style/ZaynMiniActionButton"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="@string/trailer"
+                                    android:visibility="gone"
+                                    app:icon="@drawable/ic_baseline_play_arrow_24" />
+                            </LinearLayout>
 
                             <!--<androidx.core.widget.ContentLoadingProgressBar
                                     android:layout_width="match_parent"
