@@ -1,4 +1,6 @@
+@file:OptIn(InternalAPI::class)
 package com.lagradost.cloudstream3.mvvm
+import com.lagradost.cloudstream3.InternalAPI
 
 import androidx.annotation.AnyThread
 import com.lagradost.api.Log
