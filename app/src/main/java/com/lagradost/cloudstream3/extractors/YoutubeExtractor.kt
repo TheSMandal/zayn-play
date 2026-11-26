@@ -4,7 +4,7 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 
-open class YoutubeExtractor() : ExtractorApi {
+open class YoutubeExtractor() : ExtractorApi() {
     override val mainUrl: String = "https://www.youtube.com"
     override val name: String = "Youtube"
     override val requiresReferer: Boolean = false
