@@ -13,6 +13,7 @@ import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.MovieSearchResponse
+import com.lagradost.cloudstream3.PROVIDER_STATUS_DOWN
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SearchResponseList
 import com.lagradost.cloudstream3.SubtitleFile
@@ -25,6 +26,9 @@ import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.plugins.PluginWrapper
 import com.lagradost.cloudstream3.plugins.RepositoryData
 import com.lagradost.cloudstream3.plugins.RepositoryManager
+import com.lagradost.cloudstream3.plugins.RepositoryManager.RepoLoadError
+import com.lagradost.cloudstream3.plugins.RepositoryManager.RepoPluginsResult
+import com.lagradost.cloudstream3.plugins.SitePlugin
 import com.lagradost.cloudstream3.utils.DrmExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -32,6 +36,7 @@ import com.lagradost.cloudstream3.utils.Qualities
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
@@ -52,7 +57,7 @@ import org.json.JSONObject
  *
  * Implements E1–E11 + E26–E28 over the vendored PluginManager /
  * RepositoryManager / APIRepository. Everything else stays
- * engine_not_ready (player / downloads / accounts / updater = Phase C).
+ * unknown_method (player / downloads / accounts / updater = Phase C).
  *
  * Rules enforced here, not in the UI:
  * - Bridge repo ids are a hash of the repo URL, never the UI's hardcoded
@@ -193,10 +198,14 @@ class ZaynEngine(
                     ),
                 )
                 else -> {
-                    EngineLogger.log("bridge", "$method -> engine_not_ready")
-                    err("engine_not_ready", "Engine not ready yet — this feature comes in the next update")
+                    EngineLogger.log("bridge", "$method -> unknown_method")
+                    err("unknown_method", "Unknown method: $method")
                 }
             }
+        } catch (e: CancellationException) {
+            // (v0.2.1-i) A cancelled bridge call must stay cancelled: the
+            // old catch-all swallowed it and replied "unknown" instead.
+            throw e
         } catch (e: Exception) {
             EngineLogger.log("bridge", "$method threw ${e.javaClass.simpleName}")
             err("unknown", "Engine error")
@@ -206,7 +215,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "0.2.0")
+        .put("version", "0.2.1")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -218,18 +227,22 @@ class ZaynEngine(
         val arr = JSONArray()
         for (repo in RepositoryManager.getRepositories()) {
             val id = repoId(repo.url)
+            // (v0.2.1-h) providerCount is LIVE providers (registered
+            // MainAPIs from this repo), not downloaded .cs3 files.
             val folder = PluginManager.getPluginSanitizedFileName(repo.url)
-            val downloaded = PluginManager.getPluginsOnline()
-                .count { it.filePath.contains("/$folder/") }
+            val liveProviders = APIHolder.allProviders.count {
+                it.sourcePlugin?.contains("/$folder/") == true
+            }
             arr.put(
                 JSONObject()
                     .put("id", id)
+                    .put("catalogueId", catalogueIdOf(repo.url) ?: JSONObject.NULL)
                     .put("name", repo.name)
                     .put("url", repo.url)
                     .put("iconUrl", repo.iconUrl ?: JSONObject.NULL)
                     .put("description", repo.description ?: JSONObject.NULL)
                     .put("installed", true)
-                    .put("providerCount", downloaded)
+                    .put("providerCount", liveProviders)
                     .put("providersOn", store.providerOnCount(id))
             )
         }
@@ -272,15 +285,14 @@ class ZaynEngine(
         } catch (e: Exception) {
             emptyList<PluginWrapper>()
         }
-        val arr = JSONArray()
-        for (w in providers) arr.put(providerJson(repo, w))
         return JSONObject()
             .put("repo", repoJson(repo))
-            .put("providers", arr)
+            .put("providers", providerEntries(repo, providers))
     }
 
     private fun repoJson(repo: RepositoryData): JSONObject = JSONObject()
         .put("id", repoId(repo.url))
+        .put("catalogueId", catalogueIdOf(repo.url) ?: JSONObject.NULL)
         .put("name", repo.name)
         .put("url", repo.url)
         .put("iconUrl", repo.iconUrl ?: JSONObject.NULL)
@@ -289,49 +301,94 @@ class ZaynEngine(
 
     private suspend fun repoRemove(repoId: String): JSONObject {
         val repo = findRepo(repoId) ?: return err("repo_not_found", "Repository not found")
+        // State keys use the canonical hash id, not whichever id form the
+        // caller passed (catalogue id / hex suffix would miss otherwise).
+        val canonicalId = repoId(repo.url)
         try {
             RepositoryManager.removeRepository(activity, repo)
         } catch (e: Exception) {
             EngineLogger.log("bridge", "repoRemove threw")
             return err("unknown", "Could not remove that repository")
         }
-        store.clearRepoState(repoId)
+        store.clearRepoState(canonicalId)
         EngineLogger.log("bridge", "repoRemove removed ${repo.name}")
-        return ok(JSONObject().put("repoId", repoId))
+        return ok(JSONObject().put("repoId", canonicalId))
     }
 
     // ---- E5 / E6 ----
 
     private suspend fun repoProviders(repoId: String): JSONObject {
         val repo = findRepo(repoId) ?: return err("repo_not_found", "Repository not found")
-        val wrappers = try {
-            RepositoryManager.getRepoPlugins(repo)
-        } catch (e: Exception) {
-            EngineLogger.log("bridge", "repoProviders getRepoPlugins threw")
-            null
-        } ?: return err("network_error", "Could not load the provider list")
-        val arr = JSONArray()
-        for (w in wrappers) arr.put(providerJson(repo, w))
-        return ok(JSONObject().put("repoId", repoId).put("providers", arr))
+        // (v0.2.1-o) A failed manifest fetch is no longer flattened to
+        // "network_error": network / HTTP / parse failures get distinct
+        // codes, so the UI never silently shows an empty provider list.
+        return when (val result = RepositoryManager.getRepoPluginsResult(repo)) {
+            is RepoPluginsResult.Ok -> ok(
+                JSONObject()
+                    .put("repoId", repoId)
+                    .put("catalogueId", catalogueIdOf(repo.url) ?: JSONObject.NULL)
+                    .put("providers", providerEntries(repo, result.wrappers))
+            )
+            is RepoPluginsResult.Err -> when (result.kind) {
+                RepoLoadError.NETWORK -> err("network_error", "Could not reach the repository")
+                RepoLoadError.HTTP -> err("http_error", "The repository returned an error")
+                RepoLoadError.PARSE -> err("repo_parse_error", "Could not read that repository")
+            }
+        }
     }
 
-    private fun providerJson(repo: RepositoryData, w: PluginWrapper): JSONObject {
-        val p = w.plugin
+    /**
+     * (v0.2.1-2) MainAPI-based provider rows. One row per registered
+     * MainAPI when the plugin is loaded (name = MainAPI.name,
+     * pluginName/internalName = its SitePlugin); exactly ONE row with
+     * name = SitePlugin.name and notLoaded=true when it is not loaded.
+     * ON/OFF/health state stays keyed by (repoId, row name).
+     */
+    private fun providerEntries(repo: RepositoryData, wrappers: List<PluginWrapper>): JSONArray {
+        val arr = JSONArray()
+        for (w in wrappers) {
+            val p = w.plugin
+            val apis = apisForPlugin(repo, p)
+            if (apis.isEmpty()) {
+                arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true))
+            } else {
+                for (api in apis) {
+                    arr.put(providerRowJson(repo, p, name = api.name, api = api, notLoaded = false))
+                }
+            }
+        }
+        return arr
+    }
+
+    private fun providerRowJson(
+        repo: RepositoryData,
+        p: SitePlugin,
+        name: String,
+        api: MainAPI?,
+        notLoaded: Boolean,
+    ): JSONObject {
         val id = repoId(repo.url)
-        val api = resolveApi(p.name, p.internalName)
         val loadedPlugin = api?.let { loadedPluginFor(it) }
         return JSONObject()
-            .put("name", p.name)
+            .put("name", name)
             .put("internalName", p.internalName)
-            .put("lang", p.language ?: JSONObject.NULL)
+            .put("pluginName", p.name)
+            .put("lang", api?.lang ?: p.language ?: JSONObject.NULL)
             .put("version", p.version)
             .put("status", p.status)
-            .put("on", store.isProviderOn(id, p.name))
-            .put("autoOff", store.isProviderAutoOff(id, p.name))
-            .put("health", store.providerHealth(id, p.name) ?: JSONObject.NULL)
+            .put("on", store.isProviderOn(id, name))
+            .put("autoOff", store.isProviderAutoOff(id, name))
+            .put("health", store.providerHealth(id, name) ?: JSONObject.NULL)
             .put("hasSettings", (loadedPlugin as? Plugin)?.openSettings != null)
             .put("mainUrl", api?.mainUrl ?: JSONObject.NULL)
             .put("types", JSONArray(p.tvTypes ?: emptyList<String>()))
+            .put("notLoaded", notLoaded)
+    }
+
+    /** Loaded MainAPIs registered by one SitePlugin (via its stored .cs3). */
+    private fun apisForPlugin(repo: RepositoryData, p: SitePlugin): List<MainAPI> {
+        val data = storedPluginData(repo, p.internalName) ?: return emptyList()
+        return APIHolder.allProviders.filter { it.sourcePlugin == data.filePath }
     }
 
     private suspend fun providerSetOn(repoId: String, providerName: String, on: Boolean): JSONObject {
@@ -340,6 +397,11 @@ class ZaynEngine(
             ?: return err("provider_not_found", "Provider not found")
         val p = wrapper.plugin
         if (on) {
+            // (v0.2.1-5) Upstream treats status 0 (Down) as disabled: never
+            // download a Down plugin.
+            if (p.status == PROVIDER_STATUS_DOWN) {
+                return err("provider_down", "That provider is currently down")
+            }
             val loaded = try {
                 PluginManager.downloadPlugin(
                     activity, p.url, p.fileHash, p.internalName, repo.url, true
@@ -353,12 +415,19 @@ class ZaynEngine(
             store.setProviderAutoOff(repoId, providerName, false)
             EngineLogger.log("bridge", "providerSetOn ON $providerName")
         } else {
-            val data = storedPluginData(repo, p.internalName)
-            if (data != null) {
-                try {
-                    PluginManager.unloadPlugin(data.filePath)
-                } catch (e: Exception) {
-                    EngineLogger.log("bridge", "providerSetOn unload threw")
+            // One .cs3 can host several MainAPIs (NetMirror: 4). Unloading
+            // it for one API would kill its siblings, so unload only when
+            // no sibling API of the same plugin is still ON.
+            val siblingsOn = apisForPlugin(repo, p)
+                .any { it.name != providerName && store.isProviderOn(repoId, it.name) }
+            if (!siblingsOn) {
+                val data = storedPluginData(repo, p.internalName)
+                if (data != null) {
+                    try {
+                        PluginManager.unloadPlugin(data.filePath)
+                    } catch (e: Exception) {
+                        EngineLogger.log("bridge", "providerSetOn unload threw")
+                    }
                 }
             }
             store.setProviderOn(repoId, providerName, false)
@@ -380,34 +449,45 @@ class ZaynEngine(
         val wrapper = findWrapper(repo, providerName)
             ?: return err("provider_not_found", "Provider not found")
         val p = wrapper.plugin
+        // (v0.2.1-5) Never download a Down plugin; report it honestly
+        // (extra "down" field, same ok shape — no download attempted).
+        if (p.status == PROVIDER_STATUS_DOWN) {
+            return ok(
+                JSONObject()
+                    .put("repoId", repoId)
+                    .put("providerName", providerName)
+                    .put("load", false)
+                    .put("content", false)
+                    .put("video", false)
+                    .put("down", true)
+            )
+        }
         var load = false
         var content = false
         var video = false
         try {
             withTimeout(30_000) {
-                var api = resolveApi(p.name, p.internalName)
+                var api = resolveApi(providerName, p.internalName, repoId)
                 if (api == null) {
                     val downloaded = PluginManager.downloadPlugin(
                         activity, p.url, p.fileHash, p.internalName, repo.url, true
                     )
-                    if (downloaded) api = resolveApi(p.name, p.internalName)
+                    if (downloaded) {
+                        api = resolveApi(providerName, p.internalName, repoId)
+                            ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
+                            ?: apisForPlugin(repo, p).firstOrNull()
+                    }
                 }
                 if (api != null) {
                     load = true
-                    val repoApi = APIRepository(api)
-                    val feed = repoApi.getMainPage(1)
-                    val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
-                    val firstItem = sections
-                        ?.flatMap { it?.items ?: emptyList() }
-                        ?.firstOrNull { it.list.isNotEmpty() }
-                        ?.list?.firstOrNull()
+                    val firstItem = firstContentItem(api)
                     content = firstItem != null
                     if (firstItem != null) {
-                        val loaded = repoApi.load(firstItem.url)
+                        val loaded = APIRepository(api).load(firstItem.url)
                         val data = (loaded as? Resource.Success)?.value?.let(::loadDataOf)
                         if (data != null) {
                             var gotLink = false
-                            val linksOk = repoApi.loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
+                            val linksOk = APIRepository(api).loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
                             video = linksOk && gotLink
                         }
                     }
@@ -428,8 +508,41 @@ class ZaynEngine(
         )
     }
 
+    /**
+     * (v0.2.1-l) Content check shared by providerTest and healthProbe:
+     * the home page when the provider has one, else a search-based check.
+     * A provider with hasMainPage=false (or an empty home page) must not
+     * fail Content/Video just for having no home page. Returns the first
+     * usable SearchResponse found, or null.
+     */
+    private suspend fun firstContentItem(api: MainAPI): SearchResponse? {
+        if (api.hasMainPage) {
+            val feed = try {
+                APIRepository(api).getMainPage(1)
+            } catch (e: Exception) {
+                null
+            }
+            val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
+            val first = sections
+                ?.flatMap { it?.items ?: emptyList() }
+                ?.firstOrNull { it.list.isNotEmpty() }
+                ?.list?.firstOrNull()
+            if (first != null) return first
+            // Home page exists but came back empty: fall through to the
+            // search check instead of failing a working provider.
+        }
+        return try {
+            val res = APIRepository(api).search("movie", 1)
+            (res as? Resource.Success<SearchResponseList>)?.value?.items?.firstOrNull()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private suspend fun providerHealthCheck(onlyOn: Boolean): JSONObject {
-        val targets = mutableListOf<Triple<String, String, PluginWrapper>>()
+        // Targets are per MainAPI (one per loaded API; one plugin row when
+        // not loaded), so a 4-API plugin is probed as 4 providers.
+        val targets = mutableListOf<HealthTarget>()
         for (repo in RepositoryManager.getRepositories()) {
             val id = repoId(repo.url)
             val wrappers = try {
@@ -438,19 +551,31 @@ class ZaynEngine(
                 null
             } ?: continue
             for (w in wrappers) {
-                val isOn = store.isProviderOn(id, w.plugin.name)
-                if (onlyOn && !isOn) continue
-                targets.add(Triple(id, repo.url, w))
+                val apis = apisForPlugin(repo, w.plugin)
+                if (apis.isEmpty()) {
+                    targets.add(HealthTarget(id, repo, w, w.plugin.name, null))
+                } else {
+                    for (api in apis) targets.add(HealthTarget(id, repo, w, api.name, api))
+                }
             }
+        }
+        // (v0.2.1-3) onlyOn is honoured: by default only ON providers are
+        // probed; onlyOn=false (explicit "check all") also reports OFF
+        // providers — but their probes skip network work when the plugin
+        // was never downloaded (see healthProbe).
+        val filtered = if (onlyOn) {
+            targets.filter { store.isProviderOn(it.repoId, it.providerName) }
+        } else {
+            targets
         }
         val results = JSONArray()
         val autoOff = JSONArray()
         val autoOn = JSONArray()
         // Concurrency ~4 (design §5.3).
-        for (chunk in targets.chunked(4)) {
+        for (chunk in filtered.chunked(4)) {
             val chunkResults = coroutineScope {
-                chunk.map { (id, _, w) ->
-                    async { healthProbe(id, w) }
+                chunk.map { t ->
+                    async { healthProbe(t) }
                 }.awaitAll()
             }
             for (probe in chunkResults) {
@@ -469,52 +594,107 @@ class ZaynEngine(
         )
     }
 
+    private data class HealthTarget(
+        val repoId: String,
+        val repo: RepositoryData,
+        val wrapper: PluginWrapper,
+        val providerName: String,
+        val api: MainAPI?,
+    )
+
     /**
      * One health probe. Returns a JSON object with repoId, providerName,
-     * health ("ok"/"fail"), on + autoOff (post-probe bridge state, so the
-     * UI can sync exactly), and change: "off" when an ON provider failed
-     * and was auto-switched off, "on" when a previously auto-off provider
-     * recovered, else "".
+     * health ("ok"/"fail", or null when skipped), on + autoOff (post-probe
+     * bridge state, so the UI can sync exactly), and change: "off" when an
+     * ON provider failed and was auto-switched off, "on" when a previously
+     * auto-off provider recovered, else "".
+     *
+     * (v0.2.1-3) A provider the probe cannot resolve is NEVER auto-offed:
+     * it first attempts a download (like providerTest), and only marks
+     * fail after resolution + a real getMainPage/search attempt. A
+     * provider that was never downloaded is skipped entirely — no
+     * health="fail" stamp, no state change.
      */
-    private suspend fun healthProbe(
-        repoId: String,
-        w: PluginWrapper,
-    ): JSONObject {
-        val name = w.plugin.name
-        val wasOn = store.isProviderOn(repoId, name)
-        val wasAutoOff = store.isProviderAutoOff(repoId, name)
-        val api = resolveApi(w.plugin.name, w.plugin.internalName)
-        var healthy = false
-        if (api != null) {
-            try {
-                withTimeout(15_000) {
-                    val feed = APIRepository(api).getMainPage(1)
-                    val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
-                    healthy = sections?.any { it?.items?.any { s -> s.list.isNotEmpty() } == true } == true
+    private suspend fun healthProbe(t: HealthTarget): JSONObject {
+        val name = t.providerName
+        val wasOn = store.isProviderOn(t.repoId, name)
+        val wasAutoOff = store.isProviderAutoOff(t.repoId, name)
+        val previousHealth = store.providerHealth(t.repoId, name)
+        var api = t.api ?: resolveApi(name, t.wrapper.plugin.internalName, t.repoId)
+        if (api == null) {
+            if (!wasOn && !wasAutoOff) {
+                // Never downloaded, never ON: skip, do not stamp "fail".
+                return probeJson(t.repoId, name, previousHealth, wasOn, wasAutoOff, "")
+            }
+            // Was ON (or auto-off): attempt download first, like providerTest.
+            if (t.wrapper.plugin.status != PROVIDER_STATUS_DOWN) {
+                val downloaded = try {
+                    PluginManager.downloadPlugin(
+                        activity, t.wrapper.plugin.url, t.wrapper.plugin.fileHash,
+                        t.wrapper.plugin.internalName, t.repo.url, true
+                    )
+                } catch (e: Exception) {
+                    EngineLogger.log("bridge", "healthProbe download threw")
+                    false
                 }
-            } catch (e: Exception) {
-                healthy = false
+                if (downloaded) {
+                    api = resolveApi(name, t.wrapper.plugin.internalName, t.repoId)
+                        ?: apisForPlugin(t.repo, t.wrapper.plugin).firstOrNull { it.name == name }
+                        ?: apisForPlugin(t.repo, t.wrapper.plugin).firstOrNull()
+                }
+            }
+            if (api == null) {
+                // Still unresolvable: skip, do not stamp "fail".
+                return probeJson(t.repoId, name, previousHealth, wasOn, wasAutoOff, "")
             }
         }
-        store.setProviderHealth(repoId, name, if (healthy) "ok" else "fail")
+        // (v0.2.1-m) Probe with the provider's own getMainPage timeout,
+        // capped sanely at 30 s — not a fixed 15 s that fails
+        // slow-but-working providers.
+        val probeTimeoutMs = APIRepository.getTimeout(api.getMainPageTimeoutMs)
+            .coerceIn(5_000L, 30_000L)
+        var healthy = false
+        try {
+            withTimeout(probeTimeoutMs) {
+                healthy = firstContentItem(api) != null
+            }
+        } catch (e: Exception) {
+            healthy = false
+        }
+        store.setProviderHealth(t.repoId, name, if (healthy) "ok" else "fail")
         var change = ""
         if (healthy && wasAutoOff) {
-            store.setProviderOn(repoId, name, true)
-            store.setProviderAutoOff(repoId, name, false)
+            store.setProviderOn(t.repoId, name, true)
+            store.setProviderAutoOff(t.repoId, name, false)
             change = "on"
         } else if (!healthy && wasOn) {
-            store.setProviderOn(repoId, name, false)
-            store.setProviderAutoOff(repoId, name, true)
+            store.setProviderOn(t.repoId, name, false)
+            store.setProviderAutoOff(t.repoId, name, true)
             change = "off"
         }
-        return JSONObject()
-            .put("repoId", repoId)
-            .put("providerName", name)
-            .put("health", if (healthy) "ok" else "fail")
-            .put("on", store.isProviderOn(repoId, name))
-            .put("autoOff", store.isProviderAutoOff(repoId, name))
-            .put("change", change)
+        return probeJson(
+            t.repoId, name,
+            if (healthy) "ok" else "fail",
+            store.isProviderOn(t.repoId, name),
+            store.isProviderAutoOff(t.repoId, name),
+            change,
+        )
     }
+
+    private fun probeJson(
+        repoId: String,
+        providerName: String,
+        health: String?,
+        on: Boolean,
+        autoOff: Boolean,
+        change: String,
+    ): JSONObject = JSONObject()
+        .put("repoId", repoId)
+        .put("providerName", providerName)
+        .put("health", health ?: JSONObject.NULL)
+        .put("on", on)
+        .put("autoOff", autoOff)
+        .put("change", change)
 
     // ---- E9 / E10 / E11 ----
 
@@ -575,6 +755,9 @@ class ZaynEngine(
         val ordered = onProviderNamesOrdered()
         val results = JSONArray()
         val perProvider = JSONArray()
+        // (v0.2.1-n) Per-provider resolution failures are surfaced, not
+        // silently swallowed as partial=true with zero results.
+        val failures = JSONArray()
         var partial = false
         var hasNext = false
         try {
@@ -582,24 +765,30 @@ class ZaynEngine(
                 for (chunk in ordered.chunked(8)) {
                     val chunkOut = coroutineScope {
                         chunk.map { name ->
-                            async {
-                                val api = resolveApi(name, null) ?: return@async null
+                            async<Triple<String, SearchResponseList?, String?>> {
+                                val api = resolveApi(name, null)
+                                    ?: return@async Triple(name, null, "unresolved")
                                 val res = try {
                                     APIRepository(api).search(query, page.coerceAtLeast(1))
                                 } catch (e: Exception) {
-                                    null
+                                    return@async Triple(name, null, "error")
                                 }
-                                val list = (res as? Resource.Success<SearchResponseList>)?.value ?: return@async null
-                                name to list
+                                val list = (res as? Resource.Success<SearchResponseList>)?.value
+                                    ?: return@async Triple(name, null, "error")
+                                Triple(name, list, null)
                             }
                         }.awaitAll()
                     }
-                    for (entry in chunkOut) {
-                        if (entry == null) {
+                    for ((name, list, reason) in chunkOut) {
+                        if (list == null) {
                             partial = true
+                            failures.put(
+                                JSONObject()
+                                    .put("provider", name)
+                                    .put("reason", reason ?: "error")
+                            )
                             continue
                         }
-                        val (name, list) = entry
                         hasNext = hasNext || list.hasNext
                         perProvider.put(JSONObject().put("provider", name).put("count", list.items.size))
                         for (item in list.items) results.put(searchItemJson(item))
@@ -615,6 +804,7 @@ class ZaynEngine(
                 .put("results", results)
                 .put("hasNext", hasNext)
                 .put("perProvider", perProvider)
+                .put("failures", failures)
                 .put("partial", partial)
         )
     }
@@ -658,14 +848,25 @@ class ZaynEngine(
     // ---- E28 ----
 
     private suspend fun pluginUpdateCheck(manual: Boolean): JSONObject {
+        // (v0.2.1-f) The manual parameter is honoured now: a manual check
+        // forces a fresh manifest fetch (bypassing the 15-min repo cache)
+        // and runs even when automatic plugin updates are off. An
+        // automatic check respects the plugAutoUpd setting.
+        if (!manual && !store.getSettingBoolean("plugAutoUpd", true)) {
+            return ok(
+                JSONObject()
+                    .put("updated", JSONArray())
+                    .put("upToDate", true)
+                    .put("skippedAutoCheck", true)
+            )
+        }
         val updated = JSONArray()
         for (repo in RepositoryManager.getRepositories()) {
             val id = repoId(repo.url)
-            val wrappers = try {
-                RepositoryManager.getRepoPlugins(repo)
-            } catch (e: Exception) {
-                null
-            } ?: continue
+            val wrappers = when (val result = RepositoryManager.getRepoPluginsResult(repo, manual)) {
+                is RepoPluginsResult.Ok -> result.wrappers
+                is RepoPluginsResult.Err -> continue
+            }
             for (w in wrappers) {
                 val p = w.plugin
                 if (p.status == 0) { // PROVIDER_STATUS_DOWN: unload if loaded
@@ -1371,8 +1572,30 @@ class ZaynEngine(
 
     // ---- lookup helpers ----
 
-    private fun findRepo(repoId: String): RepositoryData? =
-        RepositoryManager.getRepositories().firstOrNull { repoId(it.url) == repoId }
+    /**
+     * (v0.2.1-4) Repo lookup accepts every id form the UI can hold:
+     * the URL-hash id ("repo-" + first 16 hex of SHA-256(url)), a catalogue
+     * id (e.g. "netmirror"), a bare 16-hex suffix, or the raw URL itself.
+     * Native keys are ONLY URL hashes — the catalogue map exists solely so
+     * a catalogue id resolves to its URL (and so responses can carry the
+     * catalogue id alongside the hash id).
+     */
+    private fun findRepo(repoId: String): RepositoryData? {
+        if (repoId.isBlank()) return null
+        val repos = RepositoryManager.getRepositories()
+        repos.firstOrNull { it.url == repoId }?.let { return it }
+        repos.firstOrNull { repoId(it.url) == repoId }?.let { return it }
+        CATALOGUE_URL_BY_ID[repoId]?.let { url ->
+            repos.firstOrNull { it.url == url }?.let { return it }
+        }
+        val hex = repoId.removePrefix("repo-")
+        if (hex.length == 16 && hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+            repos.firstOrNull { repoId(it.url) == "repo-${hex.lowercase()}" }?.let { return it }
+        }
+        return null
+    }
+
+    private fun catalogueIdOf(url: String): String? = CATALOGUE_ID_BY_URL[url]
 
     private suspend fun findWrapper(repo: RepositoryData, providerName: String): PluginWrapper? {
         val wrappers = try {
@@ -1380,7 +1603,15 @@ class ZaynEngine(
         } catch (e: Exception) {
             null
         } ?: return null
-        return wrappers.firstOrNull { it.plugin.name == providerName }
+        // (v0.2.1-2) Match by SitePlugin name first, then by MainAPI name
+        // (repo-scoped, via the resolve fallback chain): a row for one of
+        // NetMirror's four MainAPIs must find the Netmirror wrapper.
+        wrappers.firstOrNull { it.plugin.name == providerName }?.let { return it }
+        val api = resolveApi(providerName, null, repoId(repo.url)) ?: return null
+        val filePath = api.sourcePlugin ?: return null
+        return wrappers.firstOrNull { w ->
+            storedPluginData(repo, w.plugin.internalName)?.filePath == filePath
+        }
     }
 
     private fun storedPluginData(repo: RepositoryData, internalName: String): PluginData? {
@@ -1390,11 +1621,67 @@ class ZaynEngine(
         }
     }
 
-    /** Resolve a provider's MainAPI by display name, falling back to the APIHolder map. */
-    private fun resolveApi(providerName: String, internalName: String?): MainAPI? {
-        val byName = APIHolder.allProviders.firstOrNull { it.name == providerName }
-        if (byName != null) return byName
-        return APIHolder.getApiFromNameNull(providerName)
+    /**
+     * (v0.2.1-1) Resolve a provider's MainAPI. The old code matched ONLY
+     * SitePlugin.name against MainAPI.name, so a plugin whose name differs
+     * from its APIs (NetMirror: one SitePlugin "Netmirror" registering four
+     * MainAPIs — Netflix, Disney Plus, Hotstar, Prime Video) could never
+     * resolve. Fallback chain, in order — repo-scoped (to this repo's
+     * loaded APIs) whenever repoId is known, global otherwise:
+     * (a) exact MainAPI.name; (b) exact internalName (via the stored
+     * .cs3 for that internalName); (c) internalName minus a trailing
+     * "Provider" suffix, case-insensitive (as upstream loadSinglePlugin
+     * does); (d) normalised comparison (lowercase, strip spaces / + / - / .).
+     * The 2-arg overload keeps the existing call sites working.
+     */
+    private fun resolveApi(providerName: String, internalName: String?): MainAPI? =
+        resolveApi(providerName, internalName, null)
+
+    private fun resolveApi(providerName: String, internalName: String?, repoId: String?): MainAPI? {
+        // Repo-scoped pool when the repo is known; global pool otherwise.
+        // A known repo with nothing loaded resolves to nothing — falling
+        // back to another repo's same-named provider would be wrong.
+        val pool: List<MainAPI> = if (repoId != null) apisForRepo(repoId) else APIHolder.allProviders
+        // (a) exact MainAPI.name.
+        pool.firstOrNull { it.name == providerName }?.let { return it }
+        if (!internalName.isNullOrBlank()) {
+            // (b) exact internalName -> stored .cs3 -> its MainAPIs.
+            apiForInternalName(internalName, pool)?.let { return it }
+            // (c) internalName minus a trailing "Provider" suffix.
+            val stripped = stripProviderSuffix(internalName)
+            if (!stripped.equals(internalName, ignoreCase = true)) {
+                pool.firstOrNull { it.name.equals(stripped, ignoreCase = true) }?.let { return it }
+            }
+            // (d) normalised comparison against the internalName.
+            pool.firstOrNull { normaliseName(it.name) == normaliseName(internalName) }?.let { return it }
+        }
+        // (d) normalised comparison against the provider name.
+        pool.firstOrNull { normaliseName(it.name) == normaliseName(providerName) }?.let { return it }
+        // Legacy fallback: upstream's own name map (global only).
+        if (repoId == null) return APIHolder.getApiFromNameNull(providerName)
+        return null
+    }
+
+    private fun normaliseName(s: String): String =
+        s.lowercase().replace(Regex("[\\s+\\-.]"), "")
+
+    private fun stripProviderSuffix(s: String): String =
+        if (s.endsWith("provider", ignoreCase = true)) s.dropLast("provider".length) else s
+
+    /** Loaded MainAPIs of one repo (by .cs3 path inside the repo folder). */
+    private fun apisForRepo(repoId: String): List<MainAPI> {
+        val repo = findRepo(repoId) ?: return emptyList()
+        val folder = PluginManager.getPluginSanitizedFileName(repo.url)
+        return APIHolder.allProviders.filter { it.sourcePlugin?.contains("/$folder/") == true }
+    }
+
+    /** The MainAPI registered by the stored .cs3 for an internalName. */
+    private fun apiForInternalName(internalName: String, pool: List<MainAPI>): MainAPI? {
+        val datas = PluginManager.getPluginsOnline().filter { it.internalName == internalName }
+        for (d in datas) {
+            pool.firstOrNull { it.sourcePlugin == d.filePath }?.let { return it }
+        }
+        return null
     }
 
     /** The loaded Plugin instance for an api, if its .cs3 is loaded. */
@@ -1419,6 +1706,45 @@ class ZaynEngine(
             val hex = digest.joinToString("") { "%02x".format(it) }
             return "repo-" + hex.take(16)
         }
+
+        /**
+         * (v0.2.1-4) The 27-repo catalogue (id + URL), copied verbatim from
+         * the UI's REPO_CATALOGUE snapshot so native can resolve a
+         * catalogue id to its repo URL and report the catalogue id
+         * alongside the hash id. Native keys are URL hashes only.
+         */
+        private val CATALOGUE_REPOS: List<Pair<String, String>> = listOf(
+            "cspr" to "https://raw.githubusercontent.com/zaynplay/extensions/master/repo.json",
+            "mega" to "https://raw.githubusercontent.com/self-similarity/MegaRepo/builds/repo.json",
+            "phisher" to "https://raw.githubusercontent.com/phisher98/zaynplay-extensions-phisher/refs/heads/builds/repo.json",
+            "megix" to "https://raw.githubusercontent.com/SaurabhKaperwan/CSX/builds/CS.json",
+            "3rabi" to "https://raw.githubusercontent.com/Abodabodd/re-3arabi/refs/heads/main/repo",
+            "indostream" to "https://raw.githubusercontent.com/TeKuma25/IndoStream/builds/repo.json",
+            "extcloud" to "https://raw.githubusercontent.com/duro92/ExtCloud/main/repo.json",
+            "cloudx" to "https://raw.githubusercontent.com/Asm0d3usX/CloudX/builds/repo.json",
+            "dogior" to "https://raw.githubusercontent.com/doGior/doGiorsHadEnough/refs/heads/builds/repo.json",
+            "cncverse" to "https://raw.githubusercontent.com/NivinCNC/CNCVerse-Cloud-Stream-Extension/refs/heads/builds/CNC.json",
+            "diegon" to "https://pastebin.com/raw/qndZtL6D",
+            "cskarma" to "https://raw.githubusercontent.com/Kraptor123/cs-Karma/refs/heads/master/repo.json",
+            "cakestwix" to "https://codeberg.org/CakesTwix/zaynplay-extensions-uk/raw/branch/master/repo.json",
+            "sarapcanagii" to "https://raw.githubusercontent.com/sarapcanagii/Pitipitii/master/repo.json",
+            "lawlietrepo" to "https://raw.githubusercontent.com/lawlietbr/lietrepo/refs/heads/main/builds/repo.json",
+            "king" to "https://pastebin.com/raw/Cd2g2tfz",
+            "italianprovider" to "https://raw.githubusercontent.com/Gian-Fr/ItalianProvider/builds/repo.json",
+            "netmirror" to "https://raw.githubusercontent.com/Sushan64/NetMirror-Extension/refs/heads/builds/Netflix.json",
+            "redowan" to "https://raw.githubusercontent.com/redowan99/Redowan-Zayn Play/master/repo.json",
+            "saimuel" to "https://raw.githubusercontent.com/saimuelbr/saimuelrepo/refs/heads/main/builds/repo.json",
+            "cuxplug" to "https://raw.githubusercontent.com/ycngmn/CuxPlug/refs/heads/main/repo.json",
+            "vietnamese" to "https://gitlab.com/tearrs/zaynplay-vietnamese/-/raw/main/repo.json",
+            "turkish" to "https://raw.githubusercontent.com/Kraptor123/cs-kraptor/refs/heads/master/repo.json",
+            "german" to "https://raw.githubusercontent.com/Bnyro/GermanProviders/refs/heads/master/repo.json",
+            "luna712" to "https://raw.githubusercontent.com/Luna712/Luna712-Zayn Play-Extensions/28885d17ceb7f24782b732b6056085c14c1fd027/repo.json",
+            "zzikozz" to "https://raw.githubusercontent.com/zzikozz/frenchCS/refs/heads/main/repo.json",
+            "gramflix" to "https://raw.githubusercontent.com/tOntOnbOuLii/GramFlix/main/repo.json",
+        )
+        private val CATALOGUE_URL_BY_ID: Map<String, String> = CATALOGUE_REPOS.toMap()
+        private val CATALOGUE_ID_BY_URL: Map<String, String> =
+            CATALOGUE_REPOS.associate { (id, url) -> url to id }
     }
 
     private fun ok(data: JSONObject): JSONObject =
