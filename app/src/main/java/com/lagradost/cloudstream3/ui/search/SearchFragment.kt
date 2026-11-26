@@ -24,9 +24,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.doOnLayout
-import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.button.MaterialButton
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.AllLanguagesName
 import com.lagradost.cloudstream3.AnimeSearchResponse
@@ -293,7 +291,13 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 val builder =
                     BottomSheetDialog(ctx)
 
-                builder.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                // Same glass sheet as the home provider picker (shared layout):
+                // sizes to its content; transparent sheet container so the
+                // layout's glass background shows.
+                builder.setOnShowListener {
+                    builder.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+                        ?.setBackgroundResource(android.R.color.transparent)
+                }
 
                 val selectMainpageBinding: HomeSelectMainpageBinding =
                     HomeSelectMainpageBinding.inflate(
@@ -311,9 +315,7 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                         set.size > 1 || set.contains(AllLanguagesName)
                     }
 
-                    val cancelBtt = dialog.findViewById<MaterialButton>(R.id.cancel_btt)
-                    val applyBtt = dialog.findViewById<MaterialButton>(R.id.apply_btt)
-
+                    val cancelBtt = dialog.findViewById<ImageView>(R.id.cancel_btt)
                     val listView = dialog.findViewById<ListView>(R.id.listview1)
                     val arrayAdapter = ArrayAdapter<String>(ctx, R.layout.sort_bottom_single_choice)
                     listView?.adapter = arrayAdapter
@@ -383,13 +385,6 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                     }
 
                     cancelBtt?.setOnClickListener {
-                        dialog.dismissSafe()
-                    }
-
-                    applyBtt?.setOnClickListener {
-                        //if (currentApiName != selectedApiName) {
-                        //    currentApiName?.let(callback)
-                        //}
                         dialog.dismissSafe()
                     }
 
