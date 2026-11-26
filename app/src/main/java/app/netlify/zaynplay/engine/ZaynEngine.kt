@@ -218,7 +218,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "0.2.2")
+        .put("version", "0.2.3")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -536,7 +536,7 @@ class ZaynEngine(
         var video = false
         var error: String? = null
         try {
-            withTimeout(30_000) {
+            withTimeout(45_000) {
                 var api = resolveApi(providerName, p.internalName, repoId)
                 if (api == null) {
                     val downloaded = PluginManager.downloadPlugin(
@@ -547,11 +547,15 @@ class ZaynEngine(
                     api = resolveApi(providerName, p.internalName, repoId)
                         ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
                         ?: apisForPlugin(repo, p).firstOrNull()
-                    if (api == null && !downloaded) {
+                    // (v0.2.3) Never return load:false with a null error:
+                    // a download that reports true but still leaves no
+                    // API registered is a load failure, not a silent one.
+                    // `downloaded` is kept for the log line only.
+                    if (api == null) {
                         error = PluginManager.lastLoadError
                             ?: PluginManager.lastDownloadError
-                            ?: "network_error"
-                        EngineLogger.log("bridge", "providerTest $providerName failed: $error")
+                            ?: "load_failed"
+                        EngineLogger.log("bridge", "providerTest $providerName failed: $error (downloaded=$downloaded)")
                     }
                 }
                 if (api != null) {
