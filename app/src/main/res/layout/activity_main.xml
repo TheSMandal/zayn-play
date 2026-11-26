@@ -1,8 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The whole app UI lives in the WebView (assets/zaynplay-app.html). -->
+<!-- The whole app UI lives in the WebView (assets/zaynplay-app.html).
+     Phase C: the native video surface (TextureView) sits BELOW the
+     WebView in z-order so the HTML player controls draw above the video
+     and stay tappable. It is GONE unless the page reports the player
+     stage rect (bridge playerStage); the page punches a transparent
+     hole in the stage while it is visible. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
+
+    <TextureView
+        android:id="@+id/player_surface"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:visibility="gone" />
 
     <WebView
         android:id="@+id/webview"
