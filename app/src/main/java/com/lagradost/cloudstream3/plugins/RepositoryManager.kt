@@ -16,6 +16,7 @@ import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.mvvm.safeAsync
 import com.lagradost.cloudstream3.plugins.PluginManager.getPluginSanitizedFileName
 import com.lagradost.cloudstream3.plugins.PluginManager.unloadPlugin
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
@@ -349,7 +350,8 @@ object RepositoryManager {
      * reason — HTTP error, empty body, hash mismatch, move failure — and
      * the bridge could only report a generic "network_error". Callers
      * read [lastDownloadError] (stable code) for the exact reason.
-     * Codes: http_<code> | download_empty | hash_mismatch | download_io.
+     * Codes: http_<code> | timeout | download_failed | download_empty
+     * | hash_mismatch | download_io.
      */
     sealed class PluginDownloadResult {
         data class Ok(val file: File) : PluginDownloadResult()
@@ -375,13 +377,39 @@ object RepositoryManager {
         }
         parentDir.mkdirs()
 
-        // Prevent corrupting the plugin file if the operation fails
-        val tempFile = try {
-            File.createTempFile(file.name, ".tmp", context.cacheDir)
-        } catch (e: Exception) {
-            lastDownloadError = "download_io"
-            EngineLogger.log("download", "temp file failed for ${file.name}: ${e.message}")
-            return PluginDownloadResult.Err("download_io", "Could not create temp file")
+        // (v0.2.4) Resume state: the partial file lives next to the
+        // finished file (same plugin folder, so it is keyed by
+        // internalName + repository exactly like the finished file) and
+        // the companion .sha256 file records which expected hash the
+        // partial bytes belong to — a new version must never resume
+        // bytes from the old one. The partial is only ever read with a
+        // Range request, is deleted on success / hash mismatch / hash
+        // change, and is never a *.cs3 file, so plugin listing never
+        // picks it up. (context is kept in the signature for callers;
+        // the body no longer needs the cache dir.)
+        val partialFile = File(parentDir, file.name + ".part")
+        val partialHashFile = File(parentDir, file.name + ".part.sha256")
+        // A partial whose hash does not match this download belongs to
+        // an older version: drop it, never resume across versions.
+        // Without an expected hash there is nothing to verify a resume
+        // against, so also start fresh.
+        val storedHash = try {
+            partialHashFile.takeIf { it.exists() }?.readText()?.trim()
+        } catch (_: Exception) {
+            null
+        }
+        if (expectedFileHash == null || storedHash != expectedFileHash) {
+            partialFile.delete()
+            partialHashFile.delete()
+        }
+        if (expectedFileHash != null) {
+            // Record which hash these partial bytes belong to, so a
+            // later tap can resume them (best-effort: a missing hash
+            // file just means the next tap starts from byte 0).
+            try {
+                partialHashFile.writeText(expectedFileHash)
+            } catch (_: Exception) {
+            }
         }
 
         // (v0.2.2) FORCE_NETWORK: a .cs3 must always come from the
@@ -389,63 +417,121 @@ object RepositoryManager {
         // rewritten to max-stale=68y by CacheInterceptor, so a stale or
         // poisoned entry would otherwise be served forever).
         // (v0.2.3) timeout=120s: a .cs3 on a slow network gets a fair
-        // chance; the callers bound it anyway (providerTest 45s,
-        // providerSetOn JS 60s), so this only stops the HTTP layer
-        // giving up first. Manifest fetch timeouts are untouched.
-        val response = try {
-            app.get(
-                convertRawGitUrl(pluginUrl),
-                timeout = 120,
-                cacheControlOverride = okhttp3.CacheControl.FORCE_NETWORK
-            )
-        } catch (e: Exception) {
-            tempFile.delete()
-            // (v0.2.3) A socket timeout is a timeout, not a generic
-            // download failure — the UI can say so honestly.
-            val code = if (e is java.net.SocketTimeoutException) "timeout" else "download_failed"
-            lastDownloadError = code
-            EngineLogger.log("download", "GET failed ${file.name}: ${e.javaClass.simpleName} ${e.message}")
-            return PluginDownloadResult.Err(code, "Could not reach the server (${e.javaClass.simpleName})")
-        }
-        if (!response.isSuccessful) {
-            tempFile.delete()
-            val code = "http_${response.code}"
-            lastDownloadError = code
-            EngineLogger.log("download", "HTTP ${response.code} for ${file.name} ($pluginUrl)")
-            return PluginDownloadResult.Err(code, "Server returned HTTP ${response.code}")
-        }
-        val body = response.okhttpResponse.body
-        if (body == null) {
-            tempFile.delete()
-            lastDownloadError = "download_empty"
-            EngineLogger.log("download", "empty body for ${file.name}")
-            return PluginDownloadResult.Err("download_empty", "Server returned an empty file")
-        }
-        try {
-            body.byteStream().use { stream ->
-                tempFile.outputStream().use { out ->
-                    stream.copyTo(out)
-                }
+        // chance. (v0.2.4) Callers no longer bound it below 120s:
+        // providerTest runs the download outside its 45s content box
+        // and the JS side waits 180s, so the HTTP layer is the budget.
+        // Manifest fetch timeouts are untouched.
+        //
+        // (v0.2.4) Up to 3 attempts. Each attempt resumes from the
+        // bytes already on disk (Range request); a slow network that
+        // drops mid-body therefore continues instead of restarting
+        // from byte 0. Only transport failures (SocketTimeoutException
+        // / IOException) are retried — HTTP errors, empty bodies and
+        // hash mismatches return immediately. Cancellation is never
+        // retried or relabelled: it propagates (see N3).
+        var attempt = 0
+        while (attempt < 3) {
+            attempt++
+            val downloadedBytes = if (partialFile.exists()) partialFile.length() else 0L
+            val headers = if (downloadedBytes > 0L) {
+                // Both hosts advertise Accept-Ranges: bytes (verified
+                // live); a server that ignores Range answers 200 and is
+                // handled below by restarting from byte 0.
+                mapOf("Range" to "bytes=$downloadedBytes-")
+            } else {
+                mapOf()
             }
-        } catch (e: Exception) {
-            tempFile.delete()
-            // (v0.2.3) Same timeout mapping as the GET catch above.
-            val code = if (e is java.net.SocketTimeoutException) "timeout" else "download_failed"
-            lastDownloadError = code
-            EngineLogger.log("download", "body read failed ${file.name}: ${e.message}")
-            return PluginDownloadResult.Err(code, "Download interrupted (${e.javaClass.simpleName})")
+            val response = try {
+                app.get(
+                    convertRawGitUrl(pluginUrl),
+                    headers = headers,
+                    timeout = 120,
+                    cacheControlOverride = okhttp3.CacheControl.FORCE_NETWORK
+                )
+            } catch (e: CancellationException) {
+                // (v0.2.4) Never launder a cancellation into
+                // "download_failed": a withTimeout kill must propagate
+                // as TimeoutCancellationException so the caller reports
+                // an honest "timeout".
+                throw e
+            } catch (e: Exception) {
+                // (v0.2.3) A socket timeout is a timeout, not a generic
+                // download failure — the UI can say so honestly.
+                // (v0.2.4) Retry transport failures; the partial file
+                // keeps what arrived, so the next attempt resumes.
+                val code = if (e is java.net.SocketTimeoutException) "timeout" else "download_failed"
+                lastDownloadError = code
+                EngineLogger.log("download", "GET failed ${file.name} (attempt $attempt/3): ${e.javaClass.simpleName} ${e.message}")
+                if (e is java.io.IOException && attempt < 3) continue
+                return PluginDownloadResult.Err(code, "Could not reach the server (${e.javaClass.simpleName})")
+            }
+            if (response.code == 416) {
+                // (v0.2.4) Range not satisfiable — the partial is stale
+                // (the file changed server-side). Drop it, start fresh.
+                EngineLogger.log("download", "HTTP 416 for ${file.name}: dropping stale partial")
+                partialFile.delete()
+                partialHashFile.delete()
+                if (attempt < 3) continue
+                return PluginDownloadResult.Err("http_416", "Server rejected the resume (HTTP 416)")
+            }
+            if (!response.isSuccessful) {
+                val code = "http_${response.code}"
+                lastDownloadError = code
+                EngineLogger.log("download", "HTTP ${response.code} for ${file.name} ($pluginUrl)")
+                return PluginDownloadResult.Err(code, "Server returned HTTP ${response.code}")
+            }
+            val body = response.okhttpResponse.body
+            if (body == null) {
+                lastDownloadError = "download_empty"
+                EngineLogger.log("download", "empty body for ${file.name}")
+                return PluginDownloadResult.Err("download_empty", "Server returned an empty file")
+            }
+            // (v0.2.4) 206 = the server honoured Range: append to the
+            // partial. 200 after a Range request = the server ignored
+            // it: discard the partial and write from byte 0.
+            val append = response.code == 206 && downloadedBytes > 0L
+            if (!append && downloadedBytes > 0L) {
+                EngineLogger.log("download", "server ignored Range for ${file.name}: restarting from byte 0")
+                partialFile.delete()
+            }
+            try {
+                body.byteStream().use { stream ->
+                    java.io.FileOutputStream(partialFile, append).use { out ->
+                        stream.copyTo(out)
+                    }
+                }
+            } catch (e: CancellationException) {
+                // (v0.2.4) Same as the GET catch: propagate, never
+                // relabel as "download_failed". Bytes already written
+                // stay in the partial for the next attempt.
+                throw e
+            } catch (e: Exception) {
+                // (v0.2.3) Same timeout mapping as the GET catch above.
+                // (v0.2.4) Retry transport failures; bytes already
+                // written stay in the partial for the next attempt.
+                val code = if (e is java.net.SocketTimeoutException) "timeout" else "download_failed"
+                lastDownloadError = code
+                EngineLogger.log("download", "body read failed ${file.name} (attempt $attempt/3): ${e.message}")
+                if (e is java.io.IOException && attempt < 3) continue
+                return PluginDownloadResult.Err(code, "Download interrupted (${e.javaClass.simpleName})")
+            }
+            // A full body arrived this attempt: fall through to the
+            // length / hash checks below.
+            break
         }
-        if (tempFile.length() == 0L) {
-            tempFile.delete()
+        if (partialFile.length() == 0L) {
+            partialFile.delete()
+            partialHashFile.delete()
             lastDownloadError = "download_empty"
             EngineLogger.log("download", "0-byte download for ${file.name}")
             return PluginDownloadResult.Err("download_empty", "Downloaded file is empty")
         }
 
         if (expectedFileHash != null) {
-            val downloadHash = sha256(tempFile)
+            val downloadHash = sha256(partialFile)
             if (expectedFileHash != downloadHash) {
-                tempFile.delete()
+                partialFile.delete()
+                partialHashFile.delete()
                 lastDownloadError = "hash_mismatch"
                 EngineLogger.log("download", "hash mismatch ${file.name}: expected $expectedFileHash got $downloadHash")
                 return PluginDownloadResult.Err(
@@ -459,25 +545,27 @@ object RepositoryManager {
         try {
             try {
                 Files.move(
-                    tempFile.toPath(),
+                    partialFile.toPath(),
                     file.toPath(),
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE
                 )
             } catch (_: AtomicMoveNotSupportedException) {
                 Files.move(
-                    tempFile.toPath(),
+                    partialFile.toPath(),
                     file.toPath(),
                     StandardCopyOption.REPLACE_EXISTING
                 )
             }
         } catch (e: Exception) {
-            tempFile.delete()
+            partialFile.delete()
+            partialHashFile.delete()
             lastDownloadError = "download_io"
             EngineLogger.log("download", "move failed ${file.name}: ${e.message}")
             return PluginDownloadResult.Err("download_io", "Could not save the file (${e.javaClass.simpleName})")
         }
 
+        partialHashFile.delete()
         lastDownloadError = null
         EngineLogger.log("download", "downloaded ${file.name} (${file.length()} B)")
         return PluginDownloadResult.Ok(file)
