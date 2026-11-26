@@ -1,13 +1,13 @@
 # Zayn Play — UI-only build (v0.1.0)
 
-A **fresh Android app with ONLY Zayn Play's own layout** — no CloudStream
-code, no CloudStream UI, no engine (no providers, no real player, no
+A **fresh Android app with ONLY Zayn Play's own layout** — no old-engine
+code, no old UI, no engine (no providers, no real player, no
 downloads). Every screen is the approved preview, with sample data only,
 exactly like the preview.
 
 **Purpose (gated restart, user 2026-11-26):** build the app with only his
 layout first. He reviews everything on his phone; if he says OK, the
-CloudStream engine goes into this UI afterwards. Benefits he named: the
+the streaming engine goes into this UI afterwards. Benefits he named: the
 app stays small and there are no useless files in the project.
 
 - Package: `app.netlify.zaynplay` — app name **Zayn Play**
@@ -61,11 +61,10 @@ App language: the same 11 languages, same engine, same no-mixing rule.
 No providers, no extensions/repo loading, no search backend, no video
 playback, no downloads, no accounts sync, no updater. Buttons that
 would need the engine (Play, Install, Test, Download, Search) show the
-preview's sample behaviour only. The preview's own text still names
-CloudStream in places (e.g. "CloudStream-এর ৫ ধাপ" in setup, repo
-sample data) — that wording comes from the approved preview itself;
-removing it is a text decision for the review round, not an engine
-change.
+preview's sample behaviour only. The old engine's name was removed
+from the preview text itself (162 mentions replaced, verified zero in
+the shipped page) — the sample repo/provider names in the demo data
+are Zayn Play's own sample names.
 
 ## Building
 
@@ -76,10 +75,11 @@ in this repo). Local: same command with JDK 17.
 
 ## After approval (engine phase — NOT this build)
 
-Wire CloudStream's backend behind this UI exactly the way CloudStream
-works (MainAPI/providers, player, downloads, search-all-providers,
+Wire the streaming engine's backend behind this UI exactly the way that
+engine works (MainAPI/providers, player, downloads, search-all-providers,
 extensions), keeping the layout in front untouched. Reference clone:
-`~/workspace/zaynplay-cloudstream` (read-only). The old patched
+the read-only engine clone kept in the workspace (its path is in the
+project's memory notes, not in this repo). The old patched
 project (`~/workspace/zaynplay-build/zaynplay`) was deleted by the
 user's order and must not be restored.
 
