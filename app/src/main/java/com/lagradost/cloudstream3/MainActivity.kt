@@ -1717,7 +1717,8 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
 
         binding?.navView?.apply {
             itemRippleColor = rippleColor
-            itemActiveIndicatorColor = rippleColor
+            // Zayn Play: NO pill behind the active icon (preview .tabbar).
+            itemActiveIndicatorColor = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
             setupWithNavController(navController)
             setOnItemSelectedListener { item ->
                 onNavDestinationSelected(
