@@ -985,9 +985,10 @@
       .stage-video.r-fit img, .stage-video.r-fit video{ object-fit:contain; }
       .stage-video.r-169 img, .stage-video.r-169 video{ aspect-ratio:16/9; }
       .stage-video.r-43 img, .stage-video.r-43 video{ aspect-ratio:4/3; }
-      /* fullscreen: JS rotates the stage 90° with an explicit px size (landscape);
-         the glass controls, menus and sheet live inside the stage, so they rotate with it and keep working */
-      .stage-video.fs{ position:absolute; z-index:65; box-shadow:none; }
+      /* fullscreen: real landscape via the native bridge (one rotation only —
+         no CSS rotate on the stage); the stage fills the host edge-to-edge
+         at 0,0 and the glass controls, menus and sheet live inside it */
+      .stage-video.fs{ position:absolute; left:0; top:0; z-index:65; box-shadow:none; }
       .stage-video.fs img, .stage-video.fs video{ width:100%; height:100%; aspect-ratio:auto; }
       .screen.fs-host{ overflow:hidden; }
       .phone-screen.fs-on .tabbar{ opacity:0; pointer-events:none; }
@@ -1541,24 +1542,43 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
 .phone-screen { position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; max-width: none !important; border-radius: 0 !important; box-shadow: none !important; }
 .statusbar { display: none !important; }
 
+/* ---- edge-to-edge (v0.1.5): the activity lays the WebView out behind the
+   status bar on every screen, so content starts at the very top edge and the
+   real status icons float over it (player fullscreen still hides them
+   entirely). Top bars clear the icons with the real status-bar height
+   (safe-area inset, 28px floor); the dock + toasts clear the nav bar. */
+.phone-screen{ --sb-top: max(28px, env(safe-area-inset-top, 0px)); }
+body:not(.form-tv) .appbar{ padding-top: calc(10px + var(--sb-top, 28px)); }
+body.form-tablet .appbar{ padding-top: calc(12px + var(--sb-top, 28px)); }
+body:not(.form-tv) .page-title{ padding-top: calc(14px + var(--sb-top, 28px)); }
+body:not(.form-tv) .set-head{ padding-top: calc(12px + var(--sb-top, 28px)); }
+body:not(.form-tv) #scr-settings .v31-view{ padding-top: calc(6px + var(--sb-top, 28px)); }
+body:not(.form-tv) .detail-hero .back-btn{ top: calc(8px + var(--sb-top, 28px)); }
+.tabbar{ bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 12px)); }
+.screen{ padding-bottom: calc(86px + env(safe-area-inset-bottom, 0px)); }
+body.form-tablet .screen{ padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+.toast{ bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
+#scr-settings .v31-toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
+
     /* ================= v31 — নতুন সেটিংস (preview v32 থেকে অ্যাপে নেওয়া — Zayn Play v0.1.4 Part A) ================= */
-  .v31-root{
-    --p-bg:#0a0a0f; --p-panel:#14161d; --p-panel2:#1d2029; --p-ink:#f4f6f9; --p-ink2:#9aa5b5;
-    --p-line:rgba(255,255,255,.09); --p-field:#1d2029; --p-shadow:0 10px 24px -14px rgba(0,0,0,.55);
+    .v31-root{
+    --p-bg:var(--app-bg); --p-panel:var(--app-panel); --p-panel2:var(--app-panel-2); --p-ink:var(--app-ink); --p-ink2:var(--app-ink-2);
+    --p-line:var(--app-line); --p-field:var(--app-panel-2); --p-shadow:0 8px 20px -12px rgba(0,0,0,.45);
     position:relative; color:var(--p-ink);
     font-family:"Hind Siliguri","Noto Sans Bengali",system-ui,sans-serif;
   }
-  .v31-root.lt{
-    --p-bg:#f2f3f7; --p-panel:#ffffff; --p-panel2:#eef0f4; --p-ink:#14161d; --p-ink2:#5d6774;
-    --p-line:rgba(20,22,29,.1); --p-field:#eef0f4; --p-shadow:0 10px 22px -14px rgba(30,35,60,.28);
+    .v31-root.lt{
+    --p-bg:#f2f3f7; --p-panel:#ffffff; --p-panel2:#e9ebf1; --p-ink:#14161d; --p-ink2:#5d6774;
+    --p-line:#dfe3ea; --p-field:#e9ebf1; --p-shadow:0 8px 18px -12px rgba(30,35,60,.22);
   }
-  .v31-view{ overflow:visible; padding:6px 14px 26px; }
+    .v31-view{ overflow:visible; padding:6px 14px 22px; }
   
   /* toast */
-  .v31-toast{
+    .v31-toast{
     position:fixed; left:50%; bottom:96px; transform:translate(-50%,16px); z-index:60;
     background:#14161d; color:#fff; border:1px solid rgba(255,255,255,.16); border-radius:999px;
-    padding:9px 16px; font-size:13px; font-weight:600; max-width:88%; text-align:center;
+    padding:8px 14px; font-size:12.5px; font-weight:600; max-width:88%; text-align:center;
     opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease;
     box-shadow:0 14px 30px -10px rgba(0,0,0,.6); line-height:1.45;
   }
@@ -1566,54 +1586,54 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
   .v31-toast.show{ opacity:1; transform:translate(-50%,0); }
   body.form-tablet .v31-toast{ bottom:110px; }
   /* headings + cards */
-  .v31-ptitle{ font-size:24px; font-weight:800; margin:8px 4px 2px; letter-spacing:-.2px; }
-  .v31-psub{ font-size:13px; color:var(--p-ink2); margin:0 4px 10px; line-height:1.55; }
-  .v31-gt{ font-size:13px; font-weight:800; color:var(--p-ink2); margin:20px 4px 8px; letter-spacing:.2px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .v31-gt .v31-sub{ font-weight:600; font-size:11.5px; color:var(--p-ink2); opacity:.85; letter-spacing:0; }
-  .v31-card{ background:var(--p-panel); border:1px solid var(--p-line); border-radius:20px; box-shadow:var(--p-shadow); overflow:hidden; }
+    .v31-ptitle{ font-family:"Sora",sans-serif; font-size:20px; font-weight:800; margin:8px 4px 2px; letter-spacing:-.2px; line-height:1.2; }
+    .v31-psub{ font-size:12.5px; color:var(--p-ink2); margin:0 4px 10px; line-height:1.55; }
+    .v31-gt{ font-size:12px; font-weight:800; color:var(--p-ink2); margin:16px 4px 7px; letter-spacing:.2px; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+    .v31-gt .v31-sub{ font-weight:600; font-size:11px; color:var(--p-ink2); opacity:.85; letter-spacing:0; }
+    .v31-card{ background:var(--p-panel); border:1px solid var(--p-line); border-radius:14px; box-shadow:var(--p-shadow); overflow:hidden; }
   .v31-card + .v31-card{ margin-top:10px; }
   /* profile */
-  .v31-profile{
-    display:flex; align-items:center; gap:12px; background:var(--p-panel); border:1px solid var(--p-line);
-    border-radius:20px; padding:14px; box-shadow:var(--p-shadow); margin-top:10px;
+    .v31-profile{
+    display:flex; align-items:center; gap:11px; background:var(--p-panel); border:1px solid var(--p-line);
+    border-radius:14px; padding:12px; box-shadow:var(--p-shadow); margin-top:10px;
   }
-  .v31-avatar{
-    width:50px; height:50px; border-radius:50%; flex:none; display:grid; place-items:center;
+    .v31-avatar{
+    width:46px; height:46px; border-radius:50%; flex:none; display:grid; place-items:center;
     background:linear-gradient(135deg,var(--app-accent),var(--app-accent-2)); color:#fff;
-    font-size:21px; font-weight:800; font-family:"Sora",sans-serif;
+    font-size:19px; font-weight:800; font-family:"Sora",sans-serif;
   }
-  .v31-profile h3{ margin:0; font-size:16.5px; }
-  .v31-profile p{ margin:1px 0 0; font-size:12.5px; color:var(--p-ink2); }
+    .v31-profile h3{ margin:0; font-size:16px; }
+    .v31-profile p{ margin:1px 0 0; font-size:12px; color:var(--p-ink2); }
   .v31-free{ margin-left:auto; font-size:10.5px; font-weight:800; letter-spacing:.6px; color:var(--app-accent); border:1.5px solid var(--app-accent); padding:3px 8px; border-radius:999px; flex:none; }
   /* search */
-  .v31-search{
-    display:flex; align-items:center; gap:9px; background:var(--p-field); border:1px solid var(--p-line);
-    border-radius:14px; padding:0 13px; margin-top:12px; min-height:46px;
+    .v31-search{
+    display:flex; align-items:center; gap:8px; background:var(--p-field); border:1px solid var(--p-line);
+    border-radius:13px; padding:0 12px; margin-top:10px; min-height:42px;
   }
-  .v31-search svg{ width:18px; height:18px; color:var(--p-ink2); flex:none; }
-  .v31-search input{ flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--p-ink); font:inherit; font-size:14.5px; }
+    .v31-search svg{ width:17px; height:17px; color:var(--p-ink2); flex:none; }
+    .v31-search input{ flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--p-ink); font:inherit; font-size:14px; }
   .v31-search input::placeholder{ color:var(--p-ink2); }
-  .v31-nores{ padding:16px 6px; color:var(--p-ink2); font-size:13.5px; line-height:1.6; }
+    .v31-nores{ padding:14px 6px; color:var(--p-ink2); font-size:13px; line-height:1.6; }
   /* rows */
-  .v31-row{
-    display:flex; align-items:center; gap:12px; width:100%; text-align:left; padding:12px 14px;
+    .v31-row{
+    display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:11px 14px;
     background:transparent; border:0; border-bottom:1px solid var(--p-line); color:var(--p-ink);
-    font:inherit; cursor:pointer; min-height:58px;
+    font:inherit; cursor:pointer; min-height:54px;
   }
   .v31-row:last-child{ border-bottom:0; }
   div.v31-row{ cursor:default; }
   button.v31-row:active{ background:var(--p-panel2); }
-  .v31-mi{
-    width:38px; height:38px; border-radius:12px; flex:none; display:grid; place-items:center; color:#fff;
+    .v31-mi{
+    width:34px; height:34px; border-radius:10px; flex:none; display:grid; place-items:center; color:#fff;
   }
-  .v31-mi svg{ width:20px; height:20px; }
-  .v31-mi.sm{ width:34px; height:34px; border-radius:10px; }
-  .v31-mi.sm svg{ width:18px; height:18px; }
+    .v31-mi svg{ width:17px; height:17px; }
+    .v31-mi.sm{ width:30px; height:30px; border-radius:9px; }
+    .v31-mi.sm svg{ width:16px; height:16px; }
   .v31-row-tx{ flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
-  .v31-row-t{ font-size:14.5px; font-weight:700; line-height:1.35; display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
-  .v31-row-d{ font-size:12px; color:var(--p-ink2); line-height:1.5; }
-  .v31-val{ font-size:12.5px; color:var(--p-ink2); font-weight:600; display:inline-flex; align-items:center; gap:3px; flex:none; max-width:42%; text-align:right; }
-  .v31-val svg{ width:15px; height:15px; flex:none; }
+    .v31-row-t{ font-size:14px; font-weight:700; line-height:1.35; display:flex; align-items:center; gap:6px; flex-wrap:wrap; overflow-wrap:break-word; }
+    .v31-row-d{ font-size:11.5px; color:var(--p-ink2); line-height:1.5; }
+    .v31-val{ font-size:12px; color:var(--p-ink2); font-weight:600; display:inline-flex; align-items:center; gap:3px; flex:none; max-width:42%; text-align:right; overflow-wrap:break-word; }
+    .v31-val svg{ width:14px; height:14px; flex:none; }
   .v31-new{
     background:var(--app-accent); color:#fff; font-size:10px; font-weight:800; padding:1.5px 7px;
     border-radius:999px; letter-spacing:.3px; flex:none; line-height:1.5;
@@ -1628,29 +1648,29 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
     content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%;
     background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.35); transition:transform .22s ease;
   }
-  .v31-sw.on{ background:var(--app-accent); box-shadow:none; }
+    .v31-sw.on{ background:var(--app-accent); box-shadow:0 6px 14px -6px rgba(232,38,28,.6), inset 0 1px 0 rgba(255,255,255,.3); }
   .v31-sw.on::after{ transform:translateX(19px); }
   /* slider rows */
-  .v31-srow{ padding:12px 14px; border-bottom:1px solid var(--p-line); }
+    .v31-srow{ padding:11px 14px; border-bottom:1px solid var(--p-line); }
   .v31-srow:last-child{ border-bottom:0; }
-  .v31-srow-top{ display:flex; align-items:center; gap:12px; }
-  .v31-sval{ margin-left:auto; font-size:13px; font-weight:800; color:var(--app-accent); flex:none; }
+    .v31-srow-top{ display:flex; align-items:center; gap:11px; }
+    .v31-sval{ margin-left:auto; font-size:12.5px; font-weight:800; color:var(--app-accent); flex:none; }
   .v31-srow input[type="range"]{ width:100%; margin:10px 0 2px; accent-color:var(--app-accent); height:26px; }
   .v31-srow .v31-row-d{ display:block; margin-top:2px; }
   /* page head */
-  .v31-head{ display:flex; align-items:center; gap:11px; padding:8px 2px 4px; }
-  .v31-back{
-    width:38px; height:38px; border-radius:50%; flex:none; border:1px solid var(--p-line);
+    .v31-head{ display:flex; align-items:center; gap:10px; padding:8px 2px 4px; }
+    .v31-back{
+    width:34px; height:34px; border-radius:50%; flex:none; border:1px solid var(--p-line);
     background:var(--p-panel); color:var(--p-ink); display:grid; place-items:center; cursor:pointer; padding:0;
   }
-  .v31-back svg{ width:19px; height:19px; }
-  .v31-head h2{ margin:0; font-size:19px; font-weight:800; }
+    .v31-back svg{ width:17px; height:17px; }
+    .v31-head h2{ margin:0; font-family:"Sora",sans-serif; font-size:18px; font-weight:800; line-height:1.25; overflow-wrap:break-word; }
   .v31-head .v31-psub{ margin:0; }
   /* option lists (pickers) */
-  .v31-opt{
-    display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:12px 14px;
+    .v31-opt{
+    display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:11px 14px;
     background:transparent; border:0; border-bottom:1px solid var(--p-line); color:var(--p-ink);
-    font:inherit; cursor:pointer; min-height:54px;
+    font:inherit; cursor:pointer; min-height:52px;
   }
   .v31-opt:last-child{ border-bottom:0; }
   .v31-opt .v31-row-tx{ flex:1; }
@@ -1665,124 +1685,125 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
     width:23px; height:23px; border-radius:7px; flex:none; border:2px solid var(--p-ink2);
     display:grid; place-items:center; color:#fff;
   }
-  .v31-check svg{ width:14px; height:14px; opacity:0; }
+    .v31-check svg{ width:13px; height:13px; opacity:0; }
   .v31-opt.on .v31-check{ background:var(--app-accent); border-color:var(--app-accent); }
   .v31-opt.on .v31-check svg{ opacity:1; }
   /* accent swatches */
-  .v31-swatches{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; padding:16px 14px; }
-  .v31-swatch{ display:flex; flex-direction:column; align-items:center; gap:7px; background:transparent; border:0; cursor:pointer; font:inherit; color:var(--p-ink); padding:0; }
-  .v31-swatch i{
-    width:46px; height:46px; border-radius:50%; display:block; position:relative;
+    .v31-swatches{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; padding:14px; }
+    .v31-swatch{ display:flex; flex-direction:column; align-items:center; gap:6px; background:transparent; border:0; cursor:pointer; font:inherit; color:var(--p-ink); padding:0; }
+    .v31-swatch i{
+    width:40px; height:40px; border-radius:50%; display:block; position:relative;
     box-shadow:0 8px 16px -8px rgba(0,0,0,.5);
   }
   .v31-swatch.on i{ box-shadow:0 0 0 3px var(--p-panel), 0 0 0 5.5px var(--app-accent); }
-  .v31-swatch span{ font-size:11.5px; font-weight:700; line-height:1.3; text-align:center; }
-  .v31-dot{ width:14px; height:14px; border-radius:50%; display:inline-block; flex:none; box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.15); }
+    .v31-swatch span{ font-size:11px; font-weight:700; line-height:1.3; text-align:center; }
+    .v31-dot{ width:12px; height:12px; border-radius:50%; display:inline-block; flex:none; box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.15); }
   /* hub group rows */
-  .v31-group-row .v31-mi{ width:44px; height:44px; border-radius:14px; }
-  .v31-group-row .v31-mi svg{ width:23px; height:23px; }
-  .v31-group-row .v31-row-t{ font-size:16px; }
-  .v31-foot{ text-align:center; color:var(--p-ink2); font-size:12px; line-height:1.6; padding:20px 10px 4px; }
+    .v31-group-row .v31-mi{ width:34px; height:34px; border-radius:10px; }
+    .v31-group-row .v31-mi svg{ width:18px; height:18px; }
+    .v31-group-row .v31-row-t{ font-size:15px; }
+    .v31-foot{ text-align:center; color:var(--p-ink2); font-size:11.5px; line-height:1.6; padding:16px 10px 4px; }
   /* extensions */
   .v31-tabs{ display:flex; gap:8px; margin:2px 0 12px; }
-  .v31-tabs button{
-    flex:1; min-height:44px; border-radius:13px; border:1.5px solid var(--p-line); cursor:pointer;
-    background:var(--p-panel); color:var(--p-ink2); font:inherit; font-size:14px; font-weight:800;
+    .v31-tabs button{
+    flex:1; min-height:40px; border-radius:12px; border:1.5px solid var(--p-line); cursor:pointer;
+    background:var(--p-panel); color:var(--p-ink2); font:inherit; font-size:13.5px; font-weight:800;
   }
-  .v31-tabs button.on{ background:var(--app-accent); border-color:var(--app-accent); color:#fff; }
+    .v31-tabs button.on{ background:linear-gradient(90deg,var(--app-accent),var(--app-accent-2)); border-color:transparent; color:#fff; box-shadow:0 10px 20px -8px rgba(232,38,28,.55), inset 0 1px 0 rgba(255,255,255,.3); }
   .v31-chips{ display:flex; gap:7px; flex-wrap:wrap; margin:10px 0 12px; }
-  .v31-chips button{
+    .v31-chips button{
     border:1.5px solid var(--p-line); background:var(--p-panel); color:var(--p-ink); border-radius:999px;
-    padding:6px 13px; font:inherit; font-size:12.5px; font-weight:700; cursor:pointer; min-height:34px;
+    padding:5px 12px; font:inherit; font-size:12px; font-weight:700; cursor:pointer; min-height:32px;
   }
-  .v31-chips button.on{ background:var(--app-accent); border-color:var(--app-accent); color:#fff; }
-  .v31-repo{
-    background:var(--p-panel); border:1px solid var(--p-line); border-radius:18px; padding:13px 14px;
+    .v31-chips button.on{ background:#fff; border-color:#fff; color:#0a0a0f; box-shadow:0 8px 16px -8px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.45); }
+  .v31-root.lt .v31-chips button.on{ background:#14161d; border-color:#14161d; color:#fff; }
+    .v31-repo{
+    background:var(--p-panel); border:1px solid var(--p-line); border-radius:14px; padding:12px 14px;
     box-shadow:var(--p-shadow); margin-bottom:10px;
   }
-  .v31-repo-top{ display:flex; gap:11px; align-items:flex-start; }
-  .v31-repo-ic{
-    width:40px; height:40px; border-radius:12px; flex:none; display:grid; place-items:center;
-    background:var(--p-panel2); color:var(--app-accent); font-weight:800; font-size:16px; font-family:"Sora",sans-serif;
+    .v31-repo-top{ display:flex; gap:10px; align-items:flex-start; }
+    .v31-repo-ic{
+    width:36px; height:36px; border-radius:10px; flex:none; display:grid; place-items:center;
+    background:var(--p-panel2); color:var(--app-accent); font-weight:800; font-size:15px; font-family:"Sora",sans-serif;
   }
-  .v31-repo-top b{ font-size:14.5px; line-height:1.35; display:block; }
-  .v31-repo-top p{ margin:2px 0 0; font-size:12px; color:var(--p-ink2); line-height:1.55; }
-  .v31-repo-meta{ font-size:12px; color:var(--p-ink2); margin-top:9px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    .v31-repo-top b{ font-size:14px; line-height:1.35; display:block; }
+    .v31-repo-top p{ margin:2px 0 0; font-size:11.5px; color:var(--p-ink2); line-height:1.55; }
+    .v31-repo-meta{ font-size:11.5px; color:var(--p-ink2); margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .v31-repo-meta .cnt{ font-weight:800; color:var(--p-ink); }
-  .v31-repo-btns{ display:flex; gap:8px; margin-top:11px; }
-  .v31-btn{
-    flex:1; min-height:42px; border-radius:12px; border:0; cursor:pointer; font:inherit;
-    font-size:13.5px; font-weight:800; background:var(--app-accent); color:#fff; padding:8px 10px;
+    .v31-repo-btns{ display:flex; gap:8px; margin-top:10px; }
+    .v31-btn{
+    flex:1; min-height:40px; border-radius:12px; border:0; cursor:pointer; font:inherit;
+    font-size:13px; font-weight:800; background:linear-gradient(90deg,var(--app-accent),var(--app-accent-2)); color:#fff; padding:8px 10px;
   }
   .v31-btn.ghost{ background:var(--p-panel2); color:var(--p-ink); border:1px solid var(--p-line); flex:0 1 auto; padding:8px 14px; }
   .v31-btn.danger{ background:transparent; color:#ff5147; border:1.5px solid rgba(255,81,71,.5); flex:0 1 auto; padding:8px 14px; }
-  .v31-btn.sm{ min-height:36px; font-size:12.5px; border-radius:10px; }
+    .v31-btn.sm{ min-height:34px; font-size:12px; border-radius:10px; }
   .v31-btn:disabled{ opacity:.55; cursor:default; }
-  .v31-done{ display:inline-flex; align-items:center; gap:5px; color:#22b05a; font-weight:800; font-size:13px; }
-  .v31-none{ font-size:12.5px; color:var(--p-ink2); font-weight:600; }
-  .v31-confirm{ font-size:13px; font-weight:700; line-height:1.5; }
+    .v31-done{ display:inline-flex; align-items:center; gap:5px; color:#22b05a; font-weight:800; font-size:12.5px; }
+    .v31-none{ font-size:12px; color:var(--p-ink2); font-weight:600; }
+    .v31-confirm{ font-size:12.5px; font-weight:700; line-height:1.5; }
   /* provider rows */
-  .v31-prov{ display:flex; align-items:center; gap:11px; padding:10px 14px; border-bottom:1px solid var(--p-line); }
+    .v31-prov{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--p-line); }
   .v31-prov:last-child{ border-bottom:0; }
-  .v31-prov .plogo{ width:36px; height:36px; border-radius:10px; font-size:12px; }
+    .v31-prov .plogo{ width:32px; height:32px; border-radius:9px; font-size:11.5px; }
   .v31-prov-tx{ flex:1; min-width:0; }
-  .v31-prov-tx b{ font-size:14px; display:block; line-height:1.35; word-break:break-word; }
-  .v31-prov-tx span{ font-size:11.5px; color:var(--p-ink2); display:block; line-height:1.45; word-break:break-all; }
+    .v31-prov-tx b{ font-size:13.5px; display:block; line-height:1.35; word-break:break-word; }
+    .v31-prov-tx span{ font-size:11px; color:var(--p-ink2); display:block; line-height:1.45; word-break:break-all; }
   .v31-off-badge{
     display:inline-block; background:rgba(255,81,71,.16); color:#ff5147; font-size:10.5px; font-weight:800;
     padding:1.5px 7px; border-radius:999px; margin-left:6px; vertical-align:1px;
   }
-  .v31-test-btn{
+    .v31-test-btn{
     flex:none; border:1.5px solid var(--p-line); background:var(--p-panel2); color:var(--p-ink);
-    border-radius:999px; padding:6px 12px; font:inherit; font-size:12px; font-weight:800; cursor:pointer; min-height:34px;
+    border-radius:999px; padding:5px 11px; font:inherit; font-size:11.5px; font-weight:800; cursor:pointer; min-height:32px;
   }
   /* forms */
-  .v31-form{ padding:13px 14px; }
-  .v31-form label{ display:block; font-size:12px; font-weight:800; color:var(--p-ink2); margin:10px 0 5px; }
+    .v31-form{ padding:12px 14px; }
+    .v31-form label{ display:block; font-size:11.5px; font-weight:800; color:var(--p-ink2); margin:8px 0 5px; }
   .v31-form label:first-child{ margin-top:0; }
-  .v31-form input[type="text"], .v31-form input[type="url"], .v31-form select{
+    .v31-form input[type="text"], .v31-form input[type="url"], .v31-form select{
     width:100%; box-sizing:border-box; border:1.5px solid var(--p-line); background:var(--p-field);
-    color:var(--p-ink); border-radius:12px; padding:10px 12px; font:inherit; font-size:14px; outline:0; min-height:44px;
+    color:var(--p-ink); border-radius:12px; padding:10px 12px; font:inherit; font-size:13.5px; outline:0; min-height:42px;
   }
   .v31-form .v31-btn{ width:100%; margin-top:13px; }
-  .v31-err{ color:#ff5147; font-size:12.5px; font-weight:600; line-height:1.55; margin:9px 0 0; }
-  .v31-okmsg{ color:#22b05a; font-size:12.5px; font-weight:700; line-height:1.55; margin:9px 0 0; }
-  .v31-more-btn{
-    display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:12px 14px;
+    .v31-err{ color:#ff5147; font-size:12px; font-weight:600; line-height:1.55; margin:9px 0 0; }
+    .v31-okmsg{ color:#22b05a; font-size:12px; font-weight:700; line-height:1.55; margin:9px 0 0; }
+    .v31-more-btn{
+    display:flex; align-items:center; gap:10px; width:100%; text-align:left; padding:11px 14px;
     background:transparent; border:0; border-bottom:1px solid var(--p-line); color:var(--p-ink);
-    font:inherit; cursor:pointer; min-height:54px;
+    font:inherit; cursor:pointer; min-height:52px;
   }
   .v31-more-btn:last-child{ border-bottom:0; }
   /* test results */
-  .v31-tres{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--p-line); }
+    .v31-tres{ display:flex; align-items:center; gap:10px; padding:9px 14px; border-bottom:1px solid var(--p-line); }
   .v31-tres:last-child{ border-bottom:0; }
-  .v31-tres .plogo{ width:32px; height:32px; border-radius:9px; font-size:11px; }
+    .v31-tres .plogo{ width:30px; height:30px; border-radius:8px; font-size:10.5px; }
   .v31-chipst{ display:flex; gap:5px; flex-wrap:wrap; margin-top:3px; }
-  .v31-chipst span{ font-size:10.5px; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(34,176,90,.15); color:#22b05a; }
+    .v31-chipst span{ font-size:10px; font-weight:800; padding:2px 7px; border-radius:999px; background:rgba(34,176,90,.15); color:#22b05a; }
   .v31-chipst span.bad{ background:rgba(255,81,71,.15); color:#ff5147; }
   /* text pages */
-  .v31-text{ padding:6px 6px 0; font-size:13.5px; line-height:1.75; color:var(--p-ink); }
+    .v31-text{ padding:6px 6px 0; font-size:13px; line-height:1.7; color:var(--p-ink); }
   .v31-text p{ margin:0 0 10px; }
-  .v31-log{
-    font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px; line-height:1.7;
-    background:var(--p-panel); border:1px solid var(--p-line); border-radius:16px; padding:12px 14px;
+    .v31-log{
+    font-family:ui-monospace,Menlo,Consolas,monospace; font-size:10.5px; line-height:1.7;
+    background:var(--p-panel); border:1px solid var(--p-line); border-radius:14px; padding:11px 14px;
     color:var(--p-ink2); word-break:break-word; white-space:pre-wrap;
   }
   /* server rows */
   .v31-srv-badge{ font-size:10.5px; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(255,170,0,.18); color:#e8a100; }
   .v31-srv-badge.fast{ background:rgba(34,176,90,.16); color:#22b05a; }
   /* setup chrome */
-  .v31-setup-bar{ height:6px; border-radius:99px; background:var(--p-panel2); overflow:hidden; margin:10px 4px 0; }
+    .v31-setup-bar{ height:5px; border-radius:99px; background:var(--p-panel2); overflow:hidden; margin:8px 4px 0; }
   .v31-setup-bar i{ display:block; height:100%; width:33%; background:var(--app-accent); border-radius:99px; }
-  .v31-setup-foot{ display:flex; gap:9px; margin-top:14px; }
+    .v31-setup-foot{ display:flex; gap:8px; margin-top:12px; }
   .v31-setup-foot .v31-btn{ flex:1; }
-  .v31-x{
-    margin-left:auto; width:34px; height:34px; border-radius:50%; flex:none; border:1px solid var(--p-line);
+    .v31-x{
+    margin-left:auto; width:32px; height:32px; border-radius:50%; flex:none; border:1px solid var(--p-line);
     background:var(--p-panel); color:var(--p-ink); display:grid; place-items:center; cursor:pointer; padding:0;
   }
-  .v31-x svg{ width:16px; height:16px; }
+    .v31-x svg{ width:15px; height:15px; }
   .v31-benene{ opacity:.75; }
-  .v31-benene .v31-row-t{ font-size:13px; font-weight:600; }
+    .v31-benene .v31-row-t{ font-size:12.5px; font-weight:600; }
   @media (prefers-reduced-motion: reduce){ .v31-sw, .v31-sw::after, .v31-toast{ transition:none; } }
 
   
@@ -1827,7 +1848,7 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v0.1.4</p>
+                  <p class="splash-ver">Zayn Play v0.1.5</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2472,6 +2493,10 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
           screens[i].classList.toggle('theme-dark', eff === 'dark');
           screens[i].classList.toggle('theme-light', eff === 'light');
         }
+        /* edge-to-edge: the status icons float over the app's content, so
+           tell Android whether they must be dark (light theme) or white
+           (dark theme) — no-op in the browser preview (no bridge) */
+        try { if (window.ZaynAppNative && window.ZaynAppNative.setStatusBarDarkIcons) window.ZaynAppNative.setStatusBarDarkIcons(eff === 'light'); } catch (e) {}
         var rows = document.querySelectorAll('[data-theme-opt]');
         for (var r=0;r<rows.length;r++) rows[r].classList.toggle('on', rows[r].getAttribute('data-theme-val') === ZPTheme.pref);
         var label = ZPTheme.pref === 'system' ? 'System' : (ZPTheme.pref === 'dark' ? 'Dark' : 'Light');
@@ -3723,7 +3748,9 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
           if (!gState || gState.side !== side) return;
           var dx = e.clientX - gState.x;
           var dy = gState.y - e.clientY;
-          if (fsOn){ var rdx = -dy, rdy = dx; dx = rdx; dy = rdy; }
+          /* no axis swap: the stage is NOT CSS-rotated any more (real
+             landscape via the native bridge), so pointer axes already
+             match the video frame — horizontal = seek, vertical = bri/vol */
           if (!gState.mode){
             if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;
             gState.mode = Math.abs(dx) >= Math.abs(dy) ? 'scrub' : 'vert';
@@ -3777,9 +3804,10 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
       }
       lockBtn.addEventListener('click', function(){ setLock(!stageEl.classList.contains('locked')); });
 
-      /* fullscreen (landscape) — rotates the stage inside the phone; the glass controls,
-         volume/brightness gestures, menus and the settings sheet live inside the stage,
-         so they rotate with it and keep working */
+      /* fullscreen (landscape) — ONE rotation only: the native bridge rotates
+         the activity to real landscape; the stage itself does NOT rotate, it
+         fills the host edge-to-edge. The glass controls, gestures, menus and
+         the settings sheet live inside the stage, so they stay straight */
       /* no fullscreen button any more — play enters fullscreen landscape
          automatically, and the stage back button leaves it again */
       var fsOn = false;
@@ -3804,13 +3832,14 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
         stageEl.classList.remove('controls-hidden');
         if (!pipActive) setPlaying(false);
       }
-      /* stage size in fullscreen: width/height swap because the stage is
-         rotated 90deg; re-run after the native bars hide (the WebView
-         grows) and on every resize while fullscreen */
+      /* stage size in fullscreen: real landscape now (the native bridge
+         rotates the activity — the stage itself does NOT rotate), so the
+         stage takes the host's own width/height; re-run after the native
+         bars hide (the WebView grows) and on every resize while fullscreen */
       function sizeFSStage(){
         var host = stageEl.parentElement;
-        stageEl.style.width = host.clientHeight + 'px';
-        stageEl.style.height = host.clientWidth + 'px';
+        stageEl.style.width = host.clientWidth + 'px';
+        stageEl.style.height = host.clientHeight + 'px';
       }
       function setFS(on){
         fsOn = on;
@@ -3827,10 +3856,17 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
           /* real devices: landscape via the native bridge — screen.orientation.lock
              can never succeed (MainActivity portrait-locks phones) */
           try { if (window.ZaynAppNative && window.ZaynAppNative.setOrientationLandscape) window.ZaynAppNative.setOrientationLandscape(true); } catch (e) {}
-          stageEl.style.left = '50%'; stageEl.style.top = '50%';
-          stageEl.style.transform = 'translate(-50%,-50%) rotate(90deg)';
+          /* ONE rotation only: the native bridge above rotates the activity
+             to real landscape — the stage itself must NOT rotate (no
+             rotate(90deg), no centering hack): it fills the host
+             edge-to-edge at 0,0 in normal landscape axes */
+          stageEl.style.left = '0'; stageEl.style.top = '0';
+          stageEl.style.transform = '';
           sizeFSStage();
           requestAnimationFrame(function(){ if (fsOn) sizeFSStage(); });
+          /* the rotation re-lays the window and can drop the immersive
+             hide: re-hide the bars once the rotation has settled */
+          setTimeout(function(){ if (fsOn){ setNativeFS(true); sizeFSStage(); } }, 350);
           toast('Fullscreen — ল্যান্ডস্কেপ');
         } else {
           stageEl.classList.remove('fs');
@@ -3842,7 +3878,7 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
           setNativeFS(false);
         }
       }
-      window.addEventListener('resize', function(){ if (fsOn) sizeFSStage(); });
+      window.addEventListener('resize', function(){ if (fsOn){ sizeFSStage(); setNativeFS(true); /* rotation can drop the immersive hide — re-hide while fullscreen */ } });
       var stageBack = stageEl.querySelector('[data-go]');
       if (stageBack) stageBack.addEventListener('click', function(){ exitPlayerCleanup(); });
 
@@ -4758,7 +4794,7 @@ body { font-family: "Hind Siliguri", system-ui, sans-serif; }
         if (act){
           var a = act.getAttribute('data-act');
           if (a === 'Back up data'){
-            var data = { app: 'Zayn Play', version: '0.1.4', theme: ZPTheme.pref, lang: window.ZP_LANG || 'en', installed: Object.keys(ST.installed), provOn: ST.provOn, pb: PB, savedAt: new Date().toISOString() };
+            var data = { app: 'Zayn Play', version: '0.1.5', theme: ZPTheme.pref, lang: window.ZP_LANG || 'en', installed: Object.keys(ST.installed), provOn: ST.provOn, pb: PB, savedAt: new Date().toISOString() };
             var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             var url = URL.createObjectURL(blob);
             var link = document.createElement('a');
@@ -5589,7 +5625,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 0.1.4</span></div>' +
+      '<span class="v31-val">Version 0.1.5</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
@@ -5616,7 +5652,7 @@ function rDisclaimer(){
 }
 function rLogcat(){
   var lines = [
-    '11-26 12:01:14.221  ZaynPlay  অ্যাপ চালু হয়েছে • v0.1.4',
+    '11-26 12:01:14.221  ZaynPlay  অ্যাপ চালু হয়েছে • v0.1.5',
     '11-26 12:01:14.402  Player    ExoPlayer তৈরি হয়েছে',
     '11-26 12:01:15.010  Streams   VidCloud • 1080p • লোড 840ms',
     '11-26 12:01:15.233  Repo      Zayn Play Providers • ঠিক আছে ✓',
@@ -5831,20 +5867,11 @@ function rMultiPage(inst, key){
   if (!rows) rows = '<p class="v31-nores">কোনো রিপো ইনস্টল করা নেই — আগে সোর্স পেজ থেকে একটি রিপো যোগ করুন।</p>';
   return head(meta.title, meta.desc) + '<div class="v31-card" style="margin-top:12px">' + rows + '</div>';
 }
-function rSetup(inst){
-  return '<div class="v31-head"><div><h2>সেটআপ</h2><p class="v31-psub">ধাপ ২ / ৬ — সোর্স</p></div>' +
-    '<button class="v31-x" data-v31-setupclose aria-label="বন্ধ করুন"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>' +
-    '<div class="v31-setup-bar"><i></i></div>' +
-    '<p class="v31-psub" style="margin-top:12px">কোথা থেকে সিনেমা-সিরিজ আসবে, সেই সোর্স এখান থেকে যোগ করুন। সেটিংসের সোর্স পেজ আর এই ধাপ — একদম একই পেজ।</p>' +
-    extHTML(inst) +
-    '<div class="v31-setup-foot"><button class="v31-btn ghost" data-v31-act="setupSkip">পরে করব</button>' +
-    '<button class="v31-btn" data-v31-act="setupNext">পরের ধাপ →</button></div>';
-}
 var PAGES = {
   'hub': rHub, 'g-play': rPlay, 'play-subs': rSubs, 'play-gesture': rGesture, 'play-cache': rCache,
   'servers': rServers, 'g-look': rLook, 'accent': rAccent, 'g-lang': rLang, 'g-prov': rProv,
   'g-acc': rAcc, 'g-upd': rUpd, 'g-gen': rGen, 'g-about': rAbout, 'clone': rClone, 'disclaimer': rDisclaimer, 'logcat': rLogcat,
-  'addsite': rAddSite, 'testall': rTestAll, 'setup': rSetup
+  'addsite': rAddSite, 'testall': rTestAll
 };
 function renderPage(inst, entry){
   if (entry.p === 'pick') return rPickPage(inst, entry.k);
@@ -6545,15 +6572,6 @@ if (window.ZP_setAppLang && !window.ZP_setAppLang.__v31){
   _wrappedSetLang.__v31 = true;
   window.ZP_setAppLang = _wrappedSetLang;
 }
-document.querySelectorAll('[data-v31-setupopen]').forEach(function(btn, i){
-  btn.addEventListener('click', function(){
-    var inst = instances[i] || instances[0];
-    if (!inst) return;
-    inst.stack = [{ p: 'setup' }];
-    render(inst);
-    inst.root.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
-});
 })();
 
     </script>
