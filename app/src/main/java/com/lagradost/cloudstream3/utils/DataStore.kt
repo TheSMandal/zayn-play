@@ -1,4 +1,6 @@
+@file:OptIn(InternalAPI::class)
 package com.lagradost.cloudstream3.utils
+import com.lagradost.cloudstream3.InternalAPI
 
 import android.content.Context
 import android.content.SharedPreferences
