@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play bottom nav icon tint (preview .tabbar): active = accent red
+     (#ff5a3c dark / #e8261c light via ?attr/zaynNavActiveIcon), inactive = ink-2. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="?attr/zaynNavActiveIcon" android:state_checked="true" />
+    <item android:color="?attr/zaynNavActiveIcon" android:state_selected="true" />
+    <item android:color="?attr/grayTextColor" />
+</selector>
