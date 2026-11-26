@@ -31,4 +31,3 @@ sealed class UiText {
 
 fun txt(value: String) = UiText.DynamicString(value)
 
-fun txt(value: String?) = value?.let { UiText.DynamicString(it) }
