@@ -58,9 +58,17 @@ dependencies {
     // cryptography 0.6.0) are REJECTED by kotlinc 1.9.24 — "can read
     // versions up to 2.0.0" — so the 1.9-readable versions below are used
     // instead. Toolchain stays frozen: AGP 8.5.2 / Kotlin 1.9.24 / SDK 34.
+    // (Round 2: serialization-json 1.7.3 ALSO rejected — its runtime
+    // requires Kotlin 2.0.0-RC1 (CI 45836444256 + local probe); 1.6.3
+    // is the last 1.9-compatible release. Same for datetime 0.6.2.)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    // kotlinx-datetime 0.6.2: MainAPI date APIs. 0.5.0 has NO format
+    // package (no DateTimeComponents.Format/byUnicodePattern); 0.8.0
+    // (clone) needs Kotlin 2.x. 0.6.2 probe-compiles under kotlinc
+    // 1.9.24 with the exact MainAPI usages, no version error.
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
     // PINNED: later jackson-module-kotlin crashes on minSdk < 26.
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
     implementation("org.jsoup:jsoup:1.22.1")
