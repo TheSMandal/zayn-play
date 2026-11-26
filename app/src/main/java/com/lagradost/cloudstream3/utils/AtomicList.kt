@@ -1,7 +1,6 @@
 package com.lagradost.cloudstream3.utils
 
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
+import kotlin.concurrent.synchronized
 
 /**
  * A thread-safe list backed by [SynchronizedObject].
@@ -11,7 +10,7 @@ import kotlinx.atomicfu.locks.synchronized
  */
 open class AtomicList<T>(
     private val delegate: List<T> = emptyList(),
-) : List<T>, SynchronizedObject() {
+) : List<T> {
 
     fun <R> withLock(block: () -> R): R = synchronized(this) { block() }
 
