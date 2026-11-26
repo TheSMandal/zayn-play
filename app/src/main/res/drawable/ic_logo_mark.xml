@@ -1,27 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play logo mark #1 "Crimson Play", copied exactly from the selected logo:
+     red gradient tile #ff5147 -> #b3000c (rx 15), white Z polygon,
+     play triangle #c4000b. Same construction as ic_launcher_foreground.
+     (Vector gradient scales to any size; rendered via AppCompat vector compat.) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Logo #1 "Crimson Play": red gradient tile, white Z, dark-red play
-         triangle. Recreated from the approved preview (logo #1). -->
-    <path
-        android:pathData="M33,21 H75 Q87,21 87,33 V75 Q87,87 75,87 H33 Q21,87 21,75 V33 Q21,21 33,21 Z"
-        android:fillColor="#FF5147">
-        <gradient
-            android:startX="21"
-            android:startY="21"
-            android:endX="87"
-            android:endY="87"
-            android:type="linear">
-            <item android:offset="0" android:color="#FF5147" />
-            <item android:offset="1" android:color="#B3000C" />
-        </gradient>
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="34dp"
+    android:height="34dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path android:pathData="M19,4 H45 A15,15 0 0 1 60,19 V45 A15,15 0 0 1 45,60 H19 A15,15 0 0 1 4,45 V19 A15,15 0 0 1 19,4 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startColor="#FF5147"
+                android:endColor="#B3000C"
+                android:startX="0"
+                android:startY="0"
+                android:endX="64"
+                android:endY="64"
+                android:type="linear" />
+        </aapt:attr>
     </path>
     <path
-        android:pathData="M34,36 H74 V45 L49,63 H74 V72 H34 V63 L60,45 H34 Z"
-        android:fillColor="#FFFFFF" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M19,13 L47,13 L31,41 L49,41 L49,53 L17,53 L33,25 L19,25 Z" />
     <path
-        android:pathData="M67,59 L67,72 L80,66 Z"
-        android:fillColor="#C4000B" />
+        android:fillColor="#C4000B"
+        android:pathData="M28.5,27.5 L40,33 L28.5,38.5 Z" />
 </vector>

@@ -16,8 +16,8 @@
         android:orientation="vertical">
 
         <ImageView
-            android:layout_width="84dp"
-            android:layout_height="84dp"
+            android:layout_width="104dp"
+            android:layout_height="104dp"
             android:contentDescription="@string/app_name"
             android:src="@drawable/ic_logo_mark" />
 
@@ -34,7 +34,7 @@
                 android:letterSpacing="0.05"
                 android:text="ZAYN"
                 android:textColor="@color/splash_wm"
-                android:textSize="32sp"
+                android:textSize="27sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -44,7 +44,7 @@
                 android:letterSpacing="0.05"
                 android:text="PLAY"
                 android:textColor="@color/splash_play"
-                android:textSize="32sp"
+                android:textSize="27sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
@@ -55,39 +55,15 @@
             android:letterSpacing="0.18"
             android:text="ONE APPS EVERY UNIVERSE"
             android:textColor="@color/splash_tag"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <View
-                android:layout_width="6dp"
-                android:layout_height="6dp"
-                android:background="@drawable/splash_dot" />
-
-            <View
-                android:layout_width="6dp"
-                android:layout_height="6dp"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/splash_dot" />
-
-            <View
-                android:layout_width="6dp"
-                android:layout_height="6dp"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/splash_dot" />
-        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="48dp"
+        android:layout_marginBottom="36dp"
         android:gravity="center"
         android:orientation="vertical">
 
