@@ -408,9 +408,11 @@ class ZaynEngine(
             // (v0.2.4) Typed code, threaded from the download call
             // itself (downloadPluginDetailed) — no process-wide slot
             // read after the fact.
-            val (loaded, failureCode) = try {
+            // (v0.2.6) Triple now: the detail names the missing class
+            // for load_class_missing; p.fileSize is checked too.
+            val (loaded, failureCode, failureDetail) = try {
                 PluginManager.downloadPluginDetailed(
-                    activity, p.url, p.fileHash, p.internalName, repo.url, true
+                    activity, p.url, p.fileHash, p.internalName, repo.url, true, p.fileSize
                 )
             } catch (e: CancellationException) {
                 // (v0.2.4) Never launder a cancellation into a failure:
@@ -419,7 +421,7 @@ class ZaynEngine(
                 throw e
             } catch (e: Exception) {
                 EngineLogger.log("bridge", "providerSetOn download threw")
-                false to "download_failed"
+                Triple(false, "download_failed", null)
             }
             if (!loaded) {
                 // (v0.2.2) A download that reports false may still have
@@ -434,8 +436,15 @@ class ZaynEngine(
                     ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
                 if (alreadyLoaded == null) {
                     val code = failureCode ?: "network_error"
-                    EngineLogger.log("bridge", "providerSetOn $providerName failed: $code")
-                    return err(code, providerFailureMessage(code, providerName))
+                    EngineLogger.log("bridge", "providerSetOn $providerName failed: $code detail=$failureDetail")
+                    // (v0.2.6) Name WHAT is missing in the toast: for
+                    // load_class_missing the detail is the missing
+                    // class (e.g. com.lagradost.cloudstream3.…);
+                    // class names are language-neutral, shown verbatim.
+                    val detailText = failureDetail?.let {
+                        if (code == "load_class_missing") " — missing class: $it" else " — $it"
+                    } ?: ""
+                    return err(code, providerFailureMessage(code, providerName) + detailText)
                 }
             }
             store.setProviderOn(repoId, providerName, true)
@@ -490,6 +499,7 @@ class ZaynEngine(
         code == "download_io" -> "$providerName: could not save the file — check storage and try again"
         code == "dex_writable" -> "$providerName: phone refused to load the file (writable dex) — try again"
         code == "load_class_missing" -> "$providerName: file is missing its provider class — the repo file is broken"
+        code == "download_incomplete" -> "$providerName: download stopped short of the full file — try again"
         // (v0.2.4) New code: the .cs3 has no manifest.json.
         code == "load_no_manifest" -> "$providerName: file is missing its manifest — the repo file is broken"
         // (v0.2.5) New codes from the direct ZipFile manifest read: the
@@ -556,6 +566,10 @@ class ZaynEngine(
         var content = false
         var video = false
         var error: String? = null
+        // (v0.2.6) Forensic detail threaded from the download+load
+        // call (missing class name for load_class_missing); null
+        // unless the load step failed. Surfaced verbatim in the row.
+        var loadDetail: String? = null
         // (v0.2.4) The download runs OUTSIDE the 45 s box: on a slow
         // network the .cs3 download gets its full 120 s HTTP budget
         // (with resume + retry in downloadPluginToFile), and only the
@@ -566,9 +580,9 @@ class ZaynEngine(
         // as an honest error = "timeout".
         var api = resolveApi(providerName, p.internalName, repoId)
         if (api == null) {
-            val (downloaded, downloadCode) = try {
+            val (downloaded, downloadCode, downloadDetail) = try {
                 PluginManager.downloadPluginDetailed(
-                    activity, p.url, p.fileHash, p.internalName, repo.url, true
+                    activity, p.url, p.fileHash, p.internalName, repo.url, true, p.fileSize
                 )
             } catch (e: CancellationException) {
                 // (v0.2.4) A cancellation of the download is not a
@@ -576,8 +590,9 @@ class ZaynEngine(
                 throw e
             } catch (e: Exception) {
                 EngineLogger.log("bridge", "providerTest download threw")
-                false to "download_failed"
+                Triple(false, "download_failed", null)
             }
+            loadDetail = downloadDetail
             // (v0.2.2) Resolve even when the download reports
             // false: the API may already be registered in-memory.
             api = resolveApi(providerName, p.internalName, repoId)
@@ -628,6 +643,11 @@ class ZaynEngine(
                 .put("content", content)
                 .put("video", video)
                 .put("error", error ?: JSONObject.NULL)
+                // (v0.2.6) Forensic detail, verbatim (a class name for
+                // load_class_missing); the row appends it after the
+                // translated reason so the screenshot names WHAT is
+                // missing. Null unless the load step failed.
+                .put("detail", loadDetail ?: JSONObject.NULL)
         )
     }
 
@@ -773,7 +793,7 @@ class ZaynEngine(
                 val downloaded = try {
                     PluginManager.downloadPlugin(
                         activity, t.wrapper.plugin.url, t.wrapper.plugin.fileHash,
-                        t.wrapper.plugin.internalName, t.repo.url, true
+                        t.wrapper.plugin.internalName, t.repo.url, true, t.wrapper.plugin.fileSize
                     )
                 } catch (e: CancellationException) {
                     // (v0.2.4) Never launder a cancellation into a
@@ -1041,7 +1061,7 @@ class ZaynEngine(
                 if (p.version > stored.version) {
                     val okUpdate = try {
                         PluginManager.downloadPlugin(
-                            activity, p.url, p.fileHash, p.internalName, repo.url, true
+                            activity, p.url, p.fileHash, p.internalName, repo.url, true, p.fileSize
                         )
                     } catch (e: CancellationException) {
                         // (v0.2.4) Never launder a cancellation into a
