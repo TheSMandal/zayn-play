@@ -57,6 +57,43 @@
             android:textColor="@color/splash_tag"
             android:textSize="11sp" />
 
+        <!-- Loading dots (preview .splash-dots): 3 red dots, 7dp, 6dp gaps,
+             opacities .45 / .75 / 1 — pulsed by SplashActivity to match the
+             HTML dotpulse (1.05s, ease-in-out, infinite, 0/.16/.32s stagger).
+             Colour is @color/splash_play so it reads on the pearl light
+             background and on the dark background alike. -->
+        <LinearLayout
+            android:id="@+id/splash_dots"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="26dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <View
+                android:id="@+id/splash_dot1"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:alpha="0.45"
+                android:background="@drawable/splash_dot" />
+
+            <View
+                android:id="@+id/splash_dot2"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:layout_marginStart="6dp"
+                android:alpha="0.75"
+                android:background="@drawable/splash_dot" />
+
+            <View
+                android:id="@+id/splash_dot3"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:layout_marginStart="6dp"
+                android:alpha="1.0"
+                android:background="@drawable/splash_dot" />
+        </LinearLayout>
+
     </LinearLayout>
 
     <LinearLayout
