@@ -2,9 +2,12 @@ package com.lagradost.cloudstream3.ui.settings.extensions
 
 import android.app.Activity
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,7 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -33,8 +39,6 @@ import androidx.compose.ui.unit.sp
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.plugins.RepositoryManager
 import com.lagradost.cloudstream3.ui.home.ZaynProviders
-import com.lagradost.cloudstream4.compose.BlackButton
-import com.lagradost.cloudstream4.compose.WhiteButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -113,9 +117,10 @@ fun ZaynReposSection() {
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
                     .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(16.dp)
+                        color = Color(0x127F7F7F),
+                        shape = RoundedCornerShape(14.dp)
                     )
+                    .border(1.dp, Color(0x247F7F7F), RoundedCornerShape(14.dp))
                     .padding(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -170,11 +175,11 @@ fun ZaynReposSection() {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (busyInstall == repo.id) {
-                        BlackButton(text = context.getString(R.string.zayn_repos_installing)) {}
+                        ZaynRepoTintButton(text = context.getString(R.string.zayn_repos_installing)) {}
                     } else if (installed) {
-                        BlackButton(text = context.getString(R.string.zayn_repos_installed)) {}
+                        ZaynRepoTintButton(text = context.getString(R.string.zayn_repos_installed)) {}
                     } else {
-                        WhiteButton(text = context.getString(R.string.zayn_repos_install)) {
+                        ZaynRepoInstallButton(text = context.getString(R.string.zayn_repos_install)) {
                             busyInstall = repo.id
                             scope.launch(Dispatchers.IO) {
                                 val activity = context as? Activity
@@ -200,9 +205,9 @@ fun ZaynReposSection() {
                         }
                     }
                     if (busyTest == repo.id) {
-                        BlackButton(text = context.getString(R.string.zayn_repos_testing)) {}
+                        ZaynRepoGhostButton(text = context.getString(R.string.zayn_repos_testing)) {}
                     } else {
-                        BlackButton(text = context.getString(R.string.zayn_repos_test)) {
+                        ZaynRepoGhostButton(text = context.getString(R.string.zayn_repos_test)) {
                             busyTest = repo.id
                             scope.launch(Dispatchers.IO) {
                                 val count = ZaynRepoActions.testRepo(repo)
@@ -227,7 +232,7 @@ fun ZaynReposSection() {
                             }
                         }
                     }
-                    BlackButton(
+                    ZaynRepoGhostButton(
                         text = context.getString(
                             if (expanded) R.string.zayn_repos_hide_providers
                             else R.string.zayn_repos_show_providers
@@ -239,11 +244,11 @@ fun ZaynReposSection() {
                 if (expanded) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        WhiteButton(text = context.getString(R.string.zayn_repos_enable_all)) {
+                        ZaynRepoTintButton(text = context.getString(R.string.zayn_repos_enable_all)) {
                             ZaynProviders.setProvidersEnabled(repo.plugins, true)
                             version++
                         }
-                        BlackButton(text = context.getString(R.string.zayn_repos_disable_all)) {
+                        ZaynRepoGhostButton(text = context.getString(R.string.zayn_repos_disable_all)) {
                             ZaynProviders.setProvidersEnabled(repo.plugins, false)
                             version++
                         }
@@ -291,5 +296,65 @@ fun ZaynReposSection() {
                 }
             }
         }
+    }
+}
+
+/**
+ * Preview .repo-act.install: solid #e8365d, white 12.5sp bold text,
+ * 10dp radius, 9px 13px padding.
+ */
+@Composable
+private fun ZaynRepoInstallButton(text: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.height(36.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFFE8365D),
+            contentColor = Color.White,
+        ),
+        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 9.dp),
+    ) {
+        Text(text = text, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
+ * Preview .repo-test: 1px rgba(127,127,127,.28) border, transparent bg,
+ * 9dp radius, 6px 10px padding, 11.5sp semibold.
+ */
+@Composable
+private fun ZaynRepoGhostButton(text: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.height(32.dp),
+        shape = RoundedCornerShape(9.dp),
+        border = BorderStroke(1.dp, Color(0x467F7F7F)),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = MaterialTheme.colorScheme.onBackground,
+        ),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(text = text, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/**
+ * Preview .repo-act.open: grey tint rgba(127,127,127,.16) bg — used for
+ * the Installed / Installing / Enable-all states.
+ */
+@Composable
+private fun ZaynRepoTintButton(text: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.height(36.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0x297F7F7F),
+            contentColor = MaterialTheme.colorScheme.onBackground,
+        ),
+        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 9.dp),
+    ) {
+        Text(text = text, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
     }
 }
