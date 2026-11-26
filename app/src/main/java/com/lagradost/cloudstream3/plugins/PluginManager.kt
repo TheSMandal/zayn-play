@@ -420,12 +420,18 @@ object PluginManager {
             val pluginInstance: BasePlugin =
                 pluginClass.getDeclaredConstructor().newInstance() as BasePlugin
 
-            // Sets with the proper version
-            setPluginData(data.copy(version = version))
-
+            // (v0.2.1-k) The old version is unloaded ONLY now — after the
+            // new plugin has been constructed from the new file. A new
+            // plugin that fails to instantiate (bad dex / manifest / class)
+            // never evicts the working old one. (Full "unload after the new
+            // load() succeeds" is impossible with same-path registration:
+            // old and new share one sourcePlugin path, so unloading the old
+            // after the new load() would also remove the new APIs. The file
+            // on disk is already the new version at this point, so the old
+            // version is unrecoverable regardless.)
             if (plugins.containsKey(filePath)) {
-                Log.i(TAG, "Plugin with name $name already exists")
-                return true
+                Log.i(TAG, "Plugin $name already loaded, reloading from new file")
+                unloadPlugin(filePath)
             }
 
             pluginInstance.filename = file.absolutePath
@@ -458,6 +464,13 @@ object PluginManager {
             } else {
                 pluginInstance.load()
             }
+            // (v0.2.1-g) Apply MainAPI.init() / clone-site overrides to the
+            // freshly registered APIs (APIHolder.initAll was never called).
+            APIHolder.initAll()
+            // (v0.2.1-j) Persist the PluginData ONLY after a successful
+            // load. The old code persisted before load() ran, leaving a
+            // stored-but-unloaded record when load() threw.
+            setPluginData(data.copy(version = version))
             Log.i(TAG, "Loaded plugin ${data.internalName} successfully")
             currentlyLoading = null
             true
@@ -571,7 +584,9 @@ object PluginManager {
             )
 
             return if (loadPlugin) {
-                unloadPlugin(file.absolutePath)
+                // (v0.2.1-k) Do NOT unload the old version here: loadPlugin
+                // unloads it itself, only after the new plugin has been
+                // constructed from the new file (see loadPlugin).
                 loadPlugin(
                     activity,
                     newFile,
