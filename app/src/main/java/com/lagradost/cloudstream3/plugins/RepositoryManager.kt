@@ -27,6 +27,7 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -351,7 +352,8 @@ object RepositoryManager {
      * the bridge could only report a generic "network_error". Callers
      * read [lastDownloadError] (stable code) for the exact reason.
      * Codes: http_<code> | timeout | download_failed | download_empty
-     * | hash_mismatch | download_io.
+     * | hash_mismatch | download_io | download_incomplete (v0.2.6:
+     * size check, only when no hash can arbitrate).
      */
     sealed class PluginDownloadResult {
         data class Ok(val file: File) : PluginDownloadResult()
@@ -362,11 +364,31 @@ object RepositoryManager {
     var lastDownloadError: String? = null
         private set
 
+    // (v0.2.6) One mutex per destination file: two concurrent
+    // downloads of the SAME plugin (toggle + test, or two tests)
+    // used to share one .part file and interleave their writes,
+    // corrupting it. Different plugins still download in parallel.
+    private val downloadLocks = ConcurrentHashMap<String, Mutex>()
+
     suspend fun downloadPluginToFile(
         context: Context,
         pluginUrl: String,
         file: File,
-        expectedFileHash: String?
+        expectedFileHash: String?,
+        expectedFileSize: Long? = null,
+    ): PluginDownloadResult {
+        val dlLock = downloadLocks.getOrPut(file.absolutePath) { Mutex() }
+        return dlLock.withLock {
+            downloadPluginToFileLocked(context, pluginUrl, file, expectedFileHash, expectedFileSize)
+        }
+    }
+
+    private suspend fun downloadPluginToFileLocked(
+        context: Context,
+        pluginUrl: String,
+        file: File,
+        expectedFileHash: String?,
+        expectedFileSize: Long? = null,
     ): PluginDownloadResult {
         // (v0.2.2) No safeAsync wrapper: every failure is returned as a
         // typed Err with the real cause, never swallowed to null.
@@ -486,6 +508,33 @@ object RepositoryManager {
                 EngineLogger.log("download", "empty body for ${file.name}")
                 return PluginDownloadResult.Err("download_empty", "Server returned an empty file")
             }
+            // (v0.2.6) Validate the 206 Content-Range start BEFORE
+            // appending: a server that answers 206 from the WRONG
+            // offset would silently corrupt the file (resumed bytes
+            // landing at the wrong position). On a mismatch, drop
+            // the partial and retry from byte 0 (the next attempt
+            // sends no Range header); on the last attempt fail
+            // honestly instead of writing misaligned bytes.
+            if (response.code == 206 && downloadedBytes > 0L) {
+                val rangeStart = response.headers["Content-Range"]
+                    ?.substringAfter("bytes ", "")
+                    ?.substringBefore("-")
+                    ?.toLongOrNull()
+                if (rangeStart != downloadedBytes) {
+                    EngineLogger.log(
+                        "download",
+                        "Content-Range mismatch for ${file.name}: server starts at $rangeStart, partial has $downloadedBytes — restarting from byte 0"
+                    )
+                    partialFile.delete()
+                    partialHashFile.delete()
+                    if (attempt < 3) continue
+                    lastDownloadError = "download_failed"
+                    return PluginDownloadResult.Err(
+                        "download_failed",
+                        "Server resume offset mismatch (Content-Range start $rangeStart != $downloadedBytes)"
+                    )
+                }
+            }
             // (v0.2.4) 206 = the server honoured Range: append to the
             // partial. 200 after a Range request = the server ignored
             // it: discard the partial and write from byte 0.
@@ -525,6 +574,28 @@ object RepositoryManager {
             lastDownloadError = "download_empty"
             EngineLogger.log("download", "0-byte download for ${file.name}")
             return PluginDownloadResult.Err("download_empty", "Downloaded file is empty")
+        }
+
+        // (v0.2.6) Repo-manifest size check (SitePlugin.fileSize,
+        // present for all 88 live Phisher plugins): a truncated
+        // download must not reach the hash gate as if it were whole.
+        // The hash arbitrates when present — a size mismatch with a
+        // MATCHING hash means the manifest size itself is stale, so
+        // the file is accepted with a warning, never rejected on size
+        // alone. With no hash to arbitrate, a size mismatch fails
+        // honestly as download_incomplete.
+        if (expectedFileSize != null && partialFile.length() != expectedFileSize) {
+            val gotSize = partialFile.length()
+            EngineLogger.log("download", "size mismatch ${file.name}: got $gotSize B, manifest says $expectedFileSize B")
+            if (expectedFileHash == null) {
+                partialFile.delete()
+                partialHashFile.delete()
+                lastDownloadError = "download_incomplete"
+                return PluginDownloadResult.Err(
+                    "download_incomplete",
+                    "Downloaded $gotSize B, expected $expectedFileSize B"
+                )
+            }
         }
 
         if (expectedFileHash != null) {
