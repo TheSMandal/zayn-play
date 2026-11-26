@@ -96,7 +96,7 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
 
     protected var androidTVInterfaceOffSeekTime = 10000L
     protected var androidTVInterfaceOnSeekTime = 30000L
-    protected var playBackSpeedEnabled = false
+    protected var playBackSpeedEnabled = true
     protected var playerResizeEnabled = false
     protected var playerRotateEnabled = false
     protected var rotatedManually = false
@@ -1473,9 +1473,11 @@ open class FullScreenPlayer : AbstractPlayerFragment<FragmentPlayerBinding>(
                     )
                         .toLong() * 1000L
 
+                // Zayn Play: the Speed button is one of the six player
+                // controls (preview v1.0.3), so its toggle defaults ON.
                 playBackSpeedEnabled = settingsManager.getBoolean(
                     ctx.getString(R.string.playback_speed_enabled_key),
-                    false
+                    true
                 )
                 playBackCompressorEnabled = settingsManager.getBoolean(
                     ctx.getString(R.string.compressor_enabled_key),
