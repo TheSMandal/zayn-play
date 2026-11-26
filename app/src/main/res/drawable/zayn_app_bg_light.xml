@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play app background, light (preview tokens): linear
+     #ffffff -> #f4f5f9 (34%) -> #e9ebf1, red glow .07 top-right,
+     blue glow rgba(37,99,235,.05). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="linear" android:angle="270"
+                android:startColor="#FFFFFF" android:centerColor="#F4F5F9" android:centerY="0.34"
+                android:endColor="#E9EBF1" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:gradientRadius="65%p"
+                android:centerX="0.92" android:centerY="0.02"
+                android:startColor="#12E8261C" android:endColor="#00E8261C" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:gradientRadius="50%p"
+                android:centerX="0.08" android:centerY="0.35"
+                android:startColor="#0D2563EB" android:endColor="#002563EB" />
+        </shape>
+    </item>
+</layer-list>
