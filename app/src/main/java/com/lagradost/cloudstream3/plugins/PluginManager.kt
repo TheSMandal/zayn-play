@@ -127,6 +127,22 @@ object PluginManager {
     var lastLoadError: String? = null
         private set
 
+    // (v0.2.6) FORENSIC DETAIL for the last load failure: the
+    // identifying text of the cause, verbatim — for
+    // NoClassDefFoundError / ClassNotFoundException this is the
+    // missing class's binary name (e.g.
+    // "com.lagradost.cloudstream3.CommonActivity"), for anything
+    // else "<ExceptionSimpleName>: <message>". A bare code
+    // ("load_class_missing") cannot be fixed; the bridge threads
+    // this detail through downloadPluginDetailed so the row/toast
+    // can name WHAT is missing. Read it in the same call chain as
+    // the result (same pattern as lastLoadError); null on success.
+    // The full forensics (file size / SHA-256 / magic / plugin class
+    // name) go to EngineLogger on the same failure.
+    @Volatile
+    var lastLoadDetail: String? = null
+        private set
+
     const val TAG = "PluginManager"
 
     private var hasCreatedNotChanel = false
@@ -490,9 +506,37 @@ object PluginManager {
                     lastError = "Failed to load plugin $fileName"
                     EngineLogger.log("load", "bad manifest in ${file.name}: ${e.javaClass.simpleName} ${e.message}")
                     Log.e(TAG, "Failed to load plugin $fileName: bad manifest", e)
+                    // (v0.2.6) A manifest that does not parse can never
+                    // load: drop the file here; loadPlugin drops the
+                    // stored PluginData record + oat files on the
+                    // early return below, so the next test re-downloads.
+                    try { file.delete() } catch (_: Throwable) {}
                     null
                 }
             }
+        }
+    }
+
+    // (v0.2.6) Repair path for a plugin that can never load: drop
+    // the file AND its stored PluginData record AND any stale ART
+    // oat files, so a bad file cannot poison the startup scan
+    // forever — the next test/toggle re-downloads it fresh
+    // (hash-verified). Only called for unrecoverable codes
+    // (load_class_missing, bad_manifest, bad_zip, file_missing,
+    // load_no_manifest); a transient failure (dex_writable,
+    // load_failed) keeps the file + record.
+    private suspend fun purgeFailedPlugin(context: Context, file: File, data: PluginData) {
+        try {
+            file.delete()
+        } catch (_: Throwable) {
+        }
+        try {
+            deletePluginData(data)
+        } catch (_: Throwable) {
+        }
+        try {
+            deleteAllOatFiles(context)
+        } catch (_: Throwable) {
         }
     }
 
@@ -501,6 +545,9 @@ object PluginManager {
         val filePath = file.absolutePath
         currentlyLoading = fileName
         Log.i(TAG, "Loading plugin: $data")
+        // (v0.2.6) Declared outside the try so the catch can name
+        // the plugin class in the forensic log line.
+        var pluginClassName: String? = null
 
         return try {
             // In case of Android 14+ then: ART refuses a WRITABLE dex
@@ -536,9 +583,15 @@ object PluginManager {
             // readPluginManifest); the PathClassLoader below only loads
             // the plugin class.
             val manifest = readPluginManifest(file, fileName) ?: run {
+                // (v0.2.6) A file that fails the manifest read can
+                // never load: purge it (file + stored record + oat)
+                // so the next test re-downloads fresh instead of
+                // retrying the same dead file at every startup.
+                purgeFailedPlugin(context, file, data)
                 currentlyLoading = null
                 return false
             }
+            pluginClassName = manifest.pluginClassName
 
             val loader = PathClassLoader(filePath, context.classLoader)
 
@@ -599,6 +652,12 @@ object PluginManager {
             } else {
                 pluginInstance.load()
             }
+            // (v0.2.6) NOTE: the catch below also covers this load()
+            // call, not just loadClass(): a NoClassDefFoundError
+            // thrown while the plugin's own load() runs (e.g. its
+            // provider class resolves a missing host type during
+            // verification) lands here as load_class_missing with
+            // the missing class in lastLoadDetail.
             // (v0.2.1-g) Apply MainAPI.init() / clone-site overrides to the
             // freshly registered APIs (APIHolder.initAll was never called).
             APIHolder.initAll()
@@ -609,6 +668,7 @@ object PluginManager {
             Log.i(TAG, "Loaded plugin ${data.internalName} successfully")
             EngineLogger.log("load", "loaded ${data.internalName} v$version")
             lastLoadError = null
+            lastLoadDetail = null
             currentlyLoading = null
             true
         } catch (e: Throwable) {
@@ -620,9 +680,38 @@ object PluginManager {
                 is NoClassDefFoundError -> "load_class_missing"
                 else -> "load_failed"
             }
-            EngineLogger.log("load", "load failed ${data.internalName}: $lastLoadError (${e.javaClass.simpleName} ${e.message})")
+            // (v0.2.6) FORENSIC DETAIL: for the two class-missing
+            // failures the exception message IS the missing class's
+            // binary name (NoClassDefFoundError) or the class that
+            // could not be found (ClassNotFoundException) — that
+            // name is what the next screenshot must show. For any
+            // other failure keep "<SimpleName>: <message>" (capped,
+            // single-line) so the row/toast stays readable. The
+            // EngineLogger line carries the full forensics: file
+            // size / SHA-256 / magic / plugin class name.
+            lastLoadDetail = when (e) {
+                is ClassNotFoundException,
+                is NoClassDefFoundError -> e.message?.takeIf { it.isNotBlank() }
+                    ?: pluginClassName
+                    ?: e.javaClass.simpleName
+                else -> "${e.javaClass.simpleName}: ${e.message ?: "no message"}"
+                    .replace('\n', ' ').take(200)
+            }
+            val fileSha = try { sha256(file) } catch (_: Throwable) { "?" }
+            EngineLogger.log(
+                "load",
+                "load failed ${data.internalName}: $lastLoadError detail=${lastLoadDetail} " +
+                    "pluginClass=$pluginClassName size=${file.length()} sha=$fileSha magic=${fileMagicHex(file)}"
+            )
             Log.e(TAG, "Failed to load $file: ${Log.getStackTraceString(e)}")
             lastError = "Failed to load plugin $fileName"
+            // (v0.2.6) A load_class_missing file can never load: the
+            // missing host class will not appear. Purge it (file +
+            // stored record + oat) so it cannot poison the startup
+            // scan; the next test re-downloads fresh.
+            if (lastLoadError == "load_class_missing") {
+                purgeFailedPlugin(context, file, data)
+            }
             currentlyLoading = null
             false
         }
@@ -702,10 +791,11 @@ object PluginManager {
         pluginHash: String?,
         internalName: String,
         repositoryUrl: String,
-        loadPlugin: Boolean
+        loadPlugin: Boolean,
+        expectedFileSize: Long? = null,
     ): Boolean {
         return downloadPluginDetailed(
-            activity, pluginUrl, pluginHash, internalName, repositoryUrl, loadPlugin
+            activity, pluginUrl, pluginHash, internalName, repositoryUrl, loadPlugin, expectedFileSize
         ).first
     }
 
@@ -719,6 +809,11 @@ object PluginManager {
      * dex_writable | load_class_missing | load_no_manifest |
      * load_failed). The Boolean downloadPlugin overloads above delegate
      * here, so behaviour for existing callers is unchanged.
+     * (v0.2.6) Now a Triple: the third value is the forensic detail
+     * (null on success) — for load_class_missing the missing class
+     * name, for download errors the typed detail. expectedFileSize
+     * is the repo manifest's SitePlugin.fileSize, checked by the
+     * downloader when present (see downloadPluginToFile).
      */
     suspend fun downloadPluginDetailed(
         activity: Activity,
@@ -726,10 +821,11 @@ object PluginManager {
         pluginHash: String?,
         internalName: String,
         repositoryUrl: String,
-        loadPlugin: Boolean
-    ): Pair<Boolean, String?> {
+        loadPlugin: Boolean,
+        expectedFileSize: Long? = null,
+    ): Triple<Boolean, String?, String?> {
         val file = getPluginPath(activity, internalName, repositoryUrl)
-        return downloadPluginDetailed(activity, pluginUrl, pluginHash, internalName, file, loadPlugin)
+        return downloadPluginDetailed(activity, pluginUrl, pluginHash, internalName, file, loadPlugin, expectedFileSize)
     }
 
     suspend fun downloadPlugin(
@@ -739,9 +835,10 @@ object PluginManager {
         internalName: String,
         file: File,
         loadPlugin: Boolean,
+        expectedFileSize: Long? = null,
     ): Boolean {
         return downloadPluginDetailed(
-            activity, pluginUrl, pluginHash, internalName, file, loadPlugin
+            activity, pluginUrl, pluginHash, internalName, file, loadPlugin, expectedFileSize
         ).first
     }
 
@@ -752,22 +849,30 @@ object PluginManager {
         internalName: String,
         file: File,
         loadPlugin: Boolean,
-    ): Pair<Boolean, String?> {
+        expectedFileSize: Long? = null,
+    ): Triple<Boolean, String?, String?> {
         try {
             Log.d(TAG, "Downloading plugin: $pluginUrl to ${file.absolutePath}")
             // The plugin file needs to be salted with the repository url hash as to allow multiple repositories with the same internal plugin names
             // (v0.2.2) Typed result: the exact failure code is kept in
             // lastDownloadError instead of collapsing to false.
-            val downloaded = downloadPluginToFile(activity, pluginUrl, file, pluginHash)
+            val downloaded = downloadPluginToFile(activity, pluginUrl, file, pluginHash, expectedFileSize)
             val newFile = when (downloaded) {
                 is RepositoryManager.PluginDownloadResult.Ok -> downloaded.file
                 is RepositoryManager.PluginDownloadResult.Err -> {
                     lastDownloadError = downloaded.code
                     EngineLogger.log("download", "downloadPlugin failed $internalName: ${downloaded.code} — ${downloaded.detail}")
-                    return false to downloaded.code
+                    return Triple(false, downloaded.code, downloaded.detail)
                 }
             }
             lastDownloadError = null
+            // (v0.2.6) The file on disk was just REPLACED: drop any
+            // stale ART oat files for it, so an oat compiled from
+            // the previous dex can never shadow the fresh one.
+            try {
+                deleteAllOatFiles(activity)
+            } catch (_: Throwable) {
+            }
 
             val data = PluginData(
                 internalName,
@@ -789,10 +894,12 @@ object PluginManager {
                 // (v0.2.4) Read the load code here, in this same call
                 // chain, instead of leaving the caller to read the
                 // process-wide slot after later awaits.
-                ok to if (ok) null else (lastLoadError ?: "load_failed")
+                // (v0.2.6) Thread the forensic detail with it, so the
+                // caller can name the missing class.
+                Triple(ok, if (ok) null else (lastLoadError ?: "load_failed"), if (ok) null else lastLoadDetail)
             } else {
                 setPluginData(data)
-                true to null
+                Triple(true, null, null)
             }
         } catch (e: CancellationException) {
             // (v0.2.4) Never launder a cancellation into
@@ -803,7 +910,7 @@ object PluginManager {
             lastDownloadError = "download_failed"
             EngineLogger.log("download", "downloadPlugin threw $internalName: ${e.javaClass.simpleName} ${e.message}")
             logError(e)
-            return false to "download_failed"
+            return Triple(false, "download_failed", "${e.javaClass.simpleName}: ${e.message ?: "no message"}")
         }
     }
 
