@@ -51,14 +51,20 @@ fun requestCreator(
     requestBody: RequestBody? = null,
     cacheTime: Int? = null,
     cacheUnit: TimeUnit? = null,
-    responseParser: ResponseParser? = null
+    responseParser: ResponseParser? = null,
+    // (v0.2.2) Override the request Cache-Control entirely, e.g.
+    // FORCE_NETWORK for .cs3 downloads: a stale/poisoned cache entry
+    // must never serve a plugin file (the 68-year max-stale rewrite in
+    // CacheInterceptor makes cached responses effectively immortal).
+    cacheControlOverride: CacheControl? = null
 ): Request {
     return Request.Builder()
         .url(addParamsToUrl(url, params))
         .headers(getHeaders(headers, referer, cookies))
         .method(method, getData(method, data, files, json, requestBody, responseParser))
         .apply {
-            if (cacheTime != null && cacheUnit != null)
+            if (cacheControlOverride != null) this.cacheControl(cacheControlOverride)
+            else if (cacheTime != null && cacheUnit != null)
                 this.cacheControl(getCache(cacheTime, cacheUnit))
         }
         .build()
@@ -116,7 +122,8 @@ open class Requests(
         timeout: Long = defaultTimeOut,
         interceptor: Interceptor? = null,
         verify: Boolean = true,
-        responseParser: ResponseParser? = this.responseParser
+        responseParser: ResponseParser? = this.responseParser,
+        cacheControlOverride: CacheControl? = null
     ): NiceResponse {
         val client = baseClient
             .newBuilder()
@@ -146,7 +153,8 @@ open class Requests(
                 requestBody,
                 cacheTime,
                 cacheUnit,
-                responseParser
+                responseParser,
+                cacheControlOverride
             )
         val response =
             client.build().newCall(request).await()
@@ -170,11 +178,13 @@ open class Requests(
         timeout: Long = defaultTimeOut,
         interceptor: Interceptor? = null,
         verify: Boolean = true,
-        responseParser: ResponseParser? = this.responseParser
+        responseParser: ResponseParser? = this.responseParser,
+        cacheControlOverride: CacheControl? = null
     ): NiceResponse {
         return custom(
             "GET", url, headers, referer, params, cookies, null, null, null, null,
-            allowRedirects, cacheTime, cacheUnit, timeout, interceptor, verify, responseParser
+            allowRedirects, cacheTime, cacheUnit, timeout, interceptor, verify, responseParser,
+            cacheControlOverride
         )
     }
 
