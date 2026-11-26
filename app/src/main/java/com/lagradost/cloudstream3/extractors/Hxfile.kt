@@ -53,7 +53,7 @@ open class Hxfile : ExtractorApi() {
                     JwPlayerHelper.extractStreamLinks(data, name, mainUrl, callback, subtitleCallback)
                 } else if (JwPlayerHelper.canParseJwScript(script.data())) {
                     JwPlayerHelper.extractStreamLinks(script.data(), name, mainUrl, callback, subtitleCallback)
-                }
+                } else { } else { } else { }
             }
         }
     }
