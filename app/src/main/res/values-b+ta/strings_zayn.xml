@@ -38,4 +38,12 @@
         <item>30 வினாடிகள்</item>
         <item>@string/zayn_stream_timeout_unlimited</item>
     </string-array>
+    <!-- Zayn Play: App theme picker (System / Dark / Light) + Settings profile card + provider picker -->
+    <string name="zayn_theme_system">சிஸ்டம்</string>
+    <string name="zayn_theme_dark">டார்க்</string>
+    <string name="zayn_theme_light">லைட்</string>
+    <string name="zayn_local_account">உள்ளூர் கணக்கு • ஒத்திசைக்கப்படவில்லை</string>
+    <string name="zayn_local">LOCAL</string>
+    <string name="zayn_select_provider">Select Provider</string>
+    <string name="zayn_picker_hint">வழங்குநரைப் பின்/அன்பின் செய்ய நீண்ட நேரம் அழுத்தவும் — பின் செய்த வழங்குநர்கள் முதலில் இருப்பார்கள், மற்றவை பெயரின்படி A–Z.</string>
 </resources>
