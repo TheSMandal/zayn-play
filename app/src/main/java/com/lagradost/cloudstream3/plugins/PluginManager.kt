@@ -1,3 +1,4 @@
+@file:OptIn(InternalAPI::class)
 package com.lagradost.cloudstream3.plugins
 
 import android.Manifest
@@ -250,31 +251,6 @@ object PluginManager {
         } ?: false
     }
 
-    /**
-     * Needs to be run before other plugin loading because plugin loading can not be overwritten
-     * 1. Gets all online data about the downloaded plugins
-     * 2. If disabled do nothing
-     * 3. If outdated download and load the plugin
-     * 4. Else load the plugin normally
-     *
-     * DO NOT USE THIS IN A PLUGIN! It may case an infinite recursive loop lagging or crashing everyone's devices.
-     * If you use it from a plugin, do not expect a stable jvmName, SO DO NOT USE IT!
-     */
-    @Suppress("FunctionName")
-    @InternalAPI
-    @Throws
-    /**
-     * Automatically download plugins not yet existing on local
-     * 1. Gets all online data from online plugins repo
-     * 2. Fetch all not downloaded plugins
-     * 3. Download them and reload plugins
-     *
-     * DO NOT USE THIS IN A PLUGIN! It may case an infinite recursive loop lagging or crashing everyone's devices.
-     * If you use it from a plugin, do not expect a stable jvmName, SO DO NOT USE IT!
-     */
-    @Suppress("FunctionName")
-    @InternalAPI
-    @Throws
     @Throws
     private fun assertNonRecursiveCallstack() {
         if (Thread.currentThread().stackTrace.any { it.methodName == "loadPlugin" }) {
@@ -304,15 +280,6 @@ object PluginManager {
         }
     }
 
-    /**
-     * Reloads all local plugins and forces a page update, used for hot reloading with deployWithAdb
-     *
-     * DO NOT USE THIS IN A PLUGIN! It may case an infinite recursive loop lagging or crashing everyone's devices.
-     * If you use it from a plugin, do not expect a stable jvmName, SO DO NOT USE IT!
-     */
-    @Suppress("FunctionName")
-    @InternalAPI
-    @Throws
     /**
      * @param forceReload see afterPluginsLoadedEvent, basically a way to load all local plugins
      * and reload all pages even if they are previously valid
@@ -496,7 +463,7 @@ object PluginManager {
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to load $file: ${Log.getStackTraceString(e)}")
-            EngineEvents.lastError = "Failed to load plugin $fileName
+            lastError = "Failed to load plugin $fileName"
             currentlyLoading = null
             false
         }
