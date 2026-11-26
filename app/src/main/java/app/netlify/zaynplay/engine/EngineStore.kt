@@ -1,26 +1,41 @@
 package app.netlify.zaynplay.engine
 
 import android.content.Context
-import android.content.SharedPreferences
+import com.lagradost.cloudstream3.utils.DataStore.getKey
+import com.lagradost.cloudstream3.utils.DataStore.setKey
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Phase A engine store: a SharedPreferences facade for bridge-owned state.
+ * Phase B engine store: the bridge facade for engine state.
  *
- * Engine state (settings, and later repos / provider ON-OFF / library /
- * progress) lives here — never in the WebView's localStorage. The schema is
- * the UI's defaults() keys (engine-design.md §4.5) plus engine-only keys.
- * Each value is stored as a small JSON wrapper {"v": <value>} so any JSON
- * type round-trips exactly.
+ * RECONCILED with the vendored DataStore (T10): the Phase A
+ * SharedPreferences file ("zayn-engine") is gone as a write target —
+ * all state now lives in DataStore's "rebuild_preference" file, under
+ * the "zayn/" key prefix. On first use after the upgrade, any values
+ * stored by Phase A are copied over once (see migrateFromPhaseA) so a
+ * user's settings survive the update.
+ *
+ * Two kinds of state:
+ * - Settings: one key per setting ("zayn/settings/<key>"), each value a
+ *   small JSON wrapper {"v": <value>} (Phase A format, kept so the
+ *   migration is a plain copy).
+ * - Provider state: three JSON-object maps ("zayn/provOn",
+ *   "zayn/provAutoOff", "zayn/provHealth"), keyed "<repoId>|<name>".
+ *   Providers of a newly installed repo default OFF — the absence of a
+ *   key means OFF.
  */
-class EngineStore(context: Context) {
-
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+class EngineStore(private val context: Context) {
 
     companion object {
+        /** Phase A prefs file — read once for migration, never written. */
         const val PREFS_NAME = "zayn-engine"
+
+        private const val SETTINGS_PREFIX = "zayn/settings/"
+        private const val KEY_PROV_ON = "zayn/provOn"
+        private const val KEY_PROV_AUTO_OFF = "zayn/provAutoOff"
+        private const val KEY_PROV_HEALTH = "zayn/provHealth"
+        private const val KEY_MIGRATED = "zayn/migrated"
 
         /** The 11 app languages (engine-design.md §4.5, strict rule). */
         val APP_LANGS_11 = listOf(
@@ -104,6 +119,32 @@ class EngineStore(context: Context) {
         )
     }
 
+    init {
+        migrateFromPhaseA()
+    }
+
+    /**
+     * One-time copy of Phase A settings ("zayn-engine" prefs, keys
+     * "set:<key>" in the {"v": ...} wrapper format) into DataStore.
+     * Runs once; afterwards the old file is never read again.
+     */
+    private fun migrateFromPhaseA() {
+        if (context.getKey<Boolean>(KEY_MIGRATED, false) == true) return
+        try {
+            val old = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            for ((key, value) in old.all) {
+                if (key.startsWith("set:") && value is String) {
+                    context.setKey(SETTINGS_PREFIX + key.removePrefix("set:"), value)
+                }
+            }
+        } catch (e: Exception) {
+            EngineLogger.log("store", "migration failed: ${e.message}")
+        }
+        context.setKey(KEY_MIGRATED, true)
+    }
+
+    // ---- settings ----
+
     /** All settings: stored values overlaid on the schema defaults. */
     fun settingsSnapshot(): JSONObject {
         val out = JSONObject()
@@ -114,7 +155,8 @@ class EngineStore(context: Context) {
     }
 
     private fun storedOrDefault(key: String, def: Any?): Any? {
-        val raw = prefs.getString("set:$key", null) ?: return def
+        val raw: String? = context.getKey(SETTINGS_PREFIX + key, null)
+            ?: return def
         return try {
             JSONObject(raw).opt("v")
         } catch (e: Exception) {
@@ -122,13 +164,29 @@ class EngineStore(context: Context) {
         }
     }
 
+    fun getSettingString(key: String, def: String): String {
+        val v = storedOrDefault(key, def)
+        return if (v is String) v else def
+    }
+
+    fun getSettingBoolean(key: String, def: Boolean): Boolean {
+        val v = storedOrDefault(key, def)
+        return if (v is Boolean) v else def
+    }
+
+    fun getSettingStringList(key: String, def: List<String>): List<String> {
+        val v = storedOrDefault(key, def)
+        return when (v) {
+            is JSONArray -> (0 until v.length()).map { v.optString(it) }
+            is List<*> -> v.filterIsInstance<String>()
+            else -> def
+        }
+    }
+
     /**
      * Validate + persist one setting.
      * @return null on success, else an error code from the bridge set:
      *   "unknown_setting" | "invalid_value".
-     * Per-key range validation beyond the 11-language rule lands with the
-     * settings wiring in a later phase; Phase A enforces key existence and
-     * the language rule only.
      */
     fun setSetting(key: String, value: Any?): String? {
         if (key !in SETTING_DEFAULTS) return "unknown_setting"
@@ -143,8 +201,103 @@ class EngineStore(context: Context) {
             }
         }
         val wrapped = JSONObject().put("v", value).toString()
-        prefs.edit().putString("set:$key", wrapped).apply()
+        context.setKey(SETTINGS_PREFIX + key, wrapped)
         EngineLogger.log("store", "settingsSet $key")
         return null
+    }
+
+    // ---- provider state (maps keyed "<repoId>|<providerName>") ----
+
+    private fun readMap(key: String): JSONObject {
+        val raw: String? = context.getKey(key, null)
+        return try {
+            if (raw.isNullOrBlank()) JSONObject() else JSONObject(raw)
+        } catch (e: Exception) {
+            JSONObject()
+        }
+    }
+
+    private fun writeMap(key: String, map: JSONObject) {
+        context.setKey(key, map.toString())
+    }
+
+    private fun mapKey(repoId: String, providerName: String) = "$repoId|$providerName"
+
+    fun isProviderOn(repoId: String, providerName: String): Boolean =
+        readMap(KEY_PROV_ON).optBoolean(mapKey(repoId, providerName), false)
+
+    fun setProviderOn(repoId: String, providerName: String, on: Boolean) {
+        val map = readMap(KEY_PROV_ON)
+        map.put(mapKey(repoId, providerName), on)
+        writeMap(KEY_PROV_ON, map)
+    }
+
+    /** Names of all providers currently ON, across all repos. */
+    fun providerOnNames(): Set<String> {
+        val map = readMap(KEY_PROV_ON)
+        val out = mutableSetOf<String>()
+        val keys = map.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            if (map.optBoolean(k, false)) {
+                out += k.substringAfter("|", k)
+            }
+        }
+        return out
+    }
+
+    fun providerOnCount(): Int {
+        val map = readMap(KEY_PROV_ON)
+        var n = 0
+        val keys = map.keys()
+        while (keys.hasNext()) {
+            if (map.optBoolean(keys.next(), false)) n++
+        }
+        return n
+    }
+
+    fun providerOnCount(repoId: String): Int {
+        val map = readMap(KEY_PROV_ON)
+        var n = 0
+        val keys = map.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            if (k.startsWith("$repoId|") && map.optBoolean(k, false)) n++
+        }
+        return n
+    }
+
+    fun isProviderAutoOff(repoId: String, providerName: String): Boolean =
+        readMap(KEY_PROV_AUTO_OFF).optBoolean(mapKey(repoId, providerName), false)
+
+    fun setProviderAutoOff(repoId: String, providerName: String, autoOff: Boolean) {
+        val map = readMap(KEY_PROV_AUTO_OFF)
+        map.put(mapKey(repoId, providerName), autoOff)
+        writeMap(KEY_PROV_AUTO_OFF, map)
+    }
+
+    /** Last health probe result for a provider ("ok" / "fail"), or null. */
+    fun providerHealth(repoId: String, providerName: String): String? =
+        readMap(KEY_PROV_HEALTH).optString(mapKey(repoId, providerName), null)
+
+    fun setProviderHealth(repoId: String, providerName: String, health: String) {
+        val map = readMap(KEY_PROV_HEALTH)
+        map.put(mapKey(repoId, providerName), health)
+        writeMap(KEY_PROV_HEALTH, map)
+    }
+
+    /** Drop all provider state for one repo (called on repoRemove). */
+    fun clearRepoState(repoId: String) {
+        for (key in listOf(KEY_PROV_ON, KEY_PROV_AUTO_OFF, KEY_PROV_HEALTH)) {
+            val map = readMap(key)
+            val keys = map.keys()
+            val doomed = mutableListOf<String>()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                if (k.startsWith("$repoId|")) doomed += k
+            }
+            for (k in doomed) map.remove(k)
+            writeMap(key, map)
+        }
     }
 }
