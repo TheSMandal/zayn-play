@@ -97,6 +97,14 @@ class MainActivity : AppCompatActivity() {
             fun setFullscreen(on: Boolean) {
                 runOnUiThread { setImmersiveMode(on) }
             }
+
+            @JavascriptInterface
+            fun setOrientationLandscape(on: Boolean) {
+                runOnUiThread {
+                    requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+            }
         }, "ZaynAppNative")
 
         // The native splash already showed (?bootsplash=0 skips the
