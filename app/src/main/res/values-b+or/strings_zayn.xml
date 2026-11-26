@@ -38,4 +38,12 @@
         <item>30 ସେକେଣ୍ଡ</item>
         <item>@string/zayn_stream_timeout_unlimited</item>
     </string-array>
+    <!-- Zayn Play: App theme picker (System / Dark / Light) + Settings profile card + provider picker -->
+    <string name="zayn_theme_system">ସିଷ୍ଟମ</string>
+    <string name="zayn_theme_dark">ଡାର୍କ</string>
+    <string name="zayn_theme_light">ଲାଇଟ୍</string>
+    <string name="zayn_local_account">ସ୍ଥାନୀୟ ଆକାଉଣ୍ଟ • ସିଙ୍କ୍ ହୋଇନାହିଁ</string>
+    <string name="zayn_local">LOCAL</string>
+    <string name="zayn_select_provider">Select Provider</string>
+    <string name="zayn_picker_hint">ପ୍ରଦାନକାରୀଙ୍କୁ ପିନ୍/ଅନପିନ୍ କରିବାକୁ ଦୀର୍ଘ ଦବାନ୍ତୁ — ପିନ୍ କରାଯାଇଥିବା ପ୍ରଦାନକାରୀ ପ୍ରଥମେ ରହନ୍ତି, ବାକି ନାମ ଅନୁଯାୟୀ A–Z।</string>
 </resources>
