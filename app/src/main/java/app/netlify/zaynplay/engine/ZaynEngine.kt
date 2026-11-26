@@ -218,7 +218,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "0.2.3")
+        .put("version", "0.2.4")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -405,28 +405,35 @@ class ZaynEngine(
             if (p.status == PROVIDER_STATUS_DOWN) {
                 return err("provider_down", "That provider is currently down")
             }
-            val loaded = try {
-                PluginManager.downloadPlugin(
+            // (v0.2.4) Typed code, threaded from the download call
+            // itself (downloadPluginDetailed) — no process-wide slot
+            // read after the fact.
+            val (loaded, failureCode) = try {
+                PluginManager.downloadPluginDetailed(
                     activity, p.url, p.fileHash, p.internalName, repo.url, true
                 )
+            } catch (e: CancellationException) {
+                // (v0.2.4) Never launder a cancellation into a failure:
+                // a withTimeout kill must propagate as
+                // TimeoutCancellationException, not "download_failed".
+                throw e
             } catch (e: Exception) {
                 EngineLogger.log("bridge", "providerSetOn download threw")
-                false
+                false to "download_failed"
             }
             if (!loaded) {
                 // (v0.2.2) A download that reports false may still have
                 // registered the API in-memory (e.g. the load succeeded
                 // but a later step failed) — resolve before giving up.
                 // And report the REAL failure code, not "network_error":
-                // download_failed | http_<code> | download_empty |
-                // hash_mismatch | download_io | dex_writable |
-                // load_class_missing | load_failed.
+                // download_failed | timeout | network_error | http_<code>
+                // | download_empty | hash_mismatch | download_io |
+                // dex_writable | load_class_missing | load_no_manifest
+                // | load_failed.
                 val alreadyLoaded = resolveApi(providerName, p.internalName, repoId)
                     ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
                 if (alreadyLoaded == null) {
-                    val code = PluginManager.lastLoadError
-                        ?: PluginManager.lastDownloadError
-                        ?: "network_error"
+                    val code = failureCode ?: "network_error"
                     EngineLogger.log("bridge", "providerSetOn $providerName failed: $code")
                     return err(code, providerFailureMessage(code, providerName))
                 }
@@ -472,11 +479,19 @@ class ZaynEngine(
     private fun providerFailureMessage(code: String, providerName: String): String = when {
         code.startsWith("http_") -> "$providerName: server error (${code.removePrefix("http_")}) — try again"
         code == "download_failed" -> "$providerName: could not download — check the connection and try again"
+        // (v0.2.4) These two used to fall through to the bare
+        // "Could not download X" else-branch: a slow download killed
+        // by a timeout, and a provider the content check could not
+        // reach at all, both deserved their own message.
+        code == "timeout" -> "$providerName: download timed out on a slow connection — try again"
+        code == "network_error" -> "$providerName: could not reach the provider — check the connection and try again"
         code == "download_empty" -> "$providerName: server sent an empty file — try again"
         code == "hash_mismatch" -> "$providerName: download failed its integrity check — try again"
         code == "download_io" -> "$providerName: could not save the file — check storage and try again"
         code == "dex_writable" -> "$providerName: phone refused to load the file (writable dex) — try again"
         code == "load_class_missing" -> "$providerName: file is missing its provider class — the repo file is broken"
+        // (v0.2.4) New code: the .cs3 has no manifest.json.
+        code == "load_no_manifest" -> "$providerName: file is missing its manifest — the repo file is broken"
         code == "load_failed" -> "$providerName: could not load — try again"
         else -> "Could not download $providerName"
     }
@@ -535,52 +550,69 @@ class ZaynEngine(
         var content = false
         var video = false
         var error: String? = null
-        try {
-            withTimeout(45_000) {
-                var api = resolveApi(providerName, p.internalName, repoId)
-                if (api == null) {
-                    val downloaded = PluginManager.downloadPlugin(
-                        activity, p.url, p.fileHash, p.internalName, repo.url, true
-                    )
-                    // (v0.2.2) Resolve even when the download reports
-                    // false: the API may already be registered in-memory.
-                    api = resolveApi(providerName, p.internalName, repoId)
-                        ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
-                        ?: apisForPlugin(repo, p).firstOrNull()
-                    // (v0.2.3) Never return load:false with a null error:
-                    // a download that reports true but still leaves no
-                    // API registered is a load failure, not a silent one.
-                    // `downloaded` is kept for the log line only.
-                    if (api == null) {
-                        error = PluginManager.lastLoadError
-                            ?: PluginManager.lastDownloadError
-                            ?: "load_failed"
-                        EngineLogger.log("bridge", "providerTest $providerName failed: $error (downloaded=$downloaded)")
-                    }
-                }
-                if (api != null) {
+        // (v0.2.4) The download runs OUTSIDE the 45 s box: on a slow
+        // network the .cs3 download gets its full 120 s HTTP budget
+        // (with resume + retry in downloadPluginToFile), and only the
+        // content/video checks are bounded by withTimeout(45_000).
+        // The JS side waits 180 s for providerTest (120 s download +
+        // 45 s content box + margin). A timeout kill inside the box
+        // still lands on the TimeoutCancellationException catch below
+        // as an honest error = "timeout".
+        var api = resolveApi(providerName, p.internalName, repoId)
+        if (api == null) {
+            val (downloaded, downloadCode) = try {
+                PluginManager.downloadPluginDetailed(
+                    activity, p.url, p.fileHash, p.internalName, repo.url, true
+                )
+            } catch (e: CancellationException) {
+                // (v0.2.4) A cancellation of the download is not a
+                // provider failure: propagate, never relabel.
+                throw e
+            } catch (e: Exception) {
+                EngineLogger.log("bridge", "providerTest download threw")
+                false to "download_failed"
+            }
+            // (v0.2.2) Resolve even when the download reports
+            // false: the API may already be registered in-memory.
+            api = resolveApi(providerName, p.internalName, repoId)
+                ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
+                ?: apisForPlugin(repo, p).firstOrNull()
+            // (v0.2.3) Never return load:false with a null error:
+            // a download that reports true but still leaves no
+            // API registered is a load failure, not a silent one.
+            // `downloaded` is kept for the log line only.
+            // (v0.2.4) The code is threaded from the download call.
+            if (api == null) {
+                error = downloadCode ?: "load_failed"
+                EngineLogger.log("bridge", "providerTest $providerName failed: $error (downloaded=$downloaded)")
+            }
+        }
+        val apiForCheck = api
+        if (apiForCheck != null) {
+            try {
+                withTimeout(45_000) {
                     load = true
                     error = null
-                    val (firstItem, transportFailed) = firstContentItem(api)
+                    val (firstItem, transportFailed) = firstContentItem(apiForCheck)
                     content = firstItem != null
                     if (transportFailed) error = "network_error"
                     if (firstItem != null) {
-                        val loaded = APIRepository(api).load(firstItem.url)
+                        val loaded = APIRepository(apiForCheck).load(firstItem.url)
                         val data = (loaded as? Resource.Success)?.value?.let(::loadDataOf)
                         if (data != null) {
                             var gotLink = false
-                            val linksOk = APIRepository(api).loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
+                            val linksOk = APIRepository(apiForCheck).loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
                             video = linksOk && gotLink
                         }
                     }
                 }
+            } catch (e: TimeoutCancellationException) {
+                EngineLogger.log("bridge", "providerTest timeout $providerName")
+                error = "timeout"
+            } catch (e: Exception) {
+                EngineLogger.log("bridge", "providerTest threw")
+                error = "network_error"
             }
-        } catch (e: TimeoutCancellationException) {
-            EngineLogger.log("bridge", "providerTest timeout $providerName")
-            error = "timeout"
-        } catch (e: Exception) {
-            EngineLogger.log("bridge", "providerTest threw")
-            error = "network_error"
         }
         return ok(
             JSONObject()
@@ -737,6 +769,10 @@ class ZaynEngine(
                         activity, t.wrapper.plugin.url, t.wrapper.plugin.fileHash,
                         t.wrapper.plugin.internalName, t.repo.url, true
                     )
+                } catch (e: CancellationException) {
+                    // (v0.2.4) Never launder a cancellation into a
+                    // failure: propagate the TimeoutCancellationException.
+                    throw e
                 } catch (e: Exception) {
                     EngineLogger.log("bridge", "healthProbe download threw")
                     false
@@ -1001,6 +1037,10 @@ class ZaynEngine(
                         PluginManager.downloadPlugin(
                             activity, p.url, p.fileHash, p.internalName, repo.url, true
                         )
+                    } catch (e: CancellationException) {
+                        // (v0.2.4) Never launder a cancellation into a
+                        // failure: propagate the TimeoutCancellationException.
+                        throw e
                     } catch (e: Exception) {
                         EngineLogger.log("bridge", "pluginUpdateCheck download threw")
                         false
