@@ -7,8 +7,10 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -54,6 +56,21 @@ class MainActivity : AppCompatActivity() {
         // player still hides the bars entirely via setImmersiveMode.)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
+        // Fullscreen video must reach every edge, including the punch-hole
+        // camera cutout (v0.1.6): Android's default cutout mode insets the
+        // window on the cutout edge in landscape — a black strip on the
+        // left where the camera sits — even though the page itself lays out
+        // full-bleed (the WebView is match_parent and the player stage was
+        // measured at 0,0,2400,1080 in headless Chrome). SHORT_EDGES lets
+        // the window draw into the cutout on the short edges, so the video
+        // covers the whole screen; the camera dot itself simply covers a
+        // few pixels of video, as in every fullscreen video app.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val attrs = window.attributes
+            attrs.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = attrs
+        }
         applyStatusBarIconAppearance()
         // TV / tablet open in landscape by default, phone stays portrait.
         // The page gets the same form factor (?form=...) so it can switch
