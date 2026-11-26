@@ -1,8 +1,11 @@
 package app.netlify.zaynplay.engine
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.AnimeLoadResponse
@@ -215,7 +218,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "0.2.1")
+        .put("version", "0.2.2")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -410,7 +413,24 @@ class ZaynEngine(
                 EngineLogger.log("bridge", "providerSetOn download threw")
                 false
             }
-            if (!loaded) return err("network_error", "Could not download that provider")
+            if (!loaded) {
+                // (v0.2.2) A download that reports false may still have
+                // registered the API in-memory (e.g. the load succeeded
+                // but a later step failed) — resolve before giving up.
+                // And report the REAL failure code, not "network_error":
+                // download_failed | http_<code> | download_empty |
+                // hash_mismatch | download_io | dex_writable |
+                // load_class_missing | load_failed.
+                val alreadyLoaded = resolveApi(providerName, p.internalName, repoId)
+                    ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
+                if (alreadyLoaded == null) {
+                    val code = PluginManager.lastLoadError
+                        ?: PluginManager.lastDownloadError
+                        ?: "network_error"
+                    EngineLogger.log("bridge", "providerSetOn $providerName failed: $code")
+                    return err(code, providerFailureMessage(code, providerName))
+                }
+            }
             store.setProviderOn(repoId, providerName, true)
             store.setProviderAutoOff(repoId, providerName, false)
             EngineLogger.log("bridge", "providerSetOn ON $providerName")
@@ -444,6 +464,42 @@ class ZaynEngine(
 
     // ---- E7 / E8 ----
 
+    /**
+     * (v0.2.2) Human-readable message for a provider download/load
+     * failure code (shown as a toast). The code itself is the stable
+     * machine value; the message says what it means.
+     */
+    private fun providerFailureMessage(code: String, providerName: String): String = when {
+        code.startsWith("http_") -> "$providerName: server error (${code.removePrefix("http_")}) — try again"
+        code == "download_failed" -> "$providerName: could not download — check the connection and try again"
+        code == "download_empty" -> "$providerName: server sent an empty file — try again"
+        code == "hash_mismatch" -> "$providerName: download failed its integrity check — try again"
+        code == "download_io" -> "$providerName: could not save the file — check storage and try again"
+        code == "dex_writable" -> "$providerName: phone refused to load the file (writable dex) — try again"
+        code == "load_class_missing" -> "$providerName: file is missing its provider class — the repo file is broken"
+        code == "load_failed" -> "$providerName: could not load — try again"
+        else -> "Could not download $providerName"
+    }
+
+    /** (v0.2.2) True when the device has an active network. A health
+     * probe or provider test that runs while offline must never be
+     * reported as "the provider is broken". */
+    private fun isOnline(): Boolean {
+        return try {
+            val cm = activity.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return true
+            val net = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(net) ?: return false
+            // INTERNET only — NOT VALIDATED: on a captive-portal Wi-Fi
+            // (this app's own use case) validation can lag while the
+            // network already works; a real failure is still reported
+            // honestly by the download itself.
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (e: Exception) {
+            true
+        }
+    }
+
     private suspend fun providerTest(repoId: String, providerName: String): JSONObject {
         val repo = findRepo(repoId) ?: return err("repo_not_found", "Repository not found")
         val wrapper = findWrapper(repo, providerName)
@@ -462,9 +518,23 @@ class ZaynEngine(
                     .put("down", true)
             )
         }
+        // (v0.2.2) Offline is reported as offline — never as three red
+        // crosses pretending the provider is broken.
+        if (!isOnline()) {
+            return ok(
+                JSONObject()
+                    .put("repoId", repoId)
+                    .put("providerName", providerName)
+                    .put("load", false)
+                    .put("content", false)
+                    .put("video", false)
+                    .put("error", "offline")
+            )
+        }
         var load = false
         var content = false
         var video = false
+        var error: String? = null
         try {
             withTimeout(30_000) {
                 var api = resolveApi(providerName, p.internalName, repoId)
@@ -472,16 +542,24 @@ class ZaynEngine(
                     val downloaded = PluginManager.downloadPlugin(
                         activity, p.url, p.fileHash, p.internalName, repo.url, true
                     )
-                    if (downloaded) {
-                        api = resolveApi(providerName, p.internalName, repoId)
-                            ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
-                            ?: apisForPlugin(repo, p).firstOrNull()
+                    // (v0.2.2) Resolve even when the download reports
+                    // false: the API may already be registered in-memory.
+                    api = resolveApi(providerName, p.internalName, repoId)
+                        ?: apisForPlugin(repo, p).firstOrNull { it.name == providerName }
+                        ?: apisForPlugin(repo, p).firstOrNull()
+                    if (api == null && !downloaded) {
+                        error = PluginManager.lastLoadError
+                            ?: PluginManager.lastDownloadError
+                            ?: "network_error"
+                        EngineLogger.log("bridge", "providerTest $providerName failed: $error")
                     }
                 }
                 if (api != null) {
                     load = true
-                    val firstItem = firstContentItem(api)
+                    error = null
+                    val (firstItem, transportFailed) = firstContentItem(api)
                     content = firstItem != null
+                    if (transportFailed) error = "network_error"
                     if (firstItem != null) {
                         val loaded = APIRepository(api).load(firstItem.url)
                         val data = (loaded as? Resource.Success)?.value?.let(::loadDataOf)
@@ -495,8 +573,10 @@ class ZaynEngine(
             }
         } catch (e: TimeoutCancellationException) {
             EngineLogger.log("bridge", "providerTest timeout $providerName")
+            error = "timeout"
         } catch (e: Exception) {
             EngineLogger.log("bridge", "providerTest threw")
+            error = "network_error"
         }
         return ok(
             JSONObject()
@@ -505,38 +585,52 @@ class ZaynEngine(
                 .put("load", load)
                 .put("content", content)
                 .put("video", video)
+                .put("error", error ?: JSONObject.NULL)
         )
     }
 
     /**
-     * (v0.2.1-l) Content check shared by providerTest and healthProbe:
-     * the home page when the provider has one, else a search-based check.
-     * A provider with hasMainPage=false (or an empty home page) must not
-     * fail Content/Video just for having no home page. Returns the first
-     * usable SearchResponse found, or null.
+     * (v0.2.1-l, v0.2.2) Content check shared by providerTest and
+     * healthProbe: the home page when the provider has one, else a
+     * search-based check. A provider with hasMainPage=false (or an empty
+     * home page) must not fail Content/Video just for having no home
+     * page. Returns the first usable SearchResponse found, or null.
+     *
+     * (v0.2.2) The second value reports TRANSPORT failure: true when the
+     * site could not be reached at all (Resource.Failure with
+     * isNetworkError, or a thrown exception) as opposed to the site
+     * answering with no usable content. Callers must NOT treat a
+     * transport failure as "the provider is broken" — that is what
+     * auto-offed every provider on a dead network.
      */
-    private suspend fun firstContentItem(api: MainAPI): SearchResponse? {
+    private suspend fun firstContentItem(api: MainAPI): Pair<SearchResponse?, Boolean> {
+        var transportFailed = false
         if (api.hasMainPage) {
             val feed = try {
                 APIRepository(api).getMainPage(1)
             } catch (e: Exception) {
+                transportFailed = true
                 null
             }
+            if (feed is Resource.Failure && feed.isNetworkError) transportFailed = true
             val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
             val first = sections
                 ?.flatMap { it?.items ?: emptyList() }
                 ?.firstOrNull { it.list.isNotEmpty() }
                 ?.list?.firstOrNull()
-            if (first != null) return first
+            if (first != null) return first to false
             // Home page exists but came back empty: fall through to the
             // search check instead of failing a working provider.
         }
-        return try {
-            val res = APIRepository(api).search("movie", 1)
-            (res as? Resource.Success<SearchResponseList>)?.value?.items?.firstOrNull()
+        val res = try {
+            APIRepository(api).search("movie", 1)
         } catch (e: Exception) {
+            transportFailed = true
             null
         }
+        if (res is Resource.Failure && res.isNetworkError) transportFailed = true
+        val item = (res as? Resource.Success<SearchResponseList>)?.value?.items?.firstOrNull()
+        return item to (item == null && transportFailed)
     }
 
     private suspend fun providerHealthCheck(onlyOn: Boolean): JSONObject {
@@ -620,6 +714,12 @@ class ZaynEngine(
         val wasOn = store.isProviderOn(t.repoId, name)
         val wasAutoOff = store.isProviderAutoOff(t.repoId, name)
         val previousHealth = store.providerHealth(t.repoId, name)
+        // (v0.2.2) Offline: never stamp a provider "fail", never attempt
+        // a doomed download, never auto-off when the device itself has no
+        // network. A dead network used to auto-off EVERY provider at once.
+        if (!isOnline()) {
+            return probeJson(t.repoId, name, previousHealth, wasOn, wasAutoOff, "")
+        }
         var api = t.api ?: resolveApi(name, t.wrapper.plugin.internalName, t.repoId)
         if (api == null) {
             if (!wasOn && !wasAutoOff) {
@@ -637,11 +737,11 @@ class ZaynEngine(
                     EngineLogger.log("bridge", "healthProbe download threw")
                     false
                 }
-                if (downloaded) {
-                    api = resolveApi(name, t.wrapper.plugin.internalName, t.repoId)
-                        ?: apisForPlugin(t.repo, t.wrapper.plugin).firstOrNull { it.name == name }
-                        ?: apisForPlugin(t.repo, t.wrapper.plugin).firstOrNull()
-                }
+                // (v0.2.2) Resolve even when the download reports false:
+                // the API may already be registered in-memory.
+                api = resolveApi(name, t.wrapper.plugin.internalName, t.repoId)
+                    ?: apisForPlugin(t.repo, t.wrapper.plugin).firstOrNull { it.name == name }
+                    ?: apisForPlugin(t.repo, t.wrapper.plugin).firstOrNull()
             }
             if (api == null) {
                 // Still unresolvable: skip, do not stamp "fail".
@@ -654,12 +754,23 @@ class ZaynEngine(
         val probeTimeoutMs = APIRepository.getTimeout(api.getMainPageTimeoutMs)
             .coerceIn(5_000L, 30_000L)
         var healthy = false
+        var transportFailed = false
         try {
             withTimeout(probeTimeoutMs) {
-                healthy = firstContentItem(api) != null
+                val (item, transport) = firstContentItem(api)
+                healthy = item != null
+                transportFailed = transport
             }
         } catch (e: Exception) {
             healthy = false
+            transportFailed = true
+        }
+        // (v0.2.2) The site could not be reached at all (transport
+        // failure): keep the previous health, change NO state. Only a
+        // site that answered with no usable content counts as unhealthy.
+        if (transportFailed && !healthy) {
+            EngineLogger.log("bridge", "healthProbe $name transport failed — no state change")
+            return probeJson(t.repoId, name, previousHealth, wasOn, wasAutoOff, "")
         }
         store.setProviderHealth(t.repoId, name, if (healthy) "ok" else "fail")
         var change = ""
@@ -1708,37 +1819,40 @@ class ZaynEngine(
         }
 
         /**
-         * (v0.2.1-4) The 27-repo catalogue (id + URL), copied verbatim from
-         * the UI's REPO_CATALOGUE snapshot so native can resolve a
-         * catalogue id to its repo URL and report the catalogue id
-         * alongside the hash id. Native keys are URL hashes only.
+         * (v0.2.2) The 24-repo catalogue (id + URL), rebuilt from the
+         * UI's REPO_CATALOGUE and live-verified 2026-11-26 (23/24 return
+         * HTTP 200; turkish's manifest is 404 — kept, as the UI keeps
+         * it flagged manifestDead). The v0.2.1 list was the STALE 27-repo
+         * snapshot: phisher pointed at "zaynplay-extensions-phisher"
+         * (404; correct is "cloudstream-extensions-phisher"), cspr at
+         * "zaynplay/extensions" (404), redowan had a literal space in
+         * the URL, and extcloud / cuxplug / sarapcanagii are dead — so
+         * findRepo() could never resolve a catalogue id for those repos
+         * and catalogueIdOf() returned null for their installed repos.
          */
         private val CATALOGUE_REPOS: List<Pair<String, String>> = listOf(
-            "cspr" to "https://raw.githubusercontent.com/zaynplay/extensions/master/repo.json",
+            "cspr" to "https://raw.githubusercontent.com/recloudstream/extensions/master/repo.json",
             "mega" to "https://raw.githubusercontent.com/self-similarity/MegaRepo/builds/repo.json",
-            "phisher" to "https://raw.githubusercontent.com/phisher98/zaynplay-extensions-phisher/refs/heads/builds/repo.json",
+            "phisher" to "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json",
             "megix" to "https://raw.githubusercontent.com/SaurabhKaperwan/CSX/builds/CS.json",
             "3rabi" to "https://raw.githubusercontent.com/Abodabodd/re-3arabi/refs/heads/main/repo",
             "indostream" to "https://raw.githubusercontent.com/TeKuma25/IndoStream/builds/repo.json",
-            "extcloud" to "https://raw.githubusercontent.com/duro92/ExtCloud/main/repo.json",
             "cloudx" to "https://raw.githubusercontent.com/Asm0d3usX/CloudX/builds/repo.json",
             "dogior" to "https://raw.githubusercontent.com/doGior/doGiorsHadEnough/refs/heads/builds/repo.json",
             "cncverse" to "https://raw.githubusercontent.com/NivinCNC/CNCVerse-Cloud-Stream-Extension/refs/heads/builds/CNC.json",
             "diegon" to "https://pastebin.com/raw/qndZtL6D",
             "cskarma" to "https://raw.githubusercontent.com/Kraptor123/cs-Karma/refs/heads/master/repo.json",
-            "cakestwix" to "https://codeberg.org/CakesTwix/zaynplay-extensions-uk/raw/branch/master/repo.json",
-            "sarapcanagii" to "https://raw.githubusercontent.com/sarapcanagii/Pitipitii/master/repo.json",
+            "cakestwix" to "https://codeberg.org/CakesTwix/cloudstream-extensions-uk/raw/branch/master/repo.json",
             "lawlietrepo" to "https://raw.githubusercontent.com/lawlietbr/lietrepo/refs/heads/main/builds/repo.json",
             "king" to "https://pastebin.com/raw/Cd2g2tfz",
             "italianprovider" to "https://raw.githubusercontent.com/Gian-Fr/ItalianProvider/builds/repo.json",
             "netmirror" to "https://raw.githubusercontent.com/Sushan64/NetMirror-Extension/refs/heads/builds/Netflix.json",
-            "redowan" to "https://raw.githubusercontent.com/redowan99/Redowan-Zayn Play/master/repo.json",
+            "redowan" to "https://raw.githubusercontent.com/redowan99/Redowan-Cloudstream/master/repo.json",
             "saimuel" to "https://raw.githubusercontent.com/saimuelbr/saimuelrepo/refs/heads/main/builds/repo.json",
-            "cuxplug" to "https://raw.githubusercontent.com/ycngmn/CuxPlug/refs/heads/main/repo.json",
-            "vietnamese" to "https://gitlab.com/tearrs/zaynplay-vietnamese/-/raw/main/repo.json",
+            "vietnamese" to "https://gitlab.com/tearrs/cloudstream-vietnamese/-/raw/main/repo.json",
             "turkish" to "https://raw.githubusercontent.com/Kraptor123/cs-kraptor/refs/heads/master/repo.json",
             "german" to "https://raw.githubusercontent.com/Bnyro/GermanProviders/refs/heads/master/repo.json",
-            "luna712" to "https://raw.githubusercontent.com/Luna712/Luna712-Zayn Play-Extensions/28885d17ceb7f24782b732b6056085c14c1fd027/repo.json",
+            "luna712" to "https://raw.githubusercontent.com/Luna712/Luna712-Cloudstream-Extensions/28885d17ceb7f24782b732b6056085c14c1fd027/repo.json",
             "zzikozz" to "https://raw.githubusercontent.com/zzikozz/frenchCS/refs/heads/main/repo.json",
             "gramflix" to "https://raw.githubusercontent.com/tOntOnbOuLii/GramFlix/main/repo.json",
         )
