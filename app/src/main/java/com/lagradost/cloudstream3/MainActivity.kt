@@ -1,3 +1,4 @@
+@file:OptIn(InternalAPI::class)
 package com.lagradost.cloudstream3
 
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
