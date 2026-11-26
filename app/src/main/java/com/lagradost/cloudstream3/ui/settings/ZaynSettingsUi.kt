@@ -29,6 +29,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -40,7 +41,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -159,6 +159,8 @@ fun ZaynSettingsScaffold(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        // Zayn Play glass: let the app gradient background show through.
+        containerColor = Color.Transparent,
         topBar = {
             AppBar(
                 modifier = Modifier.focusRequester(top).focusProperties {
@@ -214,11 +216,16 @@ fun ZaynPreferenceScreen(
                     item {
                         ZaynGroupHeader(title = preference.title)
                     }
-                    items(preference.preferenceItems) { item ->
-                        ZaynPreferenceItem(
-                            item = item,
-                            highlightKey = highlightKey,
-                        )
+                    item {
+                        ZaynGroupPanel {
+                            preference.preferenceItems.forEachIndexed { idx, item ->
+                                ZaynPreferenceItem(
+                                    item = item,
+                                    highlightKey = highlightKey,
+                                    showDivider = idx < preference.preferenceItems.lastIndex,
+                                )
+                            }
+                        }
                     }
                     item {
                         if (i < items.lastIndex) {
@@ -228,10 +235,13 @@ fun ZaynPreferenceScreen(
                 }
 
                 is Preference.PreferenceItem<*, *> -> item {
-                    ZaynPreferenceItem(
-                        item = preference,
-                        highlightKey = highlightKey,
-                    )
+                    ZaynGroupPanel {
+                        ZaynPreferenceItem(
+                            item = preference,
+                            highlightKey = highlightKey,
+                            showDivider = false,
+                        )
+                    }
                 }
             }
         }
@@ -359,6 +369,7 @@ private fun ZaynRow(
     highlighted: Boolean,
     onClick: (() -> Unit)?,
     trailing: @Composable (() -> Unit)?,
+    showDivider: Boolean = true,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -401,14 +412,63 @@ private fun ZaynRow(
                 )
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        if (showDivider) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
     }
+}
+
+/**
+ * Preview .menu-list: one rounded panel per group — 16dp radius, panel
+ * background, 1px outline border, 14dp side margin.
+ */
+@Composable
+private fun ZaynGroupPanel(
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth(), content = content)
+    }
+}
+
+/**
+ * Public wrapper so CustomPreference rows (e.g. the Smart Streams rows in
+ * ZaynPlayerSettings) render exactly like the built-in rows.
+ */
+@Composable
+fun ZaynSettingsRow(
+    title: String,
+    subtitle: String?,
+    icon: Painter?,
+    iconTileColor: Color?,
+    onClick: (() -> Unit)?,
+    trailing: @Composable (() -> Unit)?,
+    showDivider: Boolean = true,
+) {
+    ZaynRow(
+        title = title,
+        subtitle = subtitle,
+        icon = icon,
+        iconTileColor = iconTileColor,
+        highlighted = false,
+        onClick = onClick,
+        trailing = trailing,
+        showDivider = showDivider,
+    )
 }
 
 @Composable
 private fun ZaynPreferenceItem(
     item: Preference.PreferenceItem<*, *>,
     highlightKey: String?,
+    showDivider: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
     val highlighted = item.title == highlightKey
@@ -426,6 +486,7 @@ private fun ZaynPreferenceItem(
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
+                    showDivider = showDivider,
                     onClick = {
                         scope.launch {
                             val newValue = !value
@@ -453,6 +514,7 @@ private fun ZaynPreferenceItem(
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
+                    showDivider = showDivider,
                     onClick = { isDialogShown = true },
                     trailing = {
                         Box(
@@ -495,6 +557,7 @@ private fun ZaynPreferenceItem(
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
+                    showDivider = showDivider,
                     onClick = { isDialogShown = true },
                     trailing = null,
                 )
@@ -530,6 +593,7 @@ private fun ZaynPreferenceItem(
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
+                    showDivider = showDivider,
                     onClick = { isDialogShown = true },
                     trailing = null,
                 )
@@ -565,6 +629,7 @@ private fun ZaynPreferenceItem(
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
+                    showDivider = showDivider,
                     onClick = item.onClick,
                     trailing = item.widget,
                 )
@@ -579,6 +644,7 @@ private fun ZaynPreferenceItem(
                     icon = item.icon,
                     iconTileColor = item.iconTileColor,
                     highlighted = highlighted,
+                    showDivider = showDivider,
                     onClick = { isDialogShown = true },
                     trailing = null,
                 )
@@ -713,7 +779,9 @@ private fun ZaynPreferenceItem(
                         steps = item.steps,
                     )
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                if (showDivider) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
             }
         }
     }
