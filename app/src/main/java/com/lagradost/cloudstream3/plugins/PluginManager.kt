@@ -25,6 +25,7 @@ import com.lagradost.cloudstream3.AutoDownloadMode
 import app.netlify.zaynplay.engine.EngineApp.getKey
 import app.netlify.zaynplay.engine.EngineApp.removeKey
 import app.netlify.zaynplay.engine.EngineApp.setKey
+import app.netlify.zaynplay.engine.EngineLogger
 import com.lagradost.cloudstream3.InternalAPI
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainAPI.Companion.settingsForProvider
@@ -107,6 +108,20 @@ const val PLUGIN_VERSION_ALWAYS_UPDATE = -1
 object PluginManager {
     // Prevent multiple writes at once
     val lock = Mutex()
+
+    // (v0.2.2) Last download / load failure, as a stable code the bridge
+    // reports to the UI instead of a generic "network_error". Codes:
+    // download_failed | http_<code> | download_empty | hash_mismatch |
+    // download_io | dex_writable | load_class_missing | load_failed.
+    // Read immediately after downloadPlugin/loadPlugin returns false;
+    // a success clears the matching slot.
+    @Volatile
+    var lastDownloadError: String? = null
+        private set
+
+    @Volatile
+    var lastLoadError: String? = null
+        private set
 
     const val TAG = "PluginManager"
 
@@ -384,15 +399,33 @@ object PluginManager {
         Log.i(TAG, "Loading plugin: $data")
 
         return try {
-            // In case of Android 14+ then
+            // In case of Android 14+ then: ART refuses a WRITABLE dex
+            // file ("Writable dex file ... is not allowed",
+            // SecurityException). The old code only LOGGED a failed
+            // setReadOnly() and loaded anyway, so every plugin failed
+            // with no diagnosable cause on a device where the chmod did
+            // not take. (v0.2.2) Verify the file is really read-only
+            // now; if setReadOnly() did not take, retry with an explicit
+            // chmod 0400; if it is STILL writable, fail here with the
+            // true code (dex_writable) instead of letting ART throw.
             try {
-                // Set the file as read-only and log if it fails
-                if (!file.setReadOnly()) {
-                    Log.e(TAG, "Failed to set read-only on plugin file: ${file.name}")
+                if (!file.setReadOnly() || file.canWrite()) {
+                    try {
+                        android.system.Os.chmod(file.absolutePath, 256 /* 0400 */)
+                    } catch (_: Throwable) {
+                    }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to set dex as read-only")
                 logError(t)
+            }
+            if (file.canWrite()) {
+                lastLoadError = "dex_writable"
+                lastError = "Failed to load plugin $fileName"
+                EngineLogger.log("load", "dex still writable, refusing load: ${file.name}")
+                Log.e(TAG, "Refusing to load writable dex file: ${file.name}")
+                currentlyLoading = null
+                return false
             }
 
             val loader = PathClassLoader(filePath, context.classLoader)
@@ -472,9 +505,20 @@ object PluginManager {
             // stored-but-unloaded record when load() threw.
             setPluginData(data.copy(version = version))
             Log.i(TAG, "Loaded plugin ${data.internalName} successfully")
+            EngineLogger.log("load", "loaded ${data.internalName} v$version")
+            lastLoadError = null
             currentlyLoading = null
             true
         } catch (e: Throwable) {
+            // (v0.2.2) Map the failure to a stable code so the UI can say
+            // WHY the plugin did not load, instead of a silent false.
+            lastLoadError = when (e) {
+                is SecurityException -> "dex_writable"
+                is ClassNotFoundException -> "load_class_missing"
+                is NoClassDefFoundError -> "load_class_missing"
+                else -> "load_failed"
+            }
+            EngineLogger.log("load", "load failed ${data.internalName}: $lastLoadError (${e.javaClass.simpleName} ${e.message})")
             Log.e(TAG, "Failed to load $file: ${Log.getStackTraceString(e)}")
             lastError = "Failed to load plugin $fileName"
             currentlyLoading = null
@@ -573,7 +617,18 @@ object PluginManager {
         try {
             Log.d(TAG, "Downloading plugin: $pluginUrl to ${file.absolutePath}")
             // The plugin file needs to be salted with the repository url hash as to allow multiple repositories with the same internal plugin names
-            val newFile = downloadPluginToFile(activity, pluginUrl, file, pluginHash) ?: return false
+            // (v0.2.2) Typed result: the exact failure code is kept in
+            // lastDownloadError instead of collapsing to false.
+            val downloaded = downloadPluginToFile(activity, pluginUrl, file, pluginHash)
+            val newFile = when (downloaded) {
+                is RepositoryManager.PluginDownloadResult.Ok -> downloaded.file
+                is RepositoryManager.PluginDownloadResult.Err -> {
+                    lastDownloadError = downloaded.code
+                    EngineLogger.log("download", "downloadPlugin failed $internalName: ${downloaded.code} — ${downloaded.detail}")
+                    return false
+                }
+            }
+            lastDownloadError = null
 
             val data = PluginData(
                 internalName,
@@ -597,6 +652,8 @@ object PluginManager {
                 true
             }
         } catch (e: Exception) {
+            lastDownloadError = "download_failed"
+            EngineLogger.log("download", "downloadPlugin threw $internalName: ${e.javaClass.simpleName} ${e.message}")
             logError(e)
             return false
         }
