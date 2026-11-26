@@ -33,6 +33,11 @@ class SplashActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // FIX 5: splash follows the APP's theme (System/Dark/Light), not
+        // just the system setting — apply the stored choice before
+        // super.onCreate so the splash theme/layout resolve the right
+        // night/light resources (FOLLOW_SYSTEM when nothing is stored).
+        ThemePrefs.applyStoredNightMode(this)
         super.onCreate(savedInstanceState)
         // Same form-factor rule as MainActivity: TV / tablet open in
         // landscape by default, phone stays portrait.
@@ -44,25 +49,34 @@ class SplashActivity : AppCompatActivity() {
         setContentView(R.layout.activity_splash)
         startDotPulse()
         findViewById<android.view.View>(R.id.splash_root).setOnClickListener { openApp.run() }
-        handler.postDelayed(openApp, 1400)
+        handler.postDelayed(openApp, 3000)
     }
 
     /**
-     * Loading dots, matching the preview's dotpulse exactly: scale 1 -> 1.45
-     * -> 1 over 1.05s, ease-in-out, infinite, staggered 0 / 160 / 320ms
-     * (the HTML animation-delay .16s / .32s). The equal period keeps the
-     * stagger forever, just like the CSS animation.
+     * Loading dots: a clear left-to-right wave — each dot grows AND
+     * brightens in turn (scale 1 -> 1.6 -> 1, alpha floor -> peak -> floor
+     * over 1.05s, AccelerateDecelerate, infinite, staggered 0 / 160 /
+     * 320ms, the HTML dotpulse delays .16s / .32s). The old scale-only
+     * 1 -> 1.45 pulse on 7dp dots was a faint shimmer: rendered frame by
+     * frame, it is only a 3px size change with brightness never changing.
+     * 9dp dots with the brightness wave read at a glance, dark and light.
+     * Dots stay red (@color/splash_play), 6dp apart, 26dp below the tagline.
      */
     private fun startDotPulse() {
+        // Dot, stagger delay, and (alpha floor, alpha peak): the peak is the
+        // dot's XML alpha (.45 / .75 / 1), the floor is ~45% of it, so the
+        // brightness wave keeps the dots' light-to-dark order.
         val dots = listOf(
-            findViewById<View>(R.id.splash_dot1) to 0L,
-            findViewById<View>(R.id.splash_dot2) to 160L,
-            findViewById<View>(R.id.splash_dot3) to 320L,
+            Triple(findViewById<View>(R.id.splash_dot1), 0L, 0.20f to 0.45f),
+            Triple(findViewById<View>(R.id.splash_dot2), 160L, 0.34f to 0.75f),
+            Triple(findViewById<View>(R.id.splash_dot3), 320L, 0.45f to 1.0f),
         )
-        for ((dot, delay) in dots) {
+        for ((dot, delay, alpha) in dots) {
+            val (floor, peak) = alpha
             for (anim in listOf(
-                ObjectAnimator.ofFloat(dot, View.SCALE_X, 1f, 1.45f, 1f),
-                ObjectAnimator.ofFloat(dot, View.SCALE_Y, 1f, 1.45f, 1f),
+                ObjectAnimator.ofFloat(dot, View.SCALE_X, 1f, 1.6f, 1f),
+                ObjectAnimator.ofFloat(dot, View.SCALE_Y, 1f, 1.6f, 1f),
+                ObjectAnimator.ofFloat(dot, View.ALPHA, floor, peak, floor),
             )) {
                 anim.duration = 1050
                 anim.interpolator = AccelerateDecelerateInterpolator()
