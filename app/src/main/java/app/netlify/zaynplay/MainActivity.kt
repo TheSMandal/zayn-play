@@ -35,12 +35,26 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
 
+    // True while the player is fullscreen: the immersive hide must be
+    // re-applied after every rotation / focus change / resume, because the
+    // window re-layout on configuration change drops the hidden bars.
+    private var isPlayerFullscreen = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Follow the device theme; the WebView's prefers-color-scheme then
         // matches the system, and the in-app theme setting (System/Dark/
         // Light in the HTML) switches the UI live.
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
         super.onCreate(savedInstanceState)
+        // Edge-to-edge for the whole app (v0.1.5): the page lays out behind
+        // the status bar on every screen — content starts at the very top
+        // edge and the status icons float over it. The theme already makes
+        // the status bar transparent and the nav bar app_bg; this only stops
+        // the system from pushing the WebView below the status bar. (The
+        // player still hides the bars entirely via setImmersiveMode.)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        applyStatusBarIconAppearance()
         // TV / tablet open in landscape by default, phone stays portrait.
         // The page gets the same form factor (?form=...) so it can switch
         // to the tablet / TV layout.
@@ -87,22 +101,39 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // True fullscreen for the player: the page's CSS-only fullscreen
-        // rotates the stage but cannot hide the Android status/nav bars,
-        // so the player calls this from setFS() when it enters/leaves
-        // fullscreen. (Named ZaynAppNative — the page already defines its
-        // own window.ZaynApp object for back navigation.)
+        // True fullscreen for the player: the page rotates the activity to
+        // real landscape via setOrientationLandscape and hides the Android
+        // status/nav bars through setFullscreen here, so the video covers
+        // the whole screen. (Named ZaynAppNative — the page already defines
+        // its own window.ZaynApp object for back navigation.)
         webView.addJavascriptInterface(object {
             @JavascriptInterface
             fun setFullscreen(on: Boolean) {
-                runOnUiThread { setImmersiveMode(on) }
+                runOnUiThread {
+                    isPlayerFullscreen = on
+                    setImmersiveMode(on)
+                }
             }
 
             @JavascriptInterface
             fun setOrientationLandscape(on: Boolean) {
                 runOnUiThread {
+                    // Exiting fullscreen restores the form-appropriate
+                    // orientation (v0.1.5): portrait on a phone, landscape
+                    // on a tablet / TV — the old unconditional PORTRAIT
+                    // forced the whole app portrait on tablet/TV. Uses
+                    // the same formFactor() detection as onCreate, so
+                    // phone behaviour is unchanged.
                     requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                        else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        else if (formFactor() == "phone") ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                }
+            }
+
+            @JavascriptInterface
+            fun setStatusBarDarkIcons(dark: Boolean) {
+                runOnUiThread {
+                    WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = dark
                 }
             }
         }, "ZaynAppNative")
@@ -130,6 +161,28 @@ class MainActivity : AppCompatActivity() {
         // Night mode changed (system theme switch): repaint the WebView
         // background; the page itself re-themes live via matchMedia.
         webView.setBackgroundColor(currentBackgroundColor())
+        // The rotation re-lays the window and drops the immersive hide:
+        // re-hide the bars while the player is fullscreen (posted so it
+        // runs after the new layout is applied).
+        if (isPlayerFullscreen) {
+            setImmersiveMode(true)
+            window.decorView.post { if (isPlayerFullscreen) setImmersiveMode(true) }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Returning to the activity (e.g. after the transient bars were
+        // swiped in, or after another app) must not leave the status bar
+        // visible over fullscreen video.
+        if (isPlayerFullscreen) setImmersiveMode(true)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Focus changes (notification shade, dialog, transient bars) clear
+        // the hide; re-apply it while the player is fullscreen.
+        if (hasFocus && isPlayerFullscreen) setImmersiveMode(true)
     }
 
     /**
@@ -138,8 +191,22 @@ class MainActivity : AppCompatActivity() {
      * screen. Restored when leaving the player; the normal UI (status bar,
      * gesture bar, dock) is untouched outside fullscreen.
      */
+    /**
+     * Status-bar icon colour for normal (non-player) screens: dark icons
+     * when the system is in light mode, white icons when dark. The page
+     * overrides this live through setStatusBarDarkIcons() whenever its own
+     * theme (System / Dark / Light) resolves differently from the system.
+     */
+    private fun applyStatusBarIconAppearance() {
+        val night = resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !night
+    }
+
     private fun setImmersiveMode(on: Boolean) {
-        WindowCompat.setDecorFitsSystemWindows(window, !on)
+        // Edge-to-edge is permanent now (set once in onCreate): the page
+        // always lays out behind the status bar, so this only hides /
+        // shows the bars — it must NOT re-enable fitsSystemWindows here.
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (on) {
             controller.hide(WindowInsetsCompat.Type.systemBars())
