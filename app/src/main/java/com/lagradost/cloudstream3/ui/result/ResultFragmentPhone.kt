@@ -362,17 +362,7 @@ open class ResultFragmentPhone : BaseFragment<FragmentResultSwipeBinding>(
 
     private fun setUrl(url: String?) {
         if (url == null) {
-            binding?.resultOpenInBrowser?.isVisible = false
             return
-        }
-
-        val valid = url.startsWith("http")
-
-        binding?.resultOpenInBrowser?.apply {
-            isVisible = valid
-            setOnClickListener {
-                context?.openBrowser(url)
-            }
         }
 
         resultBinding?.resultReloadConnectionOpenInBrowser?.setOnClickListener {
