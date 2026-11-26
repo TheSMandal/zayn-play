@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zayn Play bottom nav background, dark (preview .tabbar):
+     rgba(12,13,18,.97) + 1px top border var(--app-line) #262a35. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape android:shape="rectangle"><solid android:color="#262A35" /></shape></item>
+    <item android:top="1dp"><shape android:shape="rectangle"><solid android:color="#F70C0D12" /></shape></item>
+</layer-list>
