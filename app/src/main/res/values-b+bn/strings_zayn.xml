@@ -38,4 +38,12 @@
         <item>30 সেকেন্ড</item>
         <item>@string/zayn_stream_timeout_unlimited</item>
     </string-array>
+    <!-- Zayn Play: App theme picker (System / Dark / Light) + Settings profile card + provider picker -->
+    <string name="zayn_theme_system">সিস্টেম</string>
+    <string name="zayn_theme_dark">ডার্ক</string>
+    <string name="zayn_theme_light">লাইট</string>
+    <string name="zayn_local_account">লোকাল অ্যাকাউন্ট • সিঙ্ক হয়নি</string>
+    <string name="zayn_local">LOCAL</string>
+    <string name="zayn_select_provider">Select Provider</string>
+    <string name="zayn_picker_hint">প্রোভাইডারে লং-প্রেস করলে পিন/অানপিন হয় — পিন করা প্রোভাইডার সবার আগে থাকে, বাকিগুলো নামের A–Z সাজানো।</string>
 </resources>
