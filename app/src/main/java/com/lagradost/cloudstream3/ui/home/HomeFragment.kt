@@ -8,12 +8,14 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.AbsListView
 import android.widget.ArrayAdapter
 import android.widget.HorizontalScrollView
@@ -34,7 +36,6 @@ import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.RecyclerView
 import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.getActivity
-import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.chip.Chip
 import com.lagradost.api.Log
@@ -89,6 +90,7 @@ import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.EmptyEvent
 import com.lagradost.cloudstream3.utils.SubtitleHelper.getFlagFromIso
+import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToLanguageName
 import com.lagradost.cloudstream3.utils.TvChannelUtils
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
@@ -400,7 +402,22 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
             val builder =
                 BottomSheetDialog(this)
 
-            builder.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+            // Zayn Play glass sheet (preview .glass-sheet): NOT full-screen —
+            // the sheet sizes to its content. Transparent sheet container
+            // (the layout carries the glass bg) + blur behind it on API 31+.
+            builder.setOnShowListener {
+                builder.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+                    ?.setBackgroundResource(android.R.color.transparent)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.window?.let { window ->
+                    window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    val blurPx = TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_DIP, 20f, resources.displayMetrics
+                    ).toInt()
+                    window.attributes = window.attributes.apply { blurBehindRadius = blurPx }
+                }
+            }
             val binding: HomeSelectMainpageBinding = HomeSelectMainpageBinding.inflate(
                 builder.layoutInflater,
                 null,
@@ -424,13 +441,6 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
                     dialog.dismissSafe()
                 }
 
-                binding.applyBtt.setOnClickListener {
-                    if (currentApiName != selectedApiName) {
-                        currentApiName?.let(callback)
-                    }
-                    dialog.dismissSafe()
-                }
-
                 var pinnedphashset = DataStoreHelper.pinnedProviders.toHashSet()
 
                 val listView = dialog.findViewById<ListView>(R.id.listview1)
@@ -447,12 +457,19 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
                         val view = convertView ?: LayoutInflater.from(context)
                             .inflate(R.layout.sort_bottom_single_provider_choice, parent, false)
                         val titleText = view.findViewById<TextView>(R.id.text1)
+                        val subText = view.findViewById<TextView>(R.id.text2)
                         val pinIcon = view.findViewById<ImageView>(R.id.pinicon)
                         val settingsIcon = view.findViewById<ImageView>(R.id.action_settings)
+                        val checkIcon = view.findViewById<ImageView>(R.id.check_icon)
 
                         val name = getItem(position)
                         titleText?.text = name
                         val providerApi = currentValidApis[position]
+                        // Preview .pk-row sub-line: the provider's language.
+                        subText?.text = fromTagToLanguageName(providerApi.lang) ?: providerApi.lang
+                        // Preview .pk-check: red check on the selected row.
+                        checkIcon.visibility =
+                            if (listView?.isItemChecked(position) == true) View.VISIBLE else View.GONE
                         val isPinned =
                             pinnedphashset.contains(providerApi.name)
                         pinIcon.visibility = if (isPinned) View.VISIBLE else View.GONE
@@ -528,9 +545,11 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
                         if (isMultiLang) "${getFlagFromIso(it.lang)?.plus(" ") ?: ""}$displayName" else displayName
                     }
                     val index = currentValidApis.map { it.name }.indexOf(currentApiName)
-                    listView?.setItemChecked(index, true)
                     arrayAdapter.addAll(names)
                     arrayAdapter.notifyDataSetChanged()
+                    // After the data is in, so the checked row (and its
+                    // .pk-check icon) actually renders.
+                    listView?.setItemChecked(index, true)
                 }
                 // pin provider on hold
                 listView?.setOnItemLongClickListener { _, _, i, _ ->
