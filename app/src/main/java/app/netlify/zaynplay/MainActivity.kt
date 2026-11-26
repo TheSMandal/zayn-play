@@ -43,10 +43,11 @@ class MainActivity : AppCompatActivity() {
     private var isPlayerFullscreen = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Follow the device theme; the WebView's prefers-color-scheme then
-        // matches the system, and the in-app theme setting (System/Dark/
-        // Light in the HTML) switches the UI live.
-        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        // FIX 5: follow the STORED app theme choice (System/Dark/Light);
+        // FOLLOW_SYSTEM only when nothing is stored yet. The WebView's
+        // prefers-color-scheme then matches the app theme, and the in-app
+        // theme setting switches the UI live.
+        ThemePrefs.applyStoredNightMode(this)
         super.onCreate(savedInstanceState)
         // Edge-to-edge for the whole app (v0.1.5): the page lays out behind
         // the status bar on every screen — content starts at the very top
@@ -148,6 +149,23 @@ class MainActivity : AppCompatActivity() {
             }
 
             @JavascriptInterface
+            fun setThemePref(pref: String) {
+                // FIX 5: the WebView pushes every theme change here
+                // (System/Dark/Light) so the next cold start's splash
+                // follows the app's theme, not just the system setting.
+                // Stored for SplashActivity/MainActivity to read; applied
+                // live too so the running activity's native chrome
+                // (nav bar, WebView background) follows at once — no
+                // recreation: MainActivity handles uiMode config changes.
+                if (pref == "system" || pref == "dark" || pref == "light") {
+                    ThemePrefs.store(this@MainActivity, pref)
+                    runOnUiThread {
+                        AppCompatDelegate.setDefaultNightMode(ThemePrefs.modeFor(pref))
+                    }
+                }
+            }
+
+            @JavascriptInterface
             fun setStatusBarDarkIcons(dark: Boolean) {
                 runOnUiThread {
                     WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = dark
@@ -187,8 +205,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // FIX 6: pause the WebView with the activity — its JS timers and
+        // rendering stop while the user is in another app, so nothing
+        // keeps running (or playing) in the background.
+        webView.onPause()
+        webView.pauseTimers()
+    }
+
     override fun onResume() {
         super.onResume()
+        // FIX 6: resume the WebView's rendering as soon as the activity
+        // returns, so the last screen repaints at once instead of leaving
+        // a black frame (window/WebView background) while it catches up.
+        // The activity was never pausing the WebView before, so a warm
+        // return from Recents showed black until the WebView redrew.
+        webView.onResume()
+        webView.resumeTimers()
         // Returning to the activity (e.g. after the transient bars were
         // swiped in, or after another app) must not leave the status bar
         // visible over fullscreen video.
