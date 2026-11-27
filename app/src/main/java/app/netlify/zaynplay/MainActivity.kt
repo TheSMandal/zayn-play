@@ -91,6 +91,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var zaynPlayer: ZaynPlayer
     private lateinit var zaynDownloads: ZaynDownloads
     private var lastStageRect: JSONObject? = null
+    // (v1.0.5 A1/A4) Last KNOWN-GOOD stage rect (visible=true, non-degenerate):
+    // the native side re-applies this on config change / playerState instead
+    // of trusting one possibly-false page report for the rest of the session.
+    private var lastGoodStageRect: JSONObject? = null
+    // (v1.0.5 A1) The WebView background colour actually in effect (there is
+    // no getter) — logged with every playerStage report.
+    private var lastWebViewBgColor: Int = Color.TRANSPARENT
 
     // True while the player is fullscreen: the immersive hide must be
     // re-applied after every rotation / focus change / resume, because the
@@ -137,7 +144,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.webview)
-        webView.setBackgroundColor(currentBackgroundColor())
+        setWebViewBackground(currentBackgroundColor())
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -216,6 +223,39 @@ class MainActivity : AppCompatActivity() {
                     requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                         else if (formFactor() == "phone") ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                         else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    // (v1.0.5 A1/A5) Log what was requested AND what the
+                    // configuration actually is — V1.0.4 proved the
+                    // landscape request did not take effect on Samim's
+                    // vivo (portrait screenshot with .fs applied) and the
+                    // log could not say why. If the ROM ignores the
+                    // request, fall back to sensor landscape after 600 ms
+                    // (the sensor variant follows the device's natural
+                    // rotation) and log the outcome either way.
+                    EngineLogger.log(
+                        "player",
+                        "orientation landscape=$on requestedOrientation=$requestedOrientation " +
+                            "configOrientation=${resources.configuration.orientation}",
+                    )
+                    if (on) {
+                        window.decorView.postDelayed({
+                            if (isPlayerFullscreen &&
+                                resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
+                            ) {
+                                EngineLogger.log(
+                                    "player",
+                                    "orientation fallback: still portrait 600ms after LANDSCAPE request, " +
+                                        "trying SENSOR_LANDSCAPE",
+                                )
+                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            } else {
+                                EngineLogger.log(
+                                    "player",
+                                    "orientation check: configOrientation=${resources.configuration.orientation} " +
+                                        "after LANDSCAPE request",
+                                )
+                            }
+                        }, 600)
+                    }
                 }
             }
 
@@ -284,7 +324,13 @@ class MainActivity : AppCompatActivity() {
         // Phase C: the headless player + downloads, owned here. Their
         // events flow back into the page via pushEngineEvent.
         playerSurface = findViewById(R.id.player_surface)
-        zaynPlayer = ZaynPlayer(this) { type, data -> pushEngineEvent(type, data) }
+        // (v1.0.5 A3) Re-assert the video hole on every playerState event
+        // while the player is open, so one visible=false report — or a
+        // missed report — cannot leave the surface GONE for the session.
+        zaynPlayer = ZaynPlayer(this) { type, data ->
+            if (type == "playerState") reassertVideoHole()
+            pushEngineEvent(type, data)
+        }
         zaynPlayer.setSurface(playerSurface)
         zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
         zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }) { rect ->
@@ -373,7 +419,16 @@ class MainActivity : AppCompatActivity() {
         super.onConfigurationChanged(newConfig)
         // Night mode changed (system theme switch): repaint the WebView
         // background; the page itself re-themes live via matchMedia.
-        webView.setBackgroundColor(currentBackgroundColor())
+        // (v1.0.5 A2) NEVER repaint opaque while the player is fullscreen:
+        // the old unconditional reset hid the video on every rotation /
+        // theme change and recovery depended entirely on a page re-report.
+        // While fullscreen, re-apply the hole from the last known-good
+        // rect at once instead of waiting for the page.
+        if (isPlayerFullscreen) {
+            reassertVideoHole()
+        } else {
+            setWebViewBackground(currentBackgroundColor())
+        }
         // The rotation re-lays the window and drops the immersive hide:
         // re-hide the bars while the player is fullscreen (posted so it
         // runs after the new layout is applied).
@@ -474,37 +529,134 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             if (!::playerSurface.isInitialized || !::webView.isInitialized) return@runOnUiThread
             val visible = rect.optBoolean("visible", false)
+            val x = rect.optDouble("x", 0.0)
+            val y = rect.optDouble("y", 0.0)
+            val w = rect.optDouble("w", 0.0)
+            val h = rect.optDouble("h", 0.0)
+            val vw = rect.optDouble("vw", 0.0)
+            val vh = rect.optDouble("vh", 0.0)
             if (!visible) {
                 playerSurface.visibility = View.GONE
                 // The page repaints its own backgrounds; restore the
                 // WebView background so a transparent hole never shows the
                 // window behind the UI.
-                if (::webView.isInitialized) webView.setBackgroundColor(currentBackgroundColor())
+                if (::webView.isInitialized) setWebViewBackground(currentBackgroundColor())
+                // (v1.0.5 A1) Log the FULL payload on every call — V1.0.4
+                // logged method + id only, so whether the last on-phone
+                // report was visible=true or false was unknowable.
+                EngineLogger.log(
+                    "playerStage",
+                    "visible=false x=$x y=$y w=$w h=$h vw=$vw vh=$vh " +
+                        "surface=GONE webViewBg=#%08X".format(lastWebViewBgColor),
+                )
                 return@runOnUiThread
             }
             // Transparent WebView background while the surface shows, so
             // the page's transparent stage hole reveals the video below.
-            if (::webView.isInitialized) webView.setBackgroundColor(Color.TRANSPARENT)
-            val vw = rect.optDouble("vw", 0.0)
-            val vh = rect.optDouble("vh", 0.0)
+            if (::webView.isInitialized) setWebViewBackground(Color.TRANSPARENT)
             // (v1.0.4) The surface must be VISIBLE whenever the page says
             // the player is open, even if this report's rect is degenerate
             // (a 0-size rect used to leave it GONE while the page showed
             // the player as open). Positioning follows on the next report.
             playerSurface.visibility = View.VISIBLE
-            if (vw <= 0 || vh <= 0 || webView.width <= 0) return@runOnUiThread
-            val scale = webView.width / vw
-            val x = (rect.optDouble("x", 0.0) * scale).toInt()
-            val y = (rect.optDouble("y", 0.0) * scale).toInt()
-            val w = (rect.optDouble("w", 0.0) * scale).toInt().coerceAtLeast(1)
-            val h = (rect.optDouble("h", 0.0) * scale).toInt().coerceAtLeast(1)
-            val params = playerSurface.layoutParams as FrameLayout.LayoutParams
-            params.width = w
-            params.height = h
-            params.leftMargin = x
-            params.topMargin = y
-            playerSurface.layoutParams = params
+            // (v1.0.5 A4) A degenerate rect must NOT leave the surface at
+            // its 1dp×1dp XML size: apply the last known-good rect, or the
+            // full WebView size when no good rect exists yet.
+            val degenerate = vw <= 0 || vh <= 0 || webView.width <= 0 || w <= 0 || h <= 0
+            if (degenerate) {
+                val good = lastGoodStageRect
+                if (good != null && webView.width > 0) {
+                    applyStageRect(good)
+                } else if (webView.width > 0 && webView.height > 0) {
+                    applyStageRectPx(0, 0, webView.width, webView.height)
+                }
+                EngineLogger.log(
+                    "playerStage",
+                    "visible=true DEGENERATE x=$x y=$y w=$w h=$h vw=$vw vh=$vh " +
+                        "fell back to lastGoodRect=${good != null} " +
+                        "surface=${surfaceState()} webViewBg=#%08X".format(lastWebViewBgColor),
+                )
+                return@runOnUiThread
+            }
+            lastGoodStageRect = rect
+            applyStageRect(rect)
+            EngineLogger.log(
+                "playerStage",
+                "visible=true x=$x y=$y w=$w h=$h vw=$vw vh=$vh " +
+                    "surface=${surfaceState()} webViewBg=#%08X".format(lastWebViewBgColor),
+            )
         }
+    }
+
+    /** Position/size the surface from a stage rect (CSS px -> physical px). */
+    private fun applyStageRect(rect: JSONObject) {
+        val vw = rect.optDouble("vw", 0.0)
+        if (vw <= 0 || webView.width <= 0) return
+        val scale = webView.width / vw
+        applyStageRectPx(
+            (rect.optDouble("x", 0.0) * scale).toInt(),
+            (rect.optDouble("y", 0.0) * scale).toInt(),
+            (rect.optDouble("w", 0.0) * scale).toInt().coerceAtLeast(1),
+            (rect.optDouble("h", 0.0) * scale).toInt().coerceAtLeast(1),
+        )
+    }
+
+    private fun applyStageRectPx(x: Int, y: Int, w: Int, h: Int) {
+        val params = playerSurface.layoutParams as FrameLayout.LayoutParams
+        params.width = w
+        params.height = h
+        params.leftMargin = x
+        params.topMargin = y
+        playerSurface.layoutParams = params
+    }
+
+    /** (v1.0.5 A1) One-line TextureView state for the stage log. */
+    private fun surfaceState(): String {
+        val vis = when (playerSurface.visibility) {
+            View.VISIBLE -> "VISIBLE"
+            View.GONE -> "GONE"
+            else -> "INVISIBLE"
+        }
+        val lp = playerSurface.layoutParams
+        return "$vis ${playerSurface.width}x${playerSurface.height} layout=${lp?.width}x${lp?.height}"
+    }
+
+    /**
+     * (v1.0.5 A3) Re-assert the video hole from the last known-good rect,
+     * independently of what the page last reported. Called on every
+     * playerState event while the player is open and on config change
+     * while fullscreen, so one visible=false report — or a missed report
+     * — cannot hide the video for the rest of the session.
+     */
+    private fun reassertVideoHole() {
+        runOnUiThread {
+            if (!isPlayerFullscreen) return@runOnUiThread
+            if (!::playerSurface.isInitialized || !::webView.isInitialized) return@runOnUiThread
+            val good = lastGoodStageRect ?: return@runOnUiThread
+            // Log ONLY when the re-assert actually repairs something: this
+            // runs on every playerState event (~1/s while playing), and an
+            // unconditional log line would flood EngineLogger's 200-line
+            // ring buffer and drown the play / error / orientation lines.
+            val needsRepair = playerSurface.visibility != View.VISIBLE ||
+                lastWebViewBgColor != Color.TRANSPARENT
+            setWebViewBackground(Color.TRANSPARENT)
+            playerSurface.visibility = View.VISIBLE
+            applyStageRect(good)
+            if (needsRepair) {
+                EngineLogger.log(
+                    "playerStage",
+                    "re-assert hole from lastGoodRect surface=${surfaceState()} " +
+                        "webViewBg=#%08X".format(lastWebViewBgColor),
+                )
+            }
+        }
+    }
+
+    /** (v1.0.5 A1) Single place that changes the WebView background, so the
+     * colour in effect is always known (and loggable — there is no getter). */
+    private fun setWebViewBackground(color: Int) {
+        lastWebViewBgColor = color
+        if (::webView.isInitialized) webView.setBackgroundColor(color)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
