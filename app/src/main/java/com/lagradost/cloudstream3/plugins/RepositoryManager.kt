@@ -269,7 +269,15 @@ object RepositoryManager {
         } catch (e: Exception) {
             throw RepoLoadException(RepoLoadError.PARSE, cause = e)
         }
-        putCachedRepo(url, repo, cachedRepo(url)?.wrappers)
+        // (v0.2.9) Fix G: never carry old wrappers across a pluginLists
+        // change — the cached wrappers belong to the PREVIOUS manifest.
+        // Carrying them served stale providers, and when the fresh parse
+        // then failed the cache held a new repo object paired with old
+        // wrappers. Same pluginLists: keep the wrappers; changed: cache
+        // none, so the next read re-parses instead of serving stale rows.
+        val old = cachedRepo(url)
+        val keepWrappers = if (old?.repo?.pluginLists == repo.pluginLists) old?.wrappers else null
+        putCachedRepo(url, repo, keepWrappers)
         return repo
     }
 
@@ -464,7 +472,12 @@ object RepositoryManager {
                 mapOf()
             }
             val response = try {
-                app.get(
+                // (v0.2.9) Fix B: get() no longer takes cacheControlOverride
+                // (upstream 12-param shape, so plugins' get$default exists).
+                // The .cs3 download still needs FORCE_NETWORK, so it calls
+                // custom() directly, which keeps the parameter.
+                app.custom(
+                    "GET",
                     convertRawGitUrl(pluginUrl),
                     headers = headers,
                     timeout = 120,
