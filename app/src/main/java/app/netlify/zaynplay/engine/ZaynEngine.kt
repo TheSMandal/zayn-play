@@ -185,11 +185,19 @@ class ZaynEngine(
         preferredAudioLang: String? = null,
     ) {
         if (isMpv() && mpvPlayer.ensureCreated()) {
+            // (v1.0.11 F3) Pause the idle ExoPlayer so it holds no active
+            // rendering claim on the shared TextureView. Pause ONLY — not
+            // release/detach, which would break the re-attach paths.
+            player.pauseForBackground()
             mpvPlayer.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
         } else {
             if (isMpv()) {
                 EngineLogger.log("player", "mpv unavailable — falling back to ExoPlayer for this play")
             }
+            // (v1.0.11 F3) Pause the idle mpv engine (same rule, other
+            // direction). Both pause paths mirror MainActivity.onPause
+            // and are no-ops before their instance exists.
+            mpvPlayer.pauseForBackground()
             player.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
         }
     }
