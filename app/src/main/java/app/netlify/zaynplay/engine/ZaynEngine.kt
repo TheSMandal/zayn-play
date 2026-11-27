@@ -953,9 +953,9 @@ class ZaynEngine(
             section?.items?.forEach { list ->
                 // (v0.2.11) C-3: unicode letters, not ASCII only — a
                 // Bengali/Hindi catalogue yields its own title words.
-                words += list.name.split(Regex("[^\p{L}]+")).filter { it.length >= 3 }
+                words += list.name.split(Regex("""[^\p{L}]+""")).filter { it.length >= 3 }
                 list.list.forEach { item ->
-                    words += item.name.split(Regex("[^\p{L}]+")).filter { it.length >= 3 }
+                    words += item.name.split(Regex("""[^\p{L}]+""")).filter { it.length >= 3 }
                 }
             }
         }
