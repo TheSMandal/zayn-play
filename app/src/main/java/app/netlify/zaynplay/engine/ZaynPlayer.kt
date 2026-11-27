@@ -15,6 +15,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.lagradost.cloudstream3.USER_AGENT
@@ -78,6 +79,31 @@ class ZaynPlayer(
     private var currentSubtitleText: String? = null
     private var currentSubtitleLang: String? = null
     private var tickerRunning = false
+
+    // (v1.0.4) Buffering level (Settings > Playback > Buffering). The
+    // LoadControl is build-time, so a level change rebuilds the player
+    // on the next play() — never mid-play.
+    private var pendingBufferLevel: String = "normal"
+    private var builtBufferLevel: String? = null
+
+    /**
+     * (v1.0.4) Load-control presets per Buffering level, least to most:
+     * (minBufferMs, maxBufferMs, bufferForPlaybackMs,
+     * bufferForPlaybackAfterRebufferMs). Very low starts almost at once;
+     * Very high pre-buffers a full minute for the smoothest playback.
+     */
+    private fun loadControlFor(level: String): DefaultLoadControl {
+        val (min, max, play, rebuf) = when (level) {
+            "verylow" -> intArrayOf(2_000, 5_000, 250, 500)
+            "low" -> intArrayOf(5_000, 15_000, 500, 1_000)
+            "high" -> intArrayOf(30_000, 60_000, 2_500, 5_000)
+            "veryhigh" -> intArrayOf(60_000, 120_000, 5_000, 8_000)
+            else -> intArrayOf(15_000, 30_000, 1_500, 3_000) // normal
+        }
+        return DefaultLoadControl.Builder()
+            .setBufferDurationsMs(min, max, play, rebuf)
+            .build()
+    }
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -149,10 +175,12 @@ class ZaynPlayer(
         }
         val exo = ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(cacheFactory))
+            .setLoadControl(loadControlFor(pendingBufferLevel))
             .build()
         exo.addListener(listener)
         textureView?.let { exo.setVideoTextureView(it) }
         player = exo
+        builtBufferLevel = pendingBufferLevel
         EngineLogger.log("player", "ExoPlayer created")
     }
 
@@ -177,8 +205,17 @@ class ZaynPlayer(
         subtitleLang: String?,
         subtitleUrl: String?,
         cacheSizeBytes: Long,
+        bufferLevel: String = "normal",
+        preferredAudioLang: String? = null,
     ) {
         mainHandler.post {
+            // (v1.0.4) A changed Buffering level rebuilds the player here
+            // (LoadControl is build-time); the new play starts fresh
+            // anyway, so nothing in progress is disturbed.
+            pendingBufferLevel = bufferLevel
+            if (builtBufferLevel != null && builtBufferLevel != bufferLevel) {
+                releaseNow()
+            }
             ensurePlayer(cacheSizeBytes)
             val p = player ?: return@post
             currentLink = link
@@ -210,6 +247,15 @@ class ZaynPlayer(
             p.setMediaSource(
                 DefaultMediaSourceFactory(dataFactory).createMediaSource(item),
             )
+            // (v1.0.4) NO-SWITCH rule: pin ExoPlayer's audio-track selector
+            // to the picked link's language, so a multi-audio manifest
+            // cannot silently switch to another language (e.g. Tamil)
+            // mid-play while the player shows the picked language.
+            if (preferredAudioLang != null) {
+                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                    .setPreferredAudioLanguage(preferredAudioLang)
+                    .build()
+            }
             p.prepare()
             if (startAtMs > 0) p.seekTo(startAtMs)
             p.play()
