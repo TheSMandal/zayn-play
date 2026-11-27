@@ -23,6 +23,13 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
           ls -l keystore.jks
+      - name: Install Android API 37 platform
+        # (v1.0.10) libmpv's AAR needs compileSdk 37, and the runner's SDK
+        # does not ship platforms;android-37 — AGP will not auto-download it
+        # (CI 46043729671 failed at dependency resolution: "Failed to find
+        # Platform SDK with path: platforms;android-37"). Install it first.
+        run: |
+          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"
       - name: Build debug APK
         run: |
           chmod +x gradlew
