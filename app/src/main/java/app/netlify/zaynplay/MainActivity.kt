@@ -98,6 +98,10 @@ class MainActivity : AppCompatActivity() {
     private var lastFrameTs = 0L
     private var frameCount = 0
     private var probedTexId = 0
+    // (v1.0.12 §9) Consecutive playing polls with zero frames (250 ms
+    // each; 20 = 5 s) + whether the UNHEALTHY line already fired.
+    private var probePolls = 0
+    private var probeHealthLogged = false
     private lateinit var zaynDownloads: ZaynDownloads
     private var lastStageRect: JSONObject? = null
     // (v1.0.5 A1/A4) Last KNOWN-GOOD stage rect (visible=true, non-degenerate):
@@ -414,7 +418,9 @@ class MainActivity : AppCompatActivity() {
                     // that already timed out ignores the late reply
                     // (__zaynReply is a no-op once pending is deleted).
                     val response = try {
-                        zaynEngine.call(method, params)
+                        // (v1.0.12 §7) Thread the bridge id through so
+                        // play() can log it and dedup a repeated id.
+                        zaynEngine.call(method, params, id)
                     } catch (e: CancellationException) {
                         engineError("timeout", "Engine timed out — try again")
                     }
@@ -450,6 +456,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        // (v1.0.12 §4) Config-change detection, logged: the rotation churn
+        // (1082x2396 → 2398x5308 → 2392x1080) is expected layout churn, and
+        // the surface state machine ignores the transient sizes.
+        EngineLogger.log(
+            "player",
+            "config changed orientation=${newConfig.orientation} fullscreen=$isPlayerFullscreen",
+        )
         // Night mode changed (system theme switch): repaint the WebView
         // background; the page itself re-themes live via matchMedia.
         // (v1.0.5 A2) NEVER repaint opaque while the player is fullscreen:
@@ -487,6 +500,9 @@ class MainActivity : AppCompatActivity() {
         // (v1.0.10) Pause the mpv engine too when it is the active one;
         // its pauseForBackground is a no-op before its instance exists.
         if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.pauseForBackground()
+        // (v1.0.12 §8) Activity state for the diagnostics lines.
+        if (::zaynPlayer.isInitialized) zaynPlayer.activityState = "paused"
+        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.setActivityState("paused")
     }
 
     override fun onResume() {
@@ -505,6 +521,16 @@ class MainActivity : AppCompatActivity() {
         // swiped in, or after another app) must not leave the status bar
         // visible over fullscreen video.
         if (isPlayerFullscreen) setImmersiveMode(true)
+        // (v1.0.12 §8) Activity state for the diagnostics lines.
+        if (::zaynPlayer.isInitialized) zaynPlayer.activityState = "resumed"
+        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.setActivityState("resumed")
+        // (v1.0.12 §9) Activity-resume recovery: returning from another app
+        // must not leave the hole closed — re-assert it and re-report the
+        // stage rect while fullscreen.
+        if (isPlayerFullscreen) {
+            reassertVideoHole()
+            webView.evaluateJavascript("window.__zaynReportStage && window.__zaynReportStage()", null)
+        }
     }
 
     override fun onDestroy() {
@@ -575,6 +601,14 @@ class MainActivity : AppCompatActivity() {
             val vh = rect.optDouble("vh", 0.0)
             if (!visible) {
                 playerSurface.visibility = View.GONE
+                // (v1.0.12 §6 step 2) Stage-close detach: if mpv was the
+                // active engine, release its surface hold now — otherwise
+                // it keeps the BufferQueue connected while the stage is
+                // closed. ExoPlayer's hold is released by its own
+                // switch-time detach in playActive; nothing to do here.
+                if (::zaynMpvPlayer.isInitialized && ::zaynEngine.isInitialized && zaynEngine.isMpvActive()) {
+                    zaynMpvPlayer.detachSurfaceForSwitch()
+                }
                 // The page repaints its own backgrounds; restore the
                 // WebView background so a transparent hole never shows the
                 // window behind the UI.
@@ -589,6 +623,25 @@ class MainActivity : AppCompatActivity() {
                         "scrId=${rect.optString("scrId", "")} nativeVideo=${rect.optBoolean("nativeVideo", false)} " +
                         "surface=GONE webViewBg=#%08X".format(lastWebViewBgColor),
                 )
+                return@runOnUiThread
+            }
+            // (v1.0.12 §10) Skip-if-unchanged: an identical rect with the
+            // visibility already correct and the probe already running is a
+            // no-op — return after logging nothing. (The D4 probe-start log
+            // below fires only when the probe actually restarts, so it is
+            // not lost: a reopened stage has the surface GONE, which fails
+            // the visibility condition and never skips.)
+            val lastGood = lastGoodStageRect
+            if (lastGood != null && frameProbeRunning &&
+                Math.abs(x - lastGood.optDouble("x", 0.0)) <= 1 &&
+                Math.abs(y - lastGood.optDouble("y", 0.0)) <= 1 &&
+                Math.abs(w - lastGood.optDouble("w", 0.0)) <= 1 &&
+                Math.abs(h - lastGood.optDouble("h", 0.0)) <= 1 &&
+                Math.abs(vw - lastGood.optDouble("vw", 0.0)) <= 1 &&
+                Math.abs(vh - lastGood.optDouble("vh", 0.0)) <= 1 &&
+                playerSurface.visibility == View.VISIBLE &&
+                lastWebViewBgColor == Color.TRANSPARENT
+            ) {
                 return@runOnUiThread
             }
             // Transparent WebView background while the surface shows, so
@@ -613,12 +666,11 @@ class MainActivity : AppCompatActivity() {
             // (v1.0.10 L1) Start the frame-arrival probe now that the stage
             // is open (it stops itself when the surface goes GONE).
             startFrameProbe()
-            // (v1.0.11 F2) Re-check the mpv surface attach on every
-            // stage-open: attach was attempted only at play() /
-            // setTextureView (a no-op at startup); a reopen after a GONE
-            // close never re-checked it. Silent no-op when already
-            // attached, so it cannot disturb a working play.
-            if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.attachSurfaceIfReady()
+            // (v1.0.11 F2, gated v1.0.12 §6 step 2) Re-check the mpv surface
+            // attach on stage-open ONLY when mpv is the active engine:
+            // attaching mpv to a surface ExoPlayer holds would re-create
+            // the producer conflict. Silent no-op when already attached.
+            if (::zaynMpvPlayer.isInitialized && ::zaynEngine.isInitialized && zaynEngine.isMpvActive()) zaynMpvPlayer.attachSurfaceIfReady()
             // (v1.0.8) Post-stage-open surface-state check (see postSurfaceCheck).
             postSurfaceCheck()
             // (v1.0.5 A4) A degenerate rect must NOT leave the surface at
@@ -720,6 +772,18 @@ class MainActivity : AppCompatActivity() {
                     // middle transparent) — it dims, it cannot black out.
                     "alpha=${playerSurface.alpha}",
             )
+            // (v1.0.12 §9) Surface recovery trigger: still no texture 200 ms
+            // after stage-open while fullscreen with ExoPlayer active — one
+            // bounded detach+re-attach (max 1 per play, enforced in the
+            // player). A slow texture is normal (session 1 took ~1 s), so
+            // this only re-registers Media3's listener; it never blocks.
+            if (playerSurface.surfaceTexture == null && isPlayerFullscreen &&
+                ::zaynEngine.isInitialized && !zaynEngine.isMpvActive() &&
+                ::zaynPlayer.isInitialized
+            ) {
+                EngineLogger.log("playerStage", "surface check texture null while fullscreen — recovering surface (bounded 1/play)")
+                zaynPlayer.recoverSurface()
+            }
         }, 200)
     }
 
@@ -739,6 +803,8 @@ class MainActivity : AppCompatActivity() {
     private fun startFrameProbe() {
         if (frameProbeRunning) return
         frameProbeRunning = true
+        probePolls = 0
+        probeHealthLogged = false
         val probe = object : Runnable {
             override fun run() {
                 if (!frameProbeRunning) return
@@ -755,6 +821,8 @@ class MainActivity : AppCompatActivity() {
                         probedTexId = texId
                         frameCount = 0
                         lastFrameTs = 0L
+                        probePolls = 0
+                        probeHealthLogged = false
                         EngineLogger.log(
                             "player",
                             "player texture frame probe attached tex=$texId",
@@ -764,6 +832,21 @@ class MainActivity : AppCompatActivity() {
                     if (ts != 0L && ts != lastFrameTs) {
                         lastFrameTs = ts
                         frameCount++
+                        if (frameCount == 1) {
+                            // (v1.0.12 §8) L9 First Frame Submitted
+                            // (observed by proxy: the timestamp advancing
+                            // proves a frame was queued to the texture) and
+                            // L10 First Frame Displayed (UNVERIFIED-by-code
+                            // — only an on-device sighting proves display).
+                            val sess = if (::zaynEngine.isInitialized) zaynEngine.currentSession() else 0
+                            val eng = if (::zaynEngine.isInitialized && zaynEngine.isMpvActive()) "mpv" else "exo"
+                            val vs = if (eng == "mpv" && ::zaynMpvPlayer.isInitialized) zaynMpvPlayer.videoSizeText()
+                                else if (::zaynPlayer.isInitialized) zaynPlayer.videoSizeText() else "0x0"
+                            val act = if (::zaynPlayer.isInitialized) zaynPlayer.activityState else "unknown"
+                            val nowMs = System.currentTimeMillis()
+                            EngineLogger.log("player", "diag L9 First Frame Submitted session=$sess engine=$eng ts=$nowMs texId=$texId surfaceSize=${playerSurface.width}x${playerSurface.height} videoSize=$vs state=playing activity=$act observed-by-proxy — timestamp advance proves queueing, not display")
+                            EngineLogger.log("player", "diag L10 First Frame Displayed session=$sess engine=$eng ts=$nowMs texId=$texId surfaceSize=${playerSurface.width}x${playerSurface.height} videoSize=$vs state=playing activity=$act UNVERIFIED-by-code — display proven only by on-device sighting")
+                        }
                         if (frameCount <= 5 || frameCount % 100 == 0) {
                             EngineLogger.log(
                                 "player",
@@ -771,7 +854,22 @@ class MainActivity : AppCompatActivity() {
                                     "${playerSurface.width}x${playerSurface.height}",
                             )
                         }
+                        if (frameCount == 6) {
+                            // (v1.0.12 §8) Log the L1 probe cap explicitly.
+                            EngineLogger.log("player", "texture frame probe cap — first 5 logged, then every 100th")
+                        }
                     }
+                }
+                // (v1.0.12 §9) Audio-without-video is UNHEALTHY, never
+                // healthy: 5 s (20 consecutive playing polls) with zero
+                // frames while an engine reports playing. Polls only count
+                // while playing, so a slow start is not a false positive.
+                val playingNow = (::zaynPlayer.isInitialized && zaynPlayer.isPlaying()) ||
+                    (::zaynMpvPlayer.isInitialized && zaynMpvPlayer.isPlaying())
+                if (playingNow) probePolls++ else probePolls = 0
+                if (frameCount == 0 && probePolls > 20 && !probeHealthLogged) {
+                    probeHealthLogged = true
+                    EngineLogger.log("player", "health UNHEALTHY — audio playing but no video frame in 5s (no texture frame arrived)")
                 }
                 playerSurface.postDelayed(this, 250)
             }
@@ -797,6 +895,10 @@ class MainActivity : AppCompatActivity() {
             // ring buffer and drown the play / error / orientation lines.
             val needsRepair = playerSurface.visibility != View.VISIBLE ||
                 lastWebViewBgColor != Color.TRANSPARENT
+            // (v1.0.12 §10) When nothing needs repair, do nothing: the old
+            // unconditional re-apply re-laid the TextureView on every
+            // playerState (~1/s) for no reason.
+            if (!needsRepair) return@runOnUiThread
             setWebViewBackground(Color.TRANSPARENT)
             playerSurface.visibility = View.VISIBLE
             applyStageRect(good)
