@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -147,6 +148,18 @@ class ZaynPlayer(
             lastPlaying = isPlaying
             if (isPlaying) startTicker() else stopTicker()
             pushState()
+        }
+
+        // (v1.0.6 M2) Settles whether a video track is selected and frames
+        // reach the surface: if onVideoSizeChanged never fires, no video
+        // track was selected; if onRenderedFirstFrame fires, frames arrive
+        // and the V1.0.5 audio-only picture was the covering .player-info.
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            EngineLogger.log("player", "video size ${videoSize.width}x${videoSize.height}")
+        }
+
+        override fun onRenderedFirstFrame() {
+            EngineLogger.log("player", "first frame rendered")
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -288,6 +301,11 @@ class ZaynPlayer(
             // type + quality) so the next failure names the link — V1.0.4's
             // PARSING_CONTAINER_UNSUPPORTED named no link at all.
             EngineLogger.log("player", "play ${link.source} ${link.qualityLabel} type=${link.type} url=${link.url}")
+            // (v1.0.6 M2) Log the selected video track at play time: a null
+            // videoFormat here (or 0 track groups) means ExoPlayer has no
+            // video track for this link yet — read with the listener lines.
+            val vf = p.videoFormat
+            EngineLogger.log("player", "play videoFormat=${vf?.sampleMimeType ?: "none"} ${vf?.width ?: 0}x${vf?.height ?: 0} trackGroups=${p.currentTracks.groups.size}")
         }
     }
 
