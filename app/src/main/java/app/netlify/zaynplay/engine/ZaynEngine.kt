@@ -93,6 +93,9 @@ class ZaynEngine(
     private val activity: Activity,
     private val store: EngineStore,
     private val player: ZaynPlayer,
+    // (v1.0.10) The libmpv player, owned by MainActivity like ZaynPlayer.
+    // Both players share the one TextureView; only the active engine plays.
+    private val mpvPlayer: ZaynMpvPlayer,
     private val downloads: ZaynDownloads,
     private val bridgeScope: CoroutineScope,
     private val onEvent: (String, JSONObject) -> Unit = { _, _ -> },
@@ -163,6 +166,37 @@ class ZaynEngine(
         }
     }
 
+    // (v1.0.10) Engine routing: every player call goes to the active
+    // engine (store setting "engine", default exoplayer). The ExoPlayer
+    // path is byte-identical for engine=exoplayer. If libmpv was selected
+    // but its native instance could not be created, fall back to ExoPlayer
+    // for this play instead of failing (mpvPlayer.ensureCreated() false).
+    private fun isMpv(): Boolean =
+        store.getSettingString("engine", "exoplayer") == "libmpv"
+
+    private fun playActive(
+        link: ZaynPlayer.PlayLink,
+        startAtMs: Long,
+        subtitleText: String?,
+        subtitleLang: String?,
+        subtitleUrl: String?,
+        cacheSizeBytes: Long,
+        bufferLevel: String = "normal",
+        preferredAudioLang: String? = null,
+    ) {
+        if (isMpv() && mpvPlayer.ensureCreated()) {
+            mpvPlayer.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
+        } else {
+            if (isMpv()) {
+                EngineLogger.log("player", "mpv unavailable — falling back to ExoPlayer for this play")
+            }
+            player.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
+        }
+    }
+
+    private fun activeStateSnapshot(): JSONObject =
+        if (isMpv()) mpvPlayer.stateSnapshot() else player.stateSnapshot()
+
     /**
      * (v1.0.5 B2) Play one ranked link as a retry: count the attempt,
      * log it, remember the link that actually played, then play it.
@@ -182,7 +216,7 @@ class ZaynEngine(
                 JSONObject().put("linkIndex", next).put("atMs", System.currentTimeMillis()),
             )
         }
-        player.play(
+        playActive(
             ZaynPlayer.PlayLink(
                 url = link.url,
                 source = link.source,
@@ -339,7 +373,7 @@ class ZaynEngine(
                 "links" -> links(params)
                 "play" -> play(params)
                 "playerControl" -> playerControl(params)
-                "playerState" -> ok(player.stateSnapshot())
+                "playerState" -> ok(activeStateSnapshot())
                 "externalPlay" -> externalPlay(params)
                 "playerStage" -> playerStage(params)
                 // ---- Phase C: subtitles (E17–E18) ----
@@ -1900,6 +1934,10 @@ class ZaynEngine(
                         EngineLogger.log("player", "probe skipped ${link.source} ${link.url} ($reason)")
                         false
                     } else {
+                        // (v1.0.10 L4) Log probe PASS: skip/fail were already
+                        // logged, so without this line "probe passed" and
+                        // "probe never ran" were indistinguishable in the log.
+                        EngineLogger.log("player", "probe ok ${link.source} ${link.url}")
                         true
                     }
                 }
@@ -1968,9 +2006,10 @@ class ZaynEngine(
     }
 
     private suspend fun play(params: JSONObject): JSONObject {
-        if (store.getSettingString("engine", "exoplayer") == "libmpv") {
-            return err("playback_error", "libmpv is not available in this version")
-        }
+        // (v1.0.10) The libmpv guard is GONE: libmpv is bundled now, so a
+        // persisted engine=libmpv is valid. Routing happens in playActive()
+        // below; link resolution, probe, ranking and auto-retry above it are
+        // engine-independent and untouched.
         val mode = params.optString("mode", store.getSettingString("mode", "auto"))
         val (resolved, reason) = resolveLinks(params)
         if (resolved == null) {
@@ -2053,7 +2092,7 @@ class ZaynEngine(
             headers = link.getAllHeaders(),
             type = link.type,
         )
-        player.play(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
+        playActive(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
         // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
         // name the picked link (URL + type + quality) in the log.
         playSessionCounter++
@@ -2131,12 +2170,13 @@ class ZaynEngine(
         return when (action) {
             "toggle", "pause", "resume", "seek", "rate", "volume", "mute" -> {
                 val value = if (params.has("value") && !params.isNull("value")) params.optDouble("value") else null
-                ok(JSONObject().put("state", player.control(action, value)))
+                val state = if (isMpv()) mpvPlayer.control(action, value) else player.control(action, value)
+                ok(JSONObject().put("state", state))
             }
             "setSubtitle" -> {
                 val text = if (params.has("text") && !params.isNull("text")) params.optString("text") else null
-                player.setSubtitleText(text, params.optString("lang", ""))
-                ok(JSONObject().put("state", player.stateSnapshot()))
+                if (isMpv()) mpvPlayer.setSubtitleText(text, params.optString("lang", "")) else player.setSubtitleText(text, params.optString("lang", ""))
+                ok(JSONObject().put("state", activeStateSnapshot()))
             }
             "nextEp", "prevEp" -> {
                 // Episode switch is driven by play with the episode's data.
@@ -2302,7 +2342,7 @@ class ZaynEngine(
             type = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
             isLocalFile = true,
         )
-        player.play(link, 0, null, null, null, cacheSizeBytes())
+        playActive(link, 0, null, null, null, cacheSizeBytes())
         return ok(JSONObject().put("launched", true))
     }
 
