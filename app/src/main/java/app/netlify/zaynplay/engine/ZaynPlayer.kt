@@ -71,10 +71,21 @@ class ZaynPlayer(
     )
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var player: ExoPlayer? = null
+    // (v1.0.14 CAUSE-1) player is read off the main thread by
+    // hasActiveMedia() (bridge IO thread) — it must be volatile.
+    @Volatile private var player: ExoPlayer? = null
     private var textureView: TextureView? = null
     private var cache: SimpleCache? = null
 
+    // (v1.0.14 CAUSE-1) Main-thread-cached playback state: Media3
+    // throws IllegalStateException ("Player is accessed on the wrong
+    // thread") when playbackState is read off the main thread, and the
+    // V1.0.13 P6-C hasActiveMedia() guard read it from the bridge IO
+    // thread on every seek/resume (~13× in Samim's 04:10 log). The
+    // listener below (main thread) is the only writer; every off-main
+    // reader uses this cache, never the player. Reset to IDLE when a
+    // new player is created / the player is released.
+    @Volatile private var lastPlaybackState: Int = Player.STATE_IDLE
     @Volatile private var lastPlaying = false
     @Volatile private var lastBuffering = false
     @Volatile private var lastPosMs = 0L
@@ -124,6 +135,19 @@ class ZaynPlayer(
     private fun transitionTo(next: SurfaceLifecycle, reason: String) {
         val prev = surfaceState
         if (prev == next) return
+        // (v1.0.14 G9) Enforce the only legal transitions that matter:
+        // never leave RELEASED except via a new play (ensurePlayer ->
+        // PLAYER_INITIALIZED); never enter SURFACE_ATTACHED with no
+        // player (release-then-reattach race used to do exactly that).
+        // Illegal transitions are logged and ignored, never applied.
+        if (prev == SurfaceLifecycle.RELEASED && next != SurfaceLifecycle.PLAYER_INITIALIZED) {
+            EngineLogger.log("player", "surface illegal transition $prev -> $next ($reason) — ignored")
+            return
+        }
+        if (next == SurfaceLifecycle.SURFACE_ATTACHED && player == null) {
+            EngineLogger.log("player", "surface illegal transition $prev -> $next ($reason) — ignored (no player)")
+            return
+        }
         surfaceState = next
         EngineLogger.log(
             "player",
@@ -141,11 +165,14 @@ class ZaynPlayer(
     // on-device sighting.
     private fun diag(code: String, name: String, note: String = "") {
         val p = player
-        val vf = p?.videoFormat
+        val vf = if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) p?.videoFormat else null
+        // (v1.0.14 CAUSE-1) State from the main-thread cache, never from
+        // p.isPlaying/p.playbackState — diag must stay callable from any
+        // thread without tripping Media3's wrong-thread check.
         val state = when {
             p == null -> "no-player"
-            p.isPlaying -> "playing"
-            else -> "state=${p.playbackState}"
+            lastPlaying -> "playing"
+            else -> "state=$lastPlaybackState"
         }
         EngineLogger.log(
             "player",
@@ -398,6 +425,7 @@ class ZaynPlayer(
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
+            lastPlaybackState = state
             val p = player ?: return
             lastDurMs = p.duration.takeIf { it > 0 } ?: lastDurMs
             lastBufferedMs = p.bufferedPosition.coerceAtLeast(0)
@@ -553,6 +581,7 @@ class ZaynPlayer(
             .build()
         exo.addListener(listener)
         exo.addAnalyticsListener(analyticsListener)
+        lastPlaybackState = Player.STATE_IDLE
         player = exo
         transitionTo(SurfaceLifecycle.PLAYER_INITIALIZED, "ExoPlayer created")
         // (v1.0.12 §8 L1) Player Created.
@@ -976,6 +1005,7 @@ class ZaynPlayer(
                 EngineLogger.log("player", "control $action rejected — no active media (playback_error)")
                 return@post
             }
+            try {
             when (action) {
                 "pause" -> p?.pause()
                 "resume" -> p?.play()
@@ -1018,6 +1048,12 @@ class ZaynPlayer(
                 lastPlaying = p.isPlaying
             }
             pushState()
+            } catch (e: Exception) {
+                // (v1.0.14 SEEK-TRACE §4a.3) Same parity as the coalesced
+                // runnable: a control failure must not crash the main
+                // thread, and is not a dead session.
+                EngineLogger.log("player", "control $action failed ${e.javaClass.simpleName}: ${e.message}")
+            }
         }
         // The posted block runs on main almost immediately; return the
         // last cached snapshot (the next playerState event carries the
@@ -1052,6 +1088,12 @@ class ZaynPlayer(
     // was <500 ms ago — the 1 s ticker delivers the fresh state anyway.
     private val controlCoalesceRunnable = object : Runnable {
         override fun run() {
+            // (v1.0.14 SEEK-TRACE §4a.3) A throwing seekTo here used to be
+            // an uncaught main-thread exception (app crash, not a toast) —
+            // parity with MP, whose runnable is try-caught. A failed seek
+            // on a live session is a control failure, NOT a dead session:
+            // never set playbackFailed / latch here.
+            try {
             controlCoalescePosted = false
             val p = player
             var volumeOnly = false
@@ -1082,6 +1124,9 @@ class ZaynPlayer(
             }
             if (volumeOnly && System.currentTimeMillis() - lastPushStateMs < 500) return
             pushState()
+            } catch (e: Exception) {
+                EngineLogger.log("player", "control coalesced seek failed ${e.javaClass.simpleName}: ${e.message}")
+            }
         }
     }
 
@@ -1129,6 +1174,10 @@ class ZaynPlayer(
                 EngineLogger.log("player", "player: exo surface re-attach skipped — already attached")
                 return@post
             }
+            if (player == null) {
+                EngineLogger.log("player", "player: exo surface re-attach skipped — no player (released)")
+                return@post
+            }
             val tv = textureView ?: return@post
             try { player?.setVideoTextureView(tv) } catch (e: Exception) { }
             surfaceDetachedForSwitch = false
@@ -1159,14 +1208,31 @@ class ZaynPlayer(
                 EngineLogger.log("player", "player: recovery surface re-attach skipped — already used this play")
                 return@post
             }
+            // (v1.0.14 G6) Null checks BEFORE the budget/transition: the
+            // old order consumed the one-per-play budget and stranded the
+            // machine in RECOVERING when there was no TextureView/player.
+            val tv = textureView ?: run {
+                EngineLogger.log("player", "player: recovery skipped — no TextureView")
+                return@post
+            }
+            if (player == null) {
+                EngineLogger.log("player", "player: recovery skipped — no player")
+                return@post
+            }
             surfaceRecoveriesThisPlay++
             transitionTo(SurfaceLifecycle.RECOVERING, "surface recovery attempt 1/1")
             try { player?.setVideoTextureView(null) } catch (e: Exception) { }
-            val tv = textureView ?: return@post
             try { player?.setVideoTextureView(tv) } catch (e: Exception) { }
             surfaceDetachedForSwitch = false
-            transitionTo(SurfaceLifecycle.SURFACE_ATTACHED, "surface recovery re-attach")
-            EngineLogger.log("player", "player: recovery surface re-attached (1/1 this play)")
+            // Verify the re-attach worked instead of logging success blind.
+            if (tv.surfaceTexture != null) {
+                transitionTo(SurfaceLifecycle.SURFACE_ATTACHED, "surface recovery re-attach")
+                diag("L4", "Surface Attached", "recovery re-attach")
+                EngineLogger.log("player", "player: recovery surface re-attached (1/1 this play)")
+            } else {
+                transitionTo(SurfaceLifecycle.SURFACE_DESTROYED, "recovery re-attach failed — no SurfaceTexture")
+                EngineLogger.log("player", "player: recovery re-attach FAILED (no SurfaceTexture)")
+            }
         }
     }
 
@@ -1175,9 +1241,19 @@ class ZaynPlayer(
     /** (v1.0.12 §7) True while media is loaded and not ended/idle — the
      *  dedup signal for a same-title/same-link replay. */
     fun hasActiveMedia(): Boolean {
-        val p = player ?: return false
-        return p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED
+        // (v1.0.14 CAUSE-1) NEVER read p.playbackState here: this runs on
+        // the bridge IO thread and Media3 throws wrong-thread. The cached
+        // lastPlaybackState (main-thread listener) is the signal. A stale
+        // IDLE in the first instants after play() fails safe (seek refused
+        // with an ok snapshot / dedup missed and the title replays).
+        if (player == null) return false
+        return lastPlaybackState != Player.STATE_IDLE && lastPlaybackState != Player.STATE_ENDED
     }
+
+    /** Cached position/duration for off-main readers (G8 retry resume):
+     * never read p.currentPosition/p.duration off the main thread. */
+    fun positionMs(): Long = lastPosMs
+    fun durationMs(): Long = lastDurMs
 
     /** Release the player + its disk cache on the main thread, then call back. */
     fun clearCache(onDone: () -> Unit) {
@@ -1207,6 +1283,7 @@ class ZaynPlayer(
         } catch (e: Exception) {
         }
         player = null
+        lastPlaybackState = Player.STATE_IDLE
         transitionTo(SurfaceLifecycle.RELEASED, "release")
         try {
             cache?.release()
