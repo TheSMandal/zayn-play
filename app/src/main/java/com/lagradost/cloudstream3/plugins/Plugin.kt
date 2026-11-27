@@ -9,6 +9,23 @@ import kotlin.Throws
 
 abstract class Plugin : BasePlugin() {
     /**
+     * (v0.2.9) Fix A: the `$stable` field Kotlin 2.x emits in every class.
+     * Plugin subclasses compiled against upstream (Kotlin 2.x) read this
+     * field in their <clinit> (AnichiPlugin does
+     * `sget Plugin->$stable`); our host is Kotlin 1.9.24, which emits no
+     * `$stable` anywhere, so those plugins failed to load. A companion
+     * @JvmField lands as a PUBLIC STATIC field in THIS class (verified in
+     * the v0.2.8 dex: EngineStore's companion const vals are static fields
+     * of EngineStore, never of EngineStore$Companion). Value 8 is the
+     * upstream "stable" marker; nothing in this app reads the value at
+     * runtime (no Compose runtime) — only the field's existence matters.
+     */
+    companion object {
+        @JvmField
+        val `$stable`: Int = 8
+    }
+
+    /**
      * Called when your Plugin is loaded
      * @param context Context
      */
