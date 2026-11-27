@@ -40,6 +40,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.network.initClient
 import com.lagradost.cloudstream3.plugins.PluginManager
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -307,6 +308,20 @@ class MainActivity : AppCompatActivity() {
             }
             zaynEngine.markReady()
             pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
+            // (v0.2.9) Fix G: optional boot update check. The plugAutoUpd
+            // setting EXISTS (default true) and pluginUpdateCheck honours
+            // it internally — manual=false returns skippedAutoCheck when
+            // auto-update is off — so this only ever updates when the user
+            // allows it. Best-effort and AFTER ready: a failure here must
+            // never break boot. Cancellation still propagates.
+            try {
+                val upd = zaynEngine.call("pluginUpdateCheck", JSONObject().put("manual", false))
+                EngineLogger.log("engine", "boot pluginUpdateCheck: $upd")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                EngineLogger.log("engine", "boot pluginUpdateCheck threw ${e.message}")
+            }
         }
         webView.addJavascriptInterface(object {
             @JavascriptInterface
