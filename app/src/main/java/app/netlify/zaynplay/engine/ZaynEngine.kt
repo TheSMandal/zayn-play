@@ -39,6 +39,8 @@ import com.lagradost.cloudstream3.utils.Qualities
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
@@ -50,6 +52,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import okhttp3.Request
 import org.json.JSONArray
@@ -141,6 +145,23 @@ class ZaynEngine(
     private var playSessionCounter = 0
     private val maxPlayAttempts = 3
 
+    // (v1.0.12 §7) Duplicate-play guard: one play() at a time (a new user
+    // play supersedes the old one — the old one's activePlay is replaced
+    // anyway), plus request-id dedup (a repeated bridge id returns the
+    // cached reply) so the c31–c36 residue can never recur.
+    private val playMutex = Mutex()
+    private var lastPlayRequestId: String? = null
+    private var lastPlayResult: JSONObject? = null
+    // (v1.0.12 §6 step 2) The engine of the last playActive — MainActivity
+    // uses it to decide whether a stage-open/close may touch mpv's surface.
+    private var lastActiveEngine: String = "exoplayer"
+
+    /** (v1.0.12 §6 step 2) True when libmpv played last. */
+    fun isMpvActive(): Boolean = lastActiveEngine == "libmpv"
+
+    /** (v1.0.12 §8) Current diagnostics session id. */
+    fun currentSession(): Int = playSessionCounter
+
     init {
         // (v1.0.5 B2) ZaynPlayer offers every ExoPlayer error here first.
         // Start a retry when this session has a next ranked link and an
@@ -184,20 +205,50 @@ class ZaynEngine(
         bufferLevel: String = "normal",
         preferredAudioLang: String? = null,
     ) {
-        if (isMpv() && mpvPlayer.ensureCreated()) {
-            // (v1.0.11 F3) Pause the idle ExoPlayer so it holds no active
-            // rendering claim on the shared TextureView. Pause ONLY — not
-            // release/detach, which would break the re-attach paths.
+        // (v1.0.12 §6 step 1) Switch-time DETACH first, both ways: the idle
+        // engine must release its hold on the shared TextureView's
+        // BufferQueue before the new engine connects — a paused decoder
+        // keeps the queue connected, which is what made mpv's
+        // eglCreateWindowSurface fail (INVESTIGATION-2 §2). F3's pause is
+        // kept; detach is added (F3's pause-only rule is superseded here).
+        if (isMpv() && !mpvPlayer.isVoFailed() && mpvPlayer.ensureCreated()) {
+            lastActiveEngine = "libmpv"
+            // (v1.0.12 §7) Stop the previous engine outright (not just
+            // pause) before starting the new one — one ticker only.
             player.pauseForBackground()
-            mpvPlayer.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
+            player.stopPlayback()
+            player.detachSurfaceForSwitch()
+            EngineLogger.log("player", "player: exo surface detached for mpv switch")
+            // 500 ms settle allowance (TUNABLE, not a measured value) for
+            // Media3's async decoder disconnect: the detach is posted to
+            // the main handler ahead of this delayed play, so FIFO ordering
+            // holds, but the decoder itself disconnects asynchronously on
+            // its playback thread. The §6 step-4 VO retry covers a
+            // too-short delay. No delay is needed if the surfaces were
+            // per-engine (they are shared — Arm 2).
+            Handler(Looper.getMainLooper()).postDelayed({
+                mpvPlayer.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
+            }, 500)
         } else {
+            // (v1.0.12 §6 step 6) Exclusion tripwire: a VO-init failure that
+            // survived detach+retry (mpvPlayer.isVoFailed()) routes the play
+            // to ExoPlayer instead of offering audio-only libmpv as video.
             if (isMpv()) {
-                EngineLogger.log("player", "mpv unavailable — falling back to ExoPlayer for this play")
+                if (mpvPlayer.isVoFailed()) {
+                    EngineLogger.log("player", "mpv: VO failed after detach+retry — falling back to ExoPlayer, libmpv excluded for this session")
+                } else {
+                    EngineLogger.log("player", "mpv unavailable — falling back to ExoPlayer for this play")
+                }
             }
-            // (v1.0.11 F3) Pause the idle mpv engine (same rule, other
-            // direction). Both pause paths mirror MainActivity.onPause
-            // and are no-ops before their instance exists.
+            lastActiveEngine = "exoplayer"
             mpvPlayer.pauseForBackground()
+            mpvPlayer.stop()
+            mpvPlayer.detachSurfaceForSwitch()
+            EngineLogger.log("player", "player: mpv surface detached for exo switch")
+            // MANDATORY on the way back: ensurePlayer early-returns when
+            // the player exists, so without this the ExoPlayer play would
+            // run with no surface after a switch-time detach.
+            player.reattachTextureView()
             player.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
         }
     }
@@ -224,6 +275,9 @@ class ZaynEngine(
                 JSONObject().put("linkIndex", next).put("atMs", System.currentTimeMillis()),
             )
         }
+        // (v1.0.12 §8) Retries keep the session id.
+        player.diagSessionId = ap.session
+        mpvPlayer.setDiagSessionId(ap.session)
         playActive(
             ZaynPlayer.PlayLink(
                 url = link.url,
@@ -343,7 +397,7 @@ class ZaynEngine(
 
     // ---- entry point (called from MainActivity's IO scope) ----
 
-    suspend fun call(method: String, params: JSONObject): JSONObject {
+    suspend fun call(method: String, params: JSONObject, requestId: String? = null): JSONObject {
         return try {
             when (method) {
                 "engineStatus" -> ok(engineStatus())
@@ -379,7 +433,7 @@ class ZaynEngine(
                 "pluginUpdateCheck" -> pluginUpdateCheck(params.optBoolean("manual", false))
                 // ---- Phase C: player (E12–E16) ----
                 "links" -> links(params)
-                "play" -> play(params)
+                "play" -> play(params, requestId)
                 "playerControl" -> playerControl(params)
                 "playerState" -> ok(activeStateSnapshot())
                 "externalPlay" -> externalPlay(params)
@@ -2013,23 +2067,50 @@ class ZaynEngine(
         return ok(JSONObject().put("links", arr).put("subtitles", subs).put("partial", resolved.partial))
     }
 
-    private suspend fun play(params: JSONObject): JSONObject {
+    // (v1.0.12 §7) Serialized entry point: one play() at a time, and a
+    // repeated bridge request id returns the cached reply. The bridge id is
+    // threaded through call() from MainActivity; nextEp calls play() with a
+    // null id (no bridge id exists for an internal re-play).
+    private suspend fun play(params: JSONObject, requestId: String? = null): JSONObject {
+        val result = playMutex.withLock { playInternal(params, requestId) }
+        if (requestId != null) {
+            lastPlayRequestId = requestId
+            lastPlayResult = result
+        }
+        return result
+    }
+
+    // (v1.0.12 §7) One log line on every early return, so the next log can
+    // classify a play that died before playActive (the c31–c36 residue).
+    private fun reject(code: String, message: String, requestId: String?): JSONObject {
+        EngineLogger.log("player", "play rejected $code request=${requestId ?: "?"}")
+        return err(code, message)
+    }
+
+    private suspend fun playInternal(params: JSONObject, requestId: String? = null): JSONObject {
         // (v1.0.10) The libmpv guard is GONE: libmpv is bundled now, so a
         // persisted engine=libmpv is valid. Routing happens in playActive()
         // below; link resolution, probe, ranking and auto-retry above it are
         // engine-independent and untouched.
+        if (requestId != null && requestId == lastPlayRequestId && lastPlayResult != null) {
+            EngineLogger.log("player", "play dedup request=$requestId — returning cached reply")
+            return lastPlayResult!!
+        }
         val mode = params.optString("mode", store.getSettingString("mode", "auto"))
+        val titleForLog = params.optString("title", "")
+        val linkIndexForLog = if (params.has("linkIndex") && !params.isNull("linkIndex")) params.optInt("linkIndex", -1) else -1
+        EngineLogger.log("player", "play request ${requestId ?: "?"} title=$titleForLog linkIndex=$linkIndexForLog mode=$mode")
         val (resolved, reason) = resolveLinks(params)
         if (resolved == null) {
-            return if (reason == "no_data") err("no_data", "This title has no playable data")
-            else err("provider_not_found", "Provider not found")
+            return if (reason == "no_data") reject("no_data", "This title has no playable data", requestId)
+            else reject("provider_not_found", "Provider not found", requestId)
         }
         if (resolved.links.isEmpty()) {
-            return if (resolved.timedOut) err("timeout", "Loading the links timed out — try again")
-            else err("no_links", "No playable links found")
+            return if (resolved.timedOut) reject("timeout", "Loading the links timed out — try again", requestId)
+            else reject("no_links", "No playable links found", requestId)
         }
         val ranked = rankLinks(resolved.links)
-        if (ranked.isEmpty()) return err("torrent_only", "This provider only has torrent links, which are not supported")
+        if (ranked.isEmpty()) return reject("torrent_only", "This provider only has torrent links, which are not supported", requestId)
         val linkIndex = if (params.has("linkIndex") && !params.isNull("linkIndex")) params.optInt("linkIndex", -1) else -1
         if (mode == "manual" && linkIndex < 0) {
             val arr = JSONArray()
@@ -2054,15 +2135,38 @@ class ZaynEngine(
                 EngineLogger.log("player", "play skipped unplayable pick ${c.link.source} ${c.link.url}")
             }
             if (pickedIdx < 0) {
-                return err("playback_error", "No playable link found — the best links look like web pages, not video")
+                return reject("playback_error", "No playable link found — the best links look like web pages, not video", requestId)
             }
         }
         val picked = ranked[pickedIdx]
         val link = picked.link
         if (link is DrmExtractorLink) {
-            return err("playback_error", "This stream uses DRM, which is not supported")
+            return reject("playback_error", "This stream uses DRM, which is not supported", requestId)
         }
+        // (v1.0.12 §7) Same title + same explicit link while that session is
+        // already loaded: return ok with the existing session instead of
+        // re-preparing. Auto re-plays (linkIndex -1) and other-server picks
+        // never match, and an ended session (hasActiveMedia false) replays.
         val title = params.optString("title", "")
+        val ap0 = activePlay
+        if (explicitIndex && ap0 != null && ap0.title == title && ap0.index == pickedIdx &&
+            (player.hasActiveMedia() || mpvPlayer.hasActiveMedia())
+        ) {
+            EngineLogger.log("player", "play dedup same title+link session=${ap0.session} request=${requestId ?: "?"} — returning existing session")
+            val existing = ap0.ranked[ap0.index]
+            return ok(
+                JSONObject()
+                    .put("playing", true)
+                    .put(
+                        "link",
+                        JSONObject()
+                            .put("source", existing.link.source)
+                            .put("qualityLabel", qualityLabel(existing.link.quality))
+                            .put("audio", existing.audio ?: JSONObject.NULL),
+                    )
+                    .put("reused", true),
+            )
+        }
         val reuse = store.getSettingBoolean("reuse", true)
         var reused = false
         if (reuse && title.isNotBlank()) {
@@ -2100,12 +2204,18 @@ class ZaynEngine(
             headers = link.getAllHeaders(),
             type = link.type,
         )
+        // (v1.0.12 §7/§8) The session id is fixed BEFORE playActive so the
+        // players' diagnostics carry it, and so the session the retry guard
+        // reads is the one that just started.
+        playSessionCounter++
+        val session = playSessionCounter
+        player.diagSessionId = session
+        mpvPlayer.setDiagSessionId(session)
         playActive(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
         // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
         // name the picked link (URL + type + quality) in the log.
-        playSessionCounter++
-        activePlay = ActivePlay(ranked, pickedIdx, 1, playSessionCounter, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title, params)
-        EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url} session=$playSessionCounter")
+        activePlay = ActivePlay(ranked, pickedIdx, 1, session, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title, params)
+        EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url} session=$session")
         if (title.isNotBlank()) {
             store.putMapEntry(
                 EngineStore.KEY_LAST_LINK,
@@ -2350,6 +2460,10 @@ class ZaynEngine(
             type = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
             isLocalFile = true,
         )
+        // (v1.0.12 §8) Attribute the download play to the current session
+        // (no new session is armed for a download open).
+        player.diagSessionId = playSessionCounter
+        mpvPlayer.setDiagSessionId(playSessionCounter)
         playActive(link, 0, null, null, null, cacheSizeBytes())
         return ok(JSONObject().put("launched", true))
     }
