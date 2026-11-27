@@ -561,6 +561,33 @@ class ZaynEngine(
         }
     }
 
+    /**
+     * (v0.2.10) Row reason detail, truncated to the first line
+     * (exception + top frame). The detail comes from
+     * Resource.Failure.errorString via getStackTracePretty() — the
+     * message plus one "File.kt NNN" line per frame — and the row
+     * renders it inline after " — ", so the full trace overflowed the
+     * row and covered other rows (v0.2.9 screenshots). The FULL trace
+     * stays in the EngineLogger (providerTest / firstContentItem log
+     * it), so forensics lose nothing — only the row display is
+     * shortened. The one exception to "first line only": when the
+     * second line is a top frame ("Anichi.kt 171"), keep it — that
+     * frame names WHERE it failed, which is the useful half.
+     */
+    private fun truncateReasonDetail(detail: String?): String? {
+        if (detail == null) return null
+        val lines = detail.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.isEmpty()) return null
+        val first = lines[0]
+        if (lines.size < 2) return first
+        val second = lines[1]
+        return if (second.matches(Regex("^[A-Za-z0-9_.\$]+\\.kt \\d+$"))) {
+            "$first; $second"
+        } else {
+            first
+        }
+    }
+
     private suspend fun providerTest(repoId: String, providerName: String): JSONObject {
         val repo = findRepo(repoId) ?: return err("repo_not_found", "Repository not found")
         val wrapper = findWrapper(repo, providerName)
@@ -707,7 +734,11 @@ class ZaynEngine(
                 // missing. Null unless the load step failed.
                 // (v0.2.9) Fix C: content/video-stage detail rides here
                 // too — the row no longer drops forensics by construction.
-                .put("detail", (detail ?: loadDetail) ?: JSONObject.NULL)
+                // (v0.2.10) Truncated to the first line (+ top frame):
+                // the full trace overflowed the row. This .put is the
+                // ONLY place detail enters a row, so every surface gets
+                // the short form; the full trace stays in the log.
+                .put("detail", truncateReasonDetail(detail ?: loadDetail) ?: JSONObject.NULL)
         )
     }
 
@@ -2069,6 +2100,26 @@ class ZaynEngine(
             "luna712" to "https://raw.githubusercontent.com/Luna712/Luna712-Cloudstream-Extensions/28885d17ceb7f24782b732b6056085c14c1fd027/repo.json",
             "zzikozz" to "https://raw.githubusercontent.com/zzikozz/frenchCS/refs/heads/main/repo.json",
             "gramflix" to "https://raw.githubusercontent.com/tOntOnbOuLii/GramFlix/main/repo.json",
+            // (v0.2.10) 15 repos from the CloudStream wiki's maintained
+            // list that were missing from the catalogue (verified live
+            // 2026-11-27; eclipsia's manifest 403s from here, so its
+            // URL is the wiki's repo link and its plugin names are the
+            // wiki's list, flagged manifestDead in the HTML).
+            "raghav" to "https://raw.githubusercontent.com/raghavdhingra11/extensions/refs/heads/builds/repo.json",
+            "eclipsia" to "https://cs.eclipsia.dpdns.org/repo.json",
+            "indflix" to "https://raw.githubusercontent.com/Gujjar001/Indflix/refs/heads/builds/repo.json",
+            "storm" to "https://raw.githubusercontent.com/stormunblessed/storm-cloudstream/refs/heads/builds/repo.json",
+            "reflex" to "https://raw.githubusercontent.com/Reflex-frp/reflex-repo/refs/heads/builds/repo.json",
+            "flummox" to "https://raw.githubusercontent.com/FlummoxCS/repo/refs/heads/builds/repo.json",
+            "plaviohd" to "https://raw.githubusercontent.com/mr-robot-ops/plaviohd/refs/heads/builds/repo.json",
+            "csar" to "https://raw.githubusercontent.com/alihassan-1997/CloudStream-Arabic/refs/heads/builds/repo.json",
+            "mehdigm" to "https://raw.githubusercontent.com/MehdiiGM/Cloudstream/refs/heads/builds/repo.json",
+            "cartoony" to "https://raw.githubusercontent.com/Lord-Kamina/Cartoony/refs/heads/builds/repo.json",
+            "bigbull" to "https://raw.githubusercontent.com/BigBullApp/Cloudstream-repo/refs/heads/builds/repo.json",
+            "yorik100" to "https://raw.githubusercontent.com/Yorik100/Cloudstream-French/refs/heads/builds/repo.json",
+            "anicompat" to "https://raw.githubusercontent.com/recloudstream/anicompat/refs/heads/builds/repo.json",
+            "desi" to "https://raw.githubusercontent.com/fahim2204/extensions/refs/heads/builds/repo.json",
+            "csgames" to "https://raw.githubusercontent.com/errorcode26/ayu-cloudstream-games/builds/repo.json",
         )
         private val CATALOGUE_URL_BY_ID: Map<String, String> = CATALOGUE_REPOS.toMap()
         private val CATALOGUE_ID_BY_URL: Map<String, String> =
