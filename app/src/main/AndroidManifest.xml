@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Zayn Play — UI-only build (v0.1.0). No engine, no providers, no player:
-     the whole UI is the approved preview, shown in a WebView. -->
+<!-- Zayn Play (v1.0.3). The approved preview is shown in a WebView,
+     with the streaming engine behind it. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Google Fonts (Hind Siliguri / Montserrat / Sora) load from the web;
