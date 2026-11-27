@@ -416,6 +416,9 @@
       }
       .pop-list svg{ width:16px; height:16px; color:var(--app-ink-2); flex:none; }
       .no-result{ padding:26px 20px; text-align:center; color:var(--app-ink-2); font-size:14.5px; display:none; }
+      /* (v1.0.15 P8/P9) See All end-state line under the Load More button. */
+      .list-status{ padding:12px 20px 26px; text-align:center; color:var(--app-ink-2); font-size:13.5px; display:none; }
+      #list-sentinel{ height:1px; }
       .ps-all{
         margin:12px 14px 0; width:calc(100% - 28px); min-height:44px;
         background:var(--app-panel); border:1px dashed rgba(255,255,255,.28); color:#ff8a70;
@@ -1936,7 +1939,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.14</p>
+                  <p class="splash-ver">Zayn Play v1.0.15</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2218,6 +2221,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="set-head"><button class="back-btn" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 5l-7 7 7 7"/></svg></button><h2 id="list-title">List</h2></div>
                   <div class="grid" id="list-grid"></div>
                   <p class="no-result" id="list-none">এই ক্যাটাগরিতে কিছু পাওয়া যায়নি।</p>
+                  <div id="list-more-wrap" style="display:none;padding:0 16px 24px"><button class="btn-play" id="list-more" style="width:100%">Load More</button></div>
+                  <p class="list-status" id="list-status"></p>
+                  <div id="list-sentinel" aria-hidden="true"></div>
                 </section>
 
                 <!-- ============ DETAILS ============ -->
@@ -2615,6 +2621,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            fullscreen (dock + status bar return), pause the video (unless
            it keeps playing in the PiP mini player), restore system bars */
         var curScr = document.querySelector('#phone .screen.on');
+        /* (v1.0.15 P8 rank 7) Leaving the list screen cancels its
+           in-flight page load — a late page-2 reply must never land
+           after the user has moved on. */
+        if (curScr && curScr.id === 'scr-list' && name !== 'list') cancelListLoad();
         if (curScr && curScr.id === 'scr-player' && name !== 'player') exitPlayerCleanup();
         
         var psh = document.getElementById('prov-sheet');
@@ -2809,11 +2819,241 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           el.appendChild(b);
         });
       }
+      /* (v1.0.15 P8/P9) See All pagination + infinite scroll (A-to-Z P8/P9,
+         AUDIT-P8-P9 ranks 1-10). Page 1 is always the already-loaded feed —
+         opening See All never re-fetches it. Later pages come from the
+         bridge: per-section homeFeedSection(page, sectionIndex) for
+         providers on the progressive (per-section) path, whole-feed
+         homeFeed(page) for providers on the whole-feed path (Disney rule:
+         a single-section provider NEVER goes through homeFeedSection)
+         and for Trending, whose "full list" IS the whole feed — a page-2
+         whole-feed call re-fetches ALL sections (AR:166-190, sequential
+         delays re-incurred), so it is the expensive path and it is
+         documented here, not hidden.
+         Stop rules (rank 2, LOAD-BEARING): stop when hasNext === false OR
+         the page yields zero NEW ids OR page > MAX_LIST_PAGES OR items >
+         MAX_LIST_ITEMS; the stop reason is logged per page. NEVER loop on
+         hasNext alone — the host defaults it to list.isNotEmpty()
+         (MainAPI newHomePageResponse) and providers may ignore `page`, so
+         a hasNext-only loop re-fetches page 1 forever.
+         End states are honest (rank 9): "end of list" when the provider
+         says done (or a page yields zero new ids), "stopped at the limit
+         — N items shown" when a cap stops the load. Nothing is silently
+         truncated and called "all". */
+      var MAX_LIST_PAGES = 10, MAX_LIST_ITEMS = 500;
+      var listState = null, listObserver = null, listToken = 0;
+      /* (v1.0.15 P8 rank 3) Append-only grid: fillGrid stays the page-1
+         paint (replace); appendGrid creates cards only for the given ids,
+         which the loader has already deduped against the seen set. */
+      function appendGrid(el, newKeys){
+        newKeys.forEach(function(key){
+          var t = TITLES[key]; if (!t) return;
+          var b = document.createElement('button'); b.className = 'card';
+          b.setAttribute('data-open', key);
+          b.innerHTML = cardHTML(key, t.star + ' • ' + t.genre, 0);
+          el.appendChild(b);
+        });
+      }
+      /* (v1.0.15 P8 rank 7) Cancel the in-flight list page load, if any.
+         Cancels by bridge call id only, so a home feed still loading in
+         the background is untouched. The token is invalidated too, so a
+         late reply for this load is discarded even if the native side
+         answers after the cancel. Reuses the V1.0.14 cancel machinery —
+         no new cancel path. */
+      function cancelListLoad(){
+        if (!listState) return;
+        if (listState.callId){
+          try{ if (window.ZaynEngine) window.ZaynEngine.cancel(listState.callId); }catch(e){}
+          listState.callId = null;
+        }
+        listState.loading = false;
+        listState.tok = ++listToken;
+        /* The footer re-renders with the load no longer in flight, so
+           Load More is offered again (retry) instead of a stuck
+           "Loading…" button. */
+        renderListFooter();
+      }
+      /* (v1.0.15 P8 ranks 4+9) List footer: the Load More button is the
+         primary P9 trigger (deterministic, testable); the status line
+         carries the honest end state. Fixed rails (already complete)
+         show neither. */
+      function renderListFooter(){
+        var wrap = document.getElementById('list-more-wrap');
+        var btn = document.getElementById('list-more');
+        var st = document.getElementById('list-status');
+        if (!wrap || !btn || !st || !listState) return;
+        var n = listState.keys.length;
+        if (listState.kind === 'fixed' || listState.exhausted){
+          wrap.style.display = 'none';
+          if (listObserver){ try{ listObserver.disconnect(); }catch(e){} listObserver = null; }
+          if (listState.kind === 'fixed'){ st.style.display = 'none'; st.textContent = ''; }
+          else if (listState.endReason === 'cap-pages' || listState.endReason === 'cap-items'){
+            st.textContent = 'Stopped at the limit — ' + n + ' items shown';
+            st.style.display = '';
+          } else {
+            st.textContent = 'End of list — ' + n + ' items';
+            st.style.display = '';
+          }
+          return;
+        }
+        st.style.display = 'none'; st.textContent = '';
+        wrap.style.display = '';
+        btn.textContent = listState.loading ? 'Loading…' : 'Load More';
+        /* A disabled button cannot double-fire; the loading flag in
+           loadNextListPage is the second guard. */
+        btn.disabled = !!listState.loading;
+      }
+      /* (v1.0.15 P9 rank 4) Scroll sentinel: when the sentinel at the end
+         of the list scrolls into view, it calls the same loadNextPage the
+         Load More button calls. Guarded by typeof so the list still works
+         where IntersectionObserver is absent (button only). If page 1 is
+         shorter than the viewport the sentinel is visible on entry and
+         loads page 2 at once — standard infinite-scroll behaviour. */
+      function setupListObserver(){
+        if (listObserver){ try{ listObserver.disconnect(); }catch(e){} listObserver = null; }
+        if (typeof IntersectionObserver === 'undefined') return;
+        var sent = document.getElementById('list-sentinel');
+        if (!sent) return;
+        listObserver = new IntersectionObserver(function(entries){
+          if (entries && entries.length && entries[0].isIntersecting) loadNextListPage();
+        }, { root: document.getElementById('scr-list'), rootMargin: '200px' });
+        listObserver.observe(sent);
+      }
+      /* (v1.0.15 P8 rank 1) Items a page response contributes to THIS list.
+         Whole-feed pages return every section again: for a named section
+         keep only its section (matched by name; a single-section feed is
+         that section by construction); Trending takes all sections. The
+         per-section path returns one section. Titles are registered in
+         TITLES as the feed renderers do, so cards can paint. */
+      function listPageItems(f){
+        var out = [];
+        if (!f || !f.sections) return out;
+        var p = PROVIDERS[currentProvider];
+        var mainUrl = (f.provider && f.provider.mainUrl) || (p && p.url) || '';
+        var secs = f.sections;
+        if (listState && listState.kind === 'whole' && listState.sectionName){
+          if (secs.length !== 1){
+            var found = null;
+            for (var i = 0; i < secs.length; i++) if (secs[i] && secs[i].name === listState.sectionName) found = secs[i];
+            secs = found ? [found] : [];
+          }
+        }
+        secs.forEach(function(sec){
+          ((sec && sec.items) || []).forEach(function(it){
+            if (!it || !it.id) return;
+            TITLES[it.id] = engineItemToTitle(it, p ? p.name : '', mainUrl);
+            out.push(it.id);
+          });
+        });
+        return out;
+      }
+      /* (v1.0.15 P8 ranks 1+2) Load the next page for the open list and
+         append it. Re-entrancy: the loading flag + the disabled button. */
+      async function loadNextListPage(){
+        if (!listState || listState.loading || listState.exhausted || listState.kind === 'fixed') return;
+        var p = PROVIDERS[currentProvider];
+        if (!p || currentProvider !== listState.providerKey) return;
+        var nextPage = listState.page + 1;
+        if (nextPage > MAX_LIST_PAGES){ listState.exhausted = true; listState.endReason = 'cap-pages'; renderListFooter(); return; }
+        var st = listState;
+        st.loading = true;
+        renderListFooter();
+        var tok = st.tok;
+        var f = null, ferr = null;
+        try {
+          var pr;
+          if (st.kind === 'section'){
+            pr = engineHomeFeedSection(p.name, nextPage, st.sectionIndex);
+            var m1 = window.ZaynEngine && window.ZaynEngine._lastByMethod;
+            if (m1 && m1['homeFeedSection']) st.callId = m1['homeFeedSection'];
+          } else {
+            /* Whole-feed pages bypass engineHomeFeed on purpose: it
+               cancelLastCall('homeFeed')s, which would kill a home feed
+               still in flight (See All can open from a cached paint
+               while the fresh feed loads). The list page is a separate
+               read with its own token guard; it is cancelled by callId
+               in cancelListLoad. Same 150 s wait as engineHomeFeed. */
+            pr = engineCall('homeFeed', { providerName: p.name, page: nextPage }, 150000);
+            var m2 = window.ZaynEngine && window.ZaynEngine._lastByMethod;
+            if (m2 && m2['homeFeed']) st.callId = m2['homeFeed'];
+          }
+          f = await pr;
+        } catch (e) { ferr = e; }
+        st.callId = null;
+        /* Defence-in-depth (rank 7): a late reply for a superseded list
+           (provider switched / list re-opened / load cancelled) is
+           discarded, never appended. */
+        if (listState !== st || st.tok !== tok || currentProvider !== st.providerKey) return;
+        st.loading = false;
+        if (ferr){
+          /* Cancelled: the user left or switched — silent, never an error
+             state. An empty page (no_content) is the provider saying "no
+             more", not an error: end of list, never an error loop. */
+          if (ferr.code === 'cancelled'){ renderListFooter(); return; }
+          if (ferr.code === 'no_content'){
+            st.exhausted = true; st.endReason = 'done';
+            console.log('[list] stop provider=' + p.name + ' section=' + st.name + ' reason=no-content page=' + nextPage + ' total=' + st.keys.length);
+            renderListFooter(); return;
+          }
+          console.log('[list] page error provider=' + p.name + ' section=' + st.name + ' page=' + nextPage + ' err=' + (ferr && ferr.code));
+          toast(engineErrText(ferr));
+          renderListFooter();
+          return;
+        }
+        var ids = listPageItems(f);
+        var newIds = [];
+        for (var i = 0; i < ids.length; i++) if (!st.seen[ids[i]]) newIds.push(ids[i]);
+        console.log('[list] page provider=' + p.name + ' section=' + st.name + ' page=' + nextPage + ' got=' + ids.length + ' new=' + newIds.length + ' hasNext=' + (f && f.hasNext));
+        /* Rank 2 stop rules, in order. The zero-new check is what saves a
+           provider that ignores `page` (it re-returns page 1 with
+           hasNext=true forever): that page contributes nothing new, so the
+           loader stops after exactly one probe page instead of looping. */
+        if (newIds.length === 0){
+          st.exhausted = true; st.endReason = 'zero-new';
+          console.log('[list] stop provider=' + p.name + ' section=' + st.name + ' reason=zero-new page=' + nextPage + ' total=' + st.keys.length);
+          renderListFooter(); return;
+        }
+        var room = MAX_LIST_ITEMS - st.keys.length;
+        var kept = newIds;
+        var truncated = false;
+        if (newIds.length > room){
+          kept = newIds.slice(0, room);
+          truncated = true;
+          console.log('[list] stop provider=' + p.name + ' section=' + st.name + ' reason=cap-items page=' + nextPage + ' dropped=' + (newIds.length - room));
+        }
+        kept.forEach(function(id){ st.seen[id] = true; st.keys.push(id); });
+        st.page = nextPage;
+        if (f && typeof f.hasNext === 'boolean') st.hasNext = f.hasNext;
+        appendGrid(document.getElementById('list-grid'), kept);
+        var noneEl = document.getElementById('list-none');
+        if (noneEl) noneEl.style.display = 'none';
+        /* A truncation takes precedence over hasNext=false: the list
+           stopped at the cap, and the status must say so honestly. */
+        if (truncated){
+          st.exhausted = true; st.endReason = 'cap-items';
+          console.log('[list] stop provider=' + p.name + ' section=' + st.name + ' reason=cap-items page=' + nextPage + ' total=' + st.keys.length);
+        } else if (st.hasNext === false){
+          st.exhausted = true; st.endReason = 'done';
+          console.log('[list] stop provider=' + p.name + ' section=' + st.name + ' reason=hasNext-false page=' + nextPage + ' total=' + st.keys.length);
+        } else if (st.page >= MAX_LIST_PAGES){
+          st.exhausted = true; st.endReason = 'cap-pages';
+          console.log('[list] stop provider=' + p.name + ' section=' + st.name + ' reason=cap-pages page=' + nextPage + ' total=' + st.keys.length);
+        } else if (st.keys.length >= MAX_LIST_ITEMS){
+          st.exhausted = true; st.endReason = 'cap-items';
+          console.log('[list] stop provider=' + p.name + ' section=' + st.name + ' reason=cap-items page=' + nextPage + ' total=' + st.keys.length);
+        }
+        renderListFooter();
+      }
       async function openListSection(idx){
         var p = PROVIDERS[currentProvider]; if (!p) return;
         var g = document.getElementById('list-grid'), t = document.getElementById('list-title'), n = document.getElementById('list-none');
         if (!g || !t) return;
-        var title = '', keys = [];
+        /* (v1.0.15 P8 rank 7) A re-open supersedes any in-flight page load
+           for the previous list; the token guard in loadNextListPage drops
+           its late reply. */
+        cancelListLoad();
+        if (listObserver){ try{ listObserver.disconnect(); }catch(e){} listObserver = null; }
+        var title = '', keys = [], kind = 'fixed', sectionIndex = -1, sectionName = null, hasNext = undefined;
         if (idx === 'cw'){
           title = 'Continue Watching';
           try {
@@ -2826,17 +3066,49 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               }
             });
           } catch (e) { keys = []; }
-        } else if (idx === 'trending'){ title = 'Trending Now'; keys = p.trending || []; }
-        else if (idx === 'series'){ title = 'Popular Series'; keys = p.series || []; }
-        else if (idx === 'movies'){ title = 'Movies You May Like'; keys = p.movies || []; }
+        } else if (idx === 'trending'){ title = 'Trending Now'; keys = (p.feedKeys || p.trending || []).slice(); kind = 'whole'; hasNext = p.feedHasNext; }
+        else if (idx === 'series'){ title = 'Popular Series'; keys = (p.series || []).slice(); }
+        else if (idx === 'movies'){ title = 'Movies You May Like'; keys = (p.movies || []).slice(); }
         else {
           var sec = (p.homeSections || [])[parseInt(idx, 10)];
           if (!sec) return;
-          title = sec.name; keys = sec.keys || [];
+          title = sec.name; keys = (sec.keys || []).slice();
+          /* Per-section paging only on the progressive path, where the
+             sectionIndex is known exactly (renderSectionInto stores it).
+             On the whole-feed path the same section pages via homeFeed
+             and the page is filtered by section name — never by a
+             guessed index (the flattened feed order need not match
+             mainPage order). */
+          if (p.feedPath === 'per-section' && typeof sec.sectionIndex === 'number'){
+            kind = 'section'; sectionIndex = sec.sectionIndex;
+          } else {
+            kind = 'whole'; sectionName = sec.name;
+          }
+          hasNext = sec.hasNext;
         }
+        var seen = {};
+        keys.forEach(function(k){ seen[k] = true; });
+        /* (v1.0.15 P8 rank 8) A missing hasNext is "unknown: probe once",
+           not "no more" — old cache entries predate the field and cached
+           repaints rebuild sections without it. Fixed rails are complete
+           at page 1 by construction (rank 6). */
+        listState = { providerKey: currentProvider, kind: kind, idx: idx, sectionIndex: sectionIndex,
+          sectionName: sectionName, name: title, page: 1, loading: false,
+          exhausted: (kind === 'fixed') || (hasNext === false),
+          endReason: (kind === 'fixed') ? 'done' : ((hasNext === false) ? 'done' : null),
+          hasNext: hasNext, seen: seen, keys: keys, tok: ++listToken, callId: null };
         t.textContent = title;
         fillGrid(g, keys);
         if (n) n.style.display = keys.length ? 'none' : 'block';
+        /* The Load More button is bound once; the sentinel is observed per
+           open (setupListObserver disconnects any previous observer). */
+        var moreBtn = document.getElementById('list-more');
+        if (moreBtn && !moreBtn._listBound){
+          moreBtn._listBound = true;
+          moreBtn.addEventListener('click', function(){ loadNextListPage(); });
+        }
+        renderListFooter();
+        if (listState.kind !== 'fixed' && !listState.exhausted) setupListObserver();
       }
       /* (v1.0.14 P5 F3) Persist the last good feed per provider so the
          Home tab can paint instantly on the next cold start even before
@@ -2877,7 +3149,16 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            in-memory or persisted feed painted instantly. */
         console.log('[feed] renderProvider entry provider=' + key + ' cached=' + !!(PROVIDERS[key] && PROVIDERS[key].cachedFeed));
         var p = PROVIDERS[key]; if (!p){ showHomeEmpty(); return; }
+        /* (v1.0.15 P8 rank 7) A provider switch cancels in-flight section
+           jobs (the whole-feed path never did — only
+           renderProviderProgressive called cancelFeedSections) and any
+           in-flight list page load. */
+        cancelFeedSections();
+        cancelListLoad();
         currentProvider = key;
+        /* (v1.0.15 P8 rank 5) Whole-feed path: See All pages via
+           homeFeed(page), never homeFeedSection (Disney rule). */
+        p.feedPath = 'whole';
         /* (v1.0.4) F4: persist the selection — the single choke point for every selection change. */
         try{ localStorage.setItem('zayn-provider', key); }catch(e){}
         document.getElementById('home-empty').hidden = true;
@@ -2985,6 +3266,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            renderFeedInto replaces them, then build placeholder rails in
            canonical order so arrival order never reorders the page. */
         p.series = []; p.movies = []; p.trending = []; p.hero = null; heroList = [];
+        p.feedKeys = []; /* (v1.0.15 P8 rank 6) rebuilt by renderSectionInto as sections land */
         p.homeSections = [];
         var dyn = p._prog.dynList;
         setHomeShells(dyn.length > 0);
@@ -3015,6 +3297,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (t.type === 'series'){ if (p.series.indexOf(it.id) < 0) p.series.push(it.id); }
           else if (p.movies.indexOf(it.id) < 0) p.movies.push(it.id);
         });
+        /* (v1.0.15 P8 rank 6) Trending's page-1 list is the whole feed in
+           arrival order; keep it deduped so the list never shows a repeat. */
+        p.feedKeys = p.feedKeys || [];
+        keys.forEach(function(k){ if (p.feedKeys.indexOf(k) < 0) p.feedKeys.push(k); });
         /* Hero pinned to the first OK section; a later section never
            replaces it, so the hero never jumps. */
         if (!p.hero && keys.length){
@@ -3033,8 +3319,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var dyn = p._prog.dynList, di = -1;
         for (var j = 0; j < dyn.length; j++) if (dyn[j].sectionIndex === sectionIndex) di = dyn[j].dynIdx;
         if (di >= 0){
-          /* Per-section hasNext stored for P8 (R3). */
-          p.homeSections[di] = { name: sec.name || '', keys: keys, hasNext: !!hasNext };
+          /* Per-section hasNext stored for P8 (R3); sectionIndex is stored
+             too — it is the exact index homeFeedSection needs (v1.0.15 P8
+             rank 1), never a guessed position in the flattened feed. */
+          p.homeSections[di] = { name: sec.name || '', keys: keys, hasNext: !!hasNext, sectionIndex: sectionIndex };
           var head = p._progHeads && p._progHeads[di];
           if (head && !head.querySelector('[data-list]')){
             var b = document.createElement('button'); b.textContent = 'See All';
@@ -3101,7 +3389,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         p._coldRetried = false;
         st.okCount++;
         var sec = f.sections[0];
-        st.okSections[sectionIndex] = { name: sec.name || '', items: sec.items || [] };
+        /* (v1.0.15 P8 rank 8) The assembled cache carries per-section
+           hasNext, so a cold start from this cache still knows which
+           sections page — old entries without the field keep working
+           (missing hasNext = "unknown: probe once"). */
+        st.okSections[sectionIndex] = { name: sec.name || '', items: sec.items || [], hasNext: !!f.hasNext };
         ensureProgRails(p);
         renderSectionInto(p, { name: sec.name, items: sec.items, provider: f.provider }, sectionIndex, f.hasNext);
         progSettled(p, key);
@@ -3115,6 +3407,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       async function renderProviderProgressive(key){
         var p = PROVIDERS[key]; if (!p){ showHomeEmpty(); return; }
         cancelFeedSections();
+        cancelListLoad(); /* (v1.0.15 P8 rank 7) provider switch cancels any in-flight list page load too */
         var tok = ++feedToken;
         var list = null, listErr = null;
         try { list = await engineHomeFeedSections(p.name); } catch (e) { listErr = e; }
@@ -3127,6 +3420,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           return renderProvider(key);
         }
         currentProvider = key;
+        /* (v1.0.15 P8 rank 5) Per-section path: See All pages via
+           homeFeedSection(page, sectionIndex). The aggregate feedHasNext
+           belongs to the whole-feed path only — clear it so a stale
+           whole-feed value never leaks into a per-section list. */
+        p.feedPath = 'per-section';
+        p.feedHasNext = undefined;
         try{ localStorage.setItem('zayn-provider', key); }catch(e){}
         document.getElementById('home-empty').hidden = true;
         document.getElementById('home-feed').style.display = '';
@@ -3187,11 +3486,20 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             if (t.type === 'series') series.push(it.id); else movies.push(it.id);
           });
           var nm = (sec && sec.name) ? String(sec.name).trim() : '';
-          if (nm) named.push({ name: nm, keys: sk });
+          /* (v1.0.15 P8 rank 8) Keep a per-section hasNext when the feed
+             carries one (progressive assembled cache does); a missing
+             field stays missing — "unknown: probe once", never "no more". */
+          if (nm) named.push({ name: nm, keys: sk, hasNext: (sec && typeof sec.hasNext === 'boolean') ? sec.hasNext : undefined });
         });
         trending = keys.slice(0, 5);
         p.trending = trending; p.series = series; p.movies = movies;
         p.hero = keys[0] || null;
+        /* (v1.0.15 P8 rank 5) The whole feed's aggregate hasNext is
+           carried as p.feedHasNext — NEVER into a per-section slot (it
+           may come from a different section). p.feedKeys is the full
+           ordered page-1 list Trending See All pages from. */
+        p.feedKeys = keys;
+        p.feedHasNext = (feed && typeof feed.hasNext === 'boolean') ? feed.hasNext : undefined;
         /* (v1.0.2) Never overwrite a good cached feed with an empty one —
            an empty feed must not poison the instant load. */
         if (keys.length) p.cachedFeed = feed;
@@ -7441,7 +7749,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.14</span></div>' +
+      '<span class="v31-val">Version 1.0.15</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
