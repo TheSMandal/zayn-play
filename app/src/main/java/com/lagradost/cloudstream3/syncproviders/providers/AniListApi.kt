@@ -28,18 +28,32 @@ import kotlinx.serialization.Serializable
  */
 class AniListApi {
 
+    // (v0.2.9) Fix A: `$stable`, as on Plugin (see plugins/Plugin.kt).
+    // Live plugin dexes read these fields in their <clinit> (the
+    // AniListApi nested types are the field types of the plugins' own
+    // AnilistAPIResponse classes); Kotlin 1.9.24 emits none.
     @Serializable
     data class Title(
         @JsonProperty("english") @SerialName("english") val english: String?,
         @JsonProperty("romaji") @SerialName("romaji") val romaji: String?,
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 8
+        }
+    }
 
     @Serializable
     data class CoverImage(
         @JsonProperty("medium") @SerialName("medium") val medium: String?,
         @JsonProperty("large") @SerialName("large") val large: String?,
         @JsonProperty("extraLarge") @SerialName("extraLarge") val extraLarge: String?,
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 8
+        }
+    }
 
     @Serializable
     data class LikePageInfo(
@@ -48,13 +62,23 @@ class AniListApi {
         @JsonProperty("lastPage") @SerialName("lastPage") val lastPage: Int?,
         @JsonProperty("perPage") @SerialName("perPage") val perPage: Int?,
         @JsonProperty("hasNextPage") @SerialName("hasNextPage") val hasNextPage: Boolean?,
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 8
+        }
+    }
 
     @Serializable
     data class RecommendationConnection(
         @JsonProperty("edges") @SerialName("edges") val edges: List<RecommendationEdge> = emptyList(),
         @JsonProperty("nodes") @SerialName("nodes") val nodes: List<Recommendation> = emptyList(),
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 8
+        }
+    }
 
     @Serializable
     data class RecommendationEdge(
@@ -93,5 +117,10 @@ class AniListApi {
     data class SeasonNextAiringEpisode(
         @JsonProperty("episode") @SerialName("episode") val episode: Int?,
         @JsonProperty("timeUntilAiring") @SerialName("timeUntilAiring") val timeUntilAiring: Int?,
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 8
+        }
+    }
 }
