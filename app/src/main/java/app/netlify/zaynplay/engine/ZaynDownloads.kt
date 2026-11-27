@@ -124,7 +124,12 @@ class ZaynDownloads(
     ): String? {
         if (store.getSettingBoolean("wifiOnly", false) && !isWifi()) return null
         val existing = store.mapEntry(EngineStore.KEY_DOWNLOADS, id)
-        if (existing != null && existing.optString("status") == "done") return id
+        // (v0.2.11) C-15: a "done" entry whose file was deleted outside
+        // the app is not done — fall through and re-download it.
+        if (existing != null && existing.optString("status") == "done") {
+            val donePath = existing.optString("path", "")
+            if (donePath.isNotBlank() && File(donePath).exists()) return id
+        }
         val safeTitle = sanitizeFilename(title.ifBlank { "video" })
         val entry = JSONObject()
             .put("id", id)
@@ -475,7 +480,8 @@ class ZaynDownloads(
     fun localPath(id: String): String? {
         val entry = store.mapEntry(EngineStore.KEY_DOWNLOADS, id) ?: return null
         if (entry.optString("status") != "done") return null
-        return entry.optString("path", "").takeIf { it.isNotBlank() }
+        // (v0.2.11) C-15: the stored path must still exist.
+        return entry.optString("path", "").takeIf { it.isNotBlank() && File(it).exists() }
     }
 
     fun shutdown() {
