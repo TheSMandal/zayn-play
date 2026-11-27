@@ -52,6 +52,7 @@ import com.lagradost.cloudstream3.utils.UiText
 import app.netlify.zaynplay.engine.sanitizeFilename
 import com.lagradost.cloudstream3.utils.extractorApis
 import com.lagradost.cloudstream3.utils.txt
+import dalvik.system.InMemoryDexClassLoader
 import dalvik.system.PathClassLoader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -59,6 +60,7 @@ import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.nio.ByteBuffer
 import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
@@ -115,15 +117,11 @@ object PluginManager {
     val lock = Mutex()
 
     // (v0.2.7) One lock per plugin file, covering BOTH the download
-    // and the load of that file. PROVEN cause of the v0.2.6 empty
-    // DexPathList: a concurrent load of the same .cs3 could delete
-    // the file (purgeFailedPlugin / manifest-failure deletes) between
-    // another load's manifest read and its PathClassLoader
-    // construction, leaving the loader with zero dex elements. The
-    // per-file download mutex (RepositoryManager.downloadLocks) only
-    // serialised the download and was released before loadPlugin ran.
-    // With this lock, two loads of the same file can never overlap,
-    // and a load can never overlap a download of the same file.
+    // and the load of that file. (v0.2.8 NOTE: the v0.2.7 theory that
+    // a concurrent load deleting the file caused the empty DexPathList
+    // was REFUTED on-device — v0.2.7 genuinely removed delete-on-fail
+    // and still failed the same way. The lock is kept anyway: it
+    // serialises download+load per file and costs nothing.)
     // Different files still load in parallel (the boot scan's amap
     // takes a different lock per record). Callers must hold this
     // lock around loadPlugin — loadPlugin itself does NOT take it,
@@ -251,8 +249,8 @@ object PluginManager {
     val urlPlugins: MutableMap<String, BasePlugin> =
         LinkedHashMap<String, BasePlugin>()
 
-    private val classLoaders: MutableMap<PathClassLoader, BasePlugin> =
-        HashMap<PathClassLoader, BasePlugin>()
+    private val classLoaders: MutableMap<ClassLoader, BasePlugin> =
+        HashMap<ClassLoader, BasePlugin>()
 
     var loadedLocalPlugins = false
         private set
@@ -469,8 +467,9 @@ object PluginManager {
     // null on the phone for every provider. That lookup goes through
     // DexPathList / ClassPathURLStreamHandler and is device/ART
     // dependent; a direct ZipFile read is deterministic and does not
-    // depend on it. The PathClassLoader is still created in loadPlugin
-    // below, but only to load the plugin class.
+    // depend on it. The loader in loadPlugin below only loads the
+    // plugin class — on API 26+ from the dex bytes in memory (see
+    // loadPlugin), on older APIs from the file path.
     //
     // Returns null (and sets lastLoadError/lastError + logs forensics:
     // size, SHA-256, magic bytes, zip entries) when the file is missing,
@@ -547,6 +546,37 @@ object PluginManager {
         }
     }
 
+    // (v0.2.8) Read classes.dex bytes out of the .cs3 with ZipFile —
+    // the same mechanism as readPluginManifest, already proven to
+    // work on his phone (the manifest read succeeds there). Returns
+    // null (setting lastLoadError / lastLoadDetail + logging
+    // forensics) when the entry is missing or unreadable.
+    private fun readDexBytes(file: File, fileName: String): ByteArray? {
+        return try {
+            ZipFile(file).use { z ->
+                val entry = z.getEntry("classes.dex")
+                if (entry == null) {
+                    lastLoadError = "load_no_dex"
+                    lastLoadDetail = "classes.dex missing from ${file.name}"
+                    lastError = "Failed to load plugin $fileName"
+                    EngineLogger.log("load", "no classes.dex in ${file.name}")
+                    Log.e(TAG, "Failed to load plugin $fileName: no classes.dex entry")
+                    null
+                } else {
+                    z.getInputStream(entry).use { it.readBytes() }
+                }
+            }
+        } catch (e: Throwable) {
+            lastLoadError = "load_failed"
+            lastLoadDetail = "${e.javaClass.simpleName}: ${e.message ?: "no message"}"
+                .replace('\n', ' ').take(200)
+            lastError = "Failed to load plugin $fileName"
+            EngineLogger.log("load", "read classes.dex failed ${file.name}: ${e.javaClass.simpleName} ${e.message}")
+            Log.e(TAG, "Failed to read classes.dex from $fileName", e)
+            null
+        }
+    }
+
     // (v0.2.7) Returns (ok, code, detail): the load result together
     // with the exact failure code and forensic detail, threaded
     // through the return value instead of the process-wide
@@ -601,8 +631,9 @@ object PluginManager {
             }
 
             // (v0.2.5) The manifest is read directly from the zip (see
-            // readPluginManifest); the PathClassLoader below only loads
-            // the plugin class.
+            // readPluginManifest); the loader below (v0.2.8: in-memory
+            // dex on API 26+, PathClassLoader below) only loads the
+            // plugin class.
             val manifest = readPluginManifest(file, fileName) ?: run {
                 // (v0.2.7) A file that fails the manifest read can
                 // never load — but it is NOT deleted (see
@@ -631,7 +662,31 @@ object PluginManager {
                 return Triple(false, "file_missing", null)
             }
 
-            val loader = PathClassLoader(filePath, context.classLoader)
+            // (v0.2.8) IN-MEMORY dex load. Proven on his phone: v0.2.7
+            // still failed with an empty DexPathList even though the
+            // file exists, is non-empty, hash-valid and ZipFile opens
+            // it fine (the manifest read succeeds) — so ART's
+            // DexPathList / DexFile.loadDex file-opening step drops
+            // the element below our code. PathClassLoader silently
+            // drops unopenable path elements, so bypass that step
+            // entirely: read classes.dex bytes with ZipFile (the
+            // same mechanism already proven to work on his phone)
+            // and hand them to InMemoryDexClassLoader, which never
+            // opens a file path. The .cs3 contains only manifest.json
+            // + classes.dex (no native libs), so there is no .so
+            // concern, and no oat files are written. API 26+ only —
+            // below 26 fall back to the PathClassLoader path. The
+            // exact ART-level step that fails is still unproven;
+            // this is a bypass, not a proven root-cause fix.
+            val loader: ClassLoader = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val dexBytes = readDexBytes(file, fileName) ?: run {
+                    currentlyLoading = null
+                    return Triple(false, lastLoadError, lastLoadDetail)
+                }
+                InMemoryDexClassLoader(ByteBuffer.wrap(dexBytes), context.classLoader)
+            } else {
+                PathClassLoader(filePath, context.classLoader)
+            }
 
             val name: String = manifest.name ?: "NO NAME".also {
                 Log.d(TAG, "No manifest name for ${data.internalName}")
