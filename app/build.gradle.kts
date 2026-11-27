@@ -7,15 +7,25 @@ plugins {
 
 android {
     namespace = "app.netlify.zaynplay"
-    // (v1.0.10) compileSdk 37: the libmpv 1.4.0 AAR carries
+    // (v1.0.10) compileSdk 36, NOT 37: the libmpv 1.4.0 AAR carries
     // minCompileSdk=37 in its aar-metadata (verified from the published
-    // AAR on Maven Central; 1.2.0/1.3.0 and dev.jdtech 1.0.0/1.1.0 are
-    // 37/37/36/37 too, so no libmpv version builds under compileSdk 34).
+    // AAR; every other libmpv version is 37 too, except dev.jdtech 1.0.0
+    // at 36). But Android SDK Platform 37 is PREVIEW-CHANNEL ONLY
+    // (Android 17): the CI runner's stable sdkmanager cannot find
+    // platforms;android-37 at all (CI 46044264493: "Failed to find
+    // package 'platforms;android-37'"), and AGP does not auto-download
+    // it (CI 46043729671). So the build targets stable compileSdk 36
+    // and skips the AAR metadata check with
+    // android.experimental.disableCompileSdkChecks (gradle.properties)
+    // — the same fix another project used for the identical
+    // minCompileSdk=37 problem. Nothing in the AAR needs API 37 at
+    // compile time (thin JNI wrapper over old Surface APIs); if it
+    // did, javac would fail on a missing symbol and CI would say so.
     // AGP 8.5.2 only WARNS about an untested compileSdk ("tested up to
     // 34", suppressible — see gradle.properties), it does not fail.
     // targetSdk stays 34: compileSdk changes only what the app may
     // compile against, not runtime behaviour on devices.
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "app.netlify.zaynplay"
