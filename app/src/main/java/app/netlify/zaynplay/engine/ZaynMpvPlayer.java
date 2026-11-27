@@ -118,6 +118,27 @@ public class ZaynMpvPlayer {
     private Double pendingVolume;
     private Double pendingSeekSec;
     private boolean controlCoalescePosted;
+    // (v1.0.14 G5) Bounded surface recovery, 1/play — mirrors
+    // ZaynPlayer.surfaceRecoveriesThisPlay; reset in play().
+    private int surfaceRecoveriesThisPlay;
+    // (v1.0.14 G7/G3.4) Per-session playerError dedup: the end-of-file
+    // ERROR and loadfile-failure sites can both fire for one failure.
+    private boolean playerErrorSent;
+    /** (v1.0.14 G7) Fatal mpv errors routed to the engine (set by
+     * ZaynEngine, like player.onPlaybackError): classification, bounded
+     * retry, and the dead-session latch. */
+    public interface FatalErrorListener {
+        void onFatalError(String reason);
+    }
+    private FatalErrorListener onFatalError;
+    public void setOnFatalError(FatalErrorListener listener) {
+        onFatalError = listener;
+    }
+    // (v1.0.14 SEEK-TRACE §4a.4) Last swallowed control failure, surfaced
+    // in stateSnapshot() as "controlError" so JS can distinguish "seek
+    // applied" from "seek silently dropped" — without toasting and without
+    // latching (a failed seek on a live session is not a dead session).
+    private volatile String lastControlError;
     private long lastPushStateMs;
 
     private final Runnable ticker = new Runnable() {
@@ -212,11 +233,21 @@ public class ZaynMpvPlayer {
                 // progress/state is pushed after death.
                 ended = true;
                 stopTicker();
-                JSONObject err = new JSONObject();
-                put(err, "code", "playback_error");
-                put(err, "message", "Video could not be played");
-                put(err, "retryable", true);
-                postEvent("playerError", err);
+                // (v1.0.14 G7) Route the fatal error to the engine (latch +
+                // classification) and post playerError at most once per
+                // session — the loadfile site below can fire for the same
+                // failure. The JS latch + banner still come from this event.
+                if (onFatalError != null) {
+                    try { onFatalError.onFatalError("mpv end-of-file error"); } catch (Exception ignored) { }
+                }
+                if (!playerErrorSent) {
+                    playerErrorSent = true;
+                    JSONObject err = new JSONObject();
+                    put(err, "code", "playback_error");
+                    put(err, "message", "Video could not be played");
+                    put(err, "retryable", true);
+                    postEvent("playerError", err);
+                }
                 pushState();
             }
         }
@@ -478,6 +509,26 @@ public class ZaynMpvPlayer {
         attachSurfaceInternal();
     }
 
+    /** (v1.0.14 G5) Bounded surface recovery for libmpv (ExoPlayer-only
+     * before): detach + re-attach via attachSurfaceIfReady(), max 1/play.
+     * Null checks come before the budget/transition, as in ZaynPlayer. */
+    public void recoverSurface() {
+        mainHandler.post(() -> {
+            if (surfaceRecoveriesThisPlay >= 1) {
+                EngineLogger.INSTANCE.log("player", "mpv: recovery surface re-attach skipped — already used this play");
+                return;
+            }
+            if (textureView == null || mpv == null) {
+                EngineLogger.INSTANCE.log("player", "mpv: recovery skipped — no TextureView/mpv");
+                return;
+            }
+            surfaceRecoveriesThisPlay++;
+            detachSurfaceNow();
+            attachSurfaceIfReady();
+            EngineLogger.INSTANCE.log("player", "mpv: recovery surface re-attach requested (1/1 this play)");
+        });
+    }
+
     private void attachSurfaceInternal() {
         MPVLib m = mpv;
         TextureView tv = textureView;
@@ -614,6 +665,8 @@ public class ZaynMpvPlayer {
             voRecreateDone = false;
             voFailed = false;
             ended = false;
+            surfaceRecoveriesThisPlay = 0;
+            playerErrorSent = false;
             diagVisibleLogged = false;
             // (v1.0.13 P5-B) Reset the reconfig-dedup baseline per play:
             // without this, a play whose video size matches the previous
@@ -686,11 +739,19 @@ public class ZaynMpvPlayer {
                 m.command(new String[]{"loadfile", link.getUrl()});
             } catch (Exception e) {
                 EngineLogger.INSTANCE.log("player", "mpv: loadfile failed " + e.getMessage());
-                JSONObject err = new JSONObject();
-                put(err, "code", "playback_error");
-                put(err, "message", "Video could not be played");
-                put(err, "retryable", true);
-                postEvent("playerError", err);
+                // (v1.0.14 G7) Same routing + once-per-session dedup as the
+                // end-of-file site above.
+                if (onFatalError != null) {
+                    try { onFatalError.onFatalError("mpv loadfile failed: " + e.getMessage()); } catch (Exception ignored) { }
+                }
+                if (!playerErrorSent) {
+                    playerErrorSent = true;
+                    JSONObject err = new JSONObject();
+                    put(err, "code", "playback_error");
+                    put(err, "message", "Video could not be played");
+                    put(err, "retryable", true);
+                    postEvent("playerError", err);
+                }
                 return;
             }
             EngineLogger.INSTANCE.log("player", "mpv: loadfile " + link.getSource());
@@ -838,6 +899,7 @@ public class ZaynMpvPlayer {
 
     /** Player controls from the bridge. value is seconds / rate / 0..1 volume. */
     public JSONObject control(String action, Double value) {
+        lastControlError = null;
         // (v1.0.13 P5-B) Synchronous pause state: the pause-property
         // observer used to be the only thing flipping lastPlaying, so the
         // ticker kept logging and diag() kept reading state=playing for
@@ -931,7 +993,8 @@ public class ZaynMpvPlayer {
                         break;
                 }
             } catch (Exception e) {
-                EngineLogger.INSTANCE.log("player", "mpv: control " + action + " failed " + e.getMessage());
+                lastControlError = "mpv: control " + action + " failed " + e.getMessage();
+                EngineLogger.INSTANCE.log("player", lastControlError);
             }
             pushState();
         });
@@ -951,6 +1014,7 @@ public class ZaynMpvPlayer {
         put(o, "qualityLabel", lastQuality);
         put(o, "source", lastSource);
         put(o, "audio", lastAudio != null ? lastAudio : JSONObject.NULL);
+        put(o, "controlError", lastControlError != null ? lastControlError : JSONObject.NULL);
         return o;
     }
 
@@ -999,7 +1063,8 @@ public class ZaynMpvPlayer {
                     }
                 }
             } catch (Exception e) {
-                EngineLogger.INSTANCE.log("player", "mpv: control coalesced failed " + e.getMessage());
+                lastControlError = "mpv: control coalesced failed " + e.getMessage();
+                EngineLogger.INSTANCE.log("player", lastControlError);
             }
             if (volumeOnly && System.currentTimeMillis() - lastPushStateMs < 500) return;
             pushState();
@@ -1076,6 +1141,17 @@ public class ZaynMpvPlayer {
 
     public boolean isPlaying() {
         return lastPlaying;
+    }
+
+    /** Cached position/duration for off-main readers (G8 retry resume):
+     * lastPosMs/lastDurMs are updated by the property observer, so no
+     * native call is needed here. */
+    public long getPositionMs() {
+        return lastPosMs;
+    }
+
+    public long getDurationMs() {
+        return lastDurMs;
     }
 
     /** (v1.0.12 §7) True while media is loaded and not ended — the dedup
