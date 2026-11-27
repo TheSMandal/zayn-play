@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Splash #13 "Bokeh Nights" — native cold-start splash.
+     Logo #1 (Crimson Play), wordmark ZAYN PLAY, tagline
+     "ONE APPS EVERY UNIVERSE", credit DESIGN BY / SAMIM MANDAL. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/splash_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/zayn_splash_bg">
+    android:background="@drawable/activity_splash_bg">
 
-    <!-- Zayn Play splash #13 "Bokeh Nights" (preview spec): Logo #1 mark,
-         ZAYN PLAY wordmark, tagline, two-line credit. Light mode shows the
-         same design in light (theme attrs adapt). -->
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:gravity="center"
@@ -18,7 +19,7 @@
             android:layout_width="104dp"
             android:layout_height="104dp"
             android:contentDescription="@string/app_name"
-            android:src="@drawable/zayn_logo_mark" />
+            android:src="@drawable/ic_logo_mark" />
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -29,18 +30,20 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:letterSpacing="0.08"
+                android:fontFamily="sans-serif-black"
+                android:letterSpacing="0.05"
                 android:text="ZAYN"
-                android:textColor="?attr/textColor"
+                android:textColor="@color/splash_wm"
                 android:textSize="27sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:letterSpacing="0.08"
+                android:fontFamily="sans-serif-black"
+                android:letterSpacing="0.05"
                 android:text="PLAY"
-                android:textColor="#FF5147"
+                android:textColor="@color/splash_play"
                 android:textSize="27sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -49,26 +52,65 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:letterSpacing="0.3"
-            android:text="@string/zayn_splash_tagline"
-            android:textColor="?attr/grayTextColor"
+            android:letterSpacing="0.18"
+            android:text="ONE APPS EVERY UNIVERSE"
+            android:textColor="@color/splash_tag"
             android:textSize="11sp" />
+
+        <!-- Loading dots (preview .splash-dots): 3 red dots, 9dp, 6dp gaps,
+             opacities .45 / .75 / 1 — pulsed by SplashActivity as a
+             scale + alpha wave (1 -> 1.6, dim floor -> full opacity,
+             1.05s, ease-in-out, infinite, 0/.16/.32s stagger).
+             Colour is @color/splash_play so it reads on the pearl light
+             background and on the dark background alike. -->
+        <LinearLayout
+            android:id="@+id/splash_dots"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="26dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <View
+                android:id="@+id/splash_dot1"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
+                android:alpha="0.45"
+                android:background="@drawable/splash_dot" />
+
+            <View
+                android:id="@+id/splash_dot2"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
+                android:layout_marginStart="6dp"
+                android:alpha="0.75"
+                android:background="@drawable/splash_dot" />
+
+            <View
+                android:id="@+id/splash_dot3"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
+                android:layout_marginStart="6dp"
+                android:alpha="1.0"
+                android:background="@drawable/splash_dot" />
+        </LinearLayout>
+
     </LinearLayout>
 
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="36dp"
         android:gravity="center"
-        android:orientation="vertical"
-        android:paddingBottom="36dp">
+        android:orientation="vertical">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:letterSpacing="0.2"
-            android:text="@string/zayn_splash_credit_by"
-            android:textColor="?attr/grayTextColor"
+            android:letterSpacing="0.3"
+            android:text="DESIGN BY"
+            android:textColor="@color/splash_credit"
             android:textSize="11sp" />
 
         <TextView
@@ -76,10 +118,9 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:letterSpacing="0.15"
-            android:text="@string/zayn_splash_credit_name"
-            android:textColor="?attr/textColor"
-            android:textSize="14sp"
+            android:text="SAMIM MANDAL"
+            android:textColor="@color/splash_credit_b"
+            android:textSize="13sp"
             android:textStyle="bold" />
     </LinearLayout>
-
 </FrameLayout>

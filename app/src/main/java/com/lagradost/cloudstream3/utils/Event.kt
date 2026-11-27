@@ -1,5 +1,12 @@
 package com.lagradost.cloudstream3.utils
 
+/**
+ * (v0.2.6) Verbatim from upstream (CloudStream app module). Restored
+ * because plugins reference it (StremioX / StreamPlay / Ultima reach
+ * MainActivity.Companion events of this type in their load closure);
+ * without it those plugins fail verification with load_class_missing.
+ * No Android or CloudStream-UI dependency.
+ */
 class Event<T> {
     private val observers = mutableSetOf<(T) -> Unit>()
 

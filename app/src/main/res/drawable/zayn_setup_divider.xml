@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Transparent 8dp gap between Zayn setup option cards (preview .opt-list gap). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <size android:height="8dp" />
-    <solid android:color="@android:color/transparent" />
-</shape>

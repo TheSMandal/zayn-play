@@ -2,15 +2,27 @@ package com.lagradost.cloudstream3.ui
 
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
-import com.lagradost.cloudstream3.R
 
+/**
+ * (v0.2.10) Minimal restore of upstream's WatchType / SyncWatchType
+ * enums (ui/WatchType.kt). Entry names, declaration order (ordinal)
+ * and internalIds are verbatim from upstream — StreamCenter reads
+ * ordinals and hashCodes, and its <clinit> touches SyncWatchType
+ * entries, so the enum must exist for the plugin class to initialise.
+ *
+ * stringRes / iconRes are 0: they reference CloudStream's own
+ * R.string / R.drawable entries (type_watching, ic_baseline_...),
+ * which this host does not have. Nothing in the content path reads
+ * them; the one caller of getStringRes (StreamCenter's tracking
+ * status label) would get resource 0. Do NOT invent resource IDs.
+ */
 enum class WatchType(val internalId: Int, @StringRes val stringRes: Int, @DrawableRes val iconRes: Int) {
-    WATCHING(0, R.string.type_watching, R.drawable.ic_baseline_bookmark_24),
-    COMPLETED(1, R.string.type_completed, R.drawable.ic_baseline_bookmark_24),
-    ONHOLD(2, R.string.type_on_hold, R.drawable.ic_baseline_bookmark_24),
-    DROPPED(3, R.string.type_dropped, R.drawable.ic_baseline_bookmark_24),
-    PLANTOWATCH(4, R.string.type_plan_to_watch, R.drawable.ic_baseline_bookmark_24),
-    NONE(5, R.string.type_none, R.drawable.ic_baseline_add_24);
+    WATCHING(0, 0, 0),
+    COMPLETED(1, 0, 0),
+    ONHOLD(2, 0, 0),
+    DROPPED(3, 0, 0),
+    PLANTOWATCH(4, 0, 0),
+    NONE(5, 0, 0);
 
     companion object {
         fun fromInternalId(id: Int?) = entries.find { value -> value.internalId == id } ?: NONE
@@ -18,13 +30,13 @@ enum class WatchType(val internalId: Int, @StringRes val stringRes: Int, @Drawab
 }
 
 enum class SyncWatchType(val internalId: Int, @StringRes val stringRes: Int, @DrawableRes val iconRes: Int) {
-    NONE(-1, R.string.type_none, R.drawable.ic_baseline_add_24),
-    WATCHING(0, R.string.type_watching, R.drawable.ic_baseline_bookmark_24),
-    COMPLETED(1, R.string.type_completed, R.drawable.ic_baseline_bookmark_24),
-    ONHOLD(2, R.string.type_on_hold, R.drawable.ic_baseline_bookmark_24),
-    DROPPED(3, R.string.type_dropped, R.drawable.ic_baseline_bookmark_24),
-    PLANTOWATCH(4, R.string.type_plan_to_watch, R.drawable.ic_baseline_bookmark_24),
-    REWATCHING(5, R.string.type_re_watching, R.drawable.ic_baseline_bookmark_24);
+    NONE(-1, 0, 0),
+    WATCHING(0, 0, 0),
+    COMPLETED(1, 0, 0),
+    ONHOLD(2, 0, 0),
+    DROPPED(3, 0, 0),
+    PLANTOWATCH(4, 0, 0),
+    REWATCHING(5, 0, 0);
 
     companion object {
         fun fromInternalId(id: Int?) = entries.find { value -> value.internalId == id } ?: NONE

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Zayn Play bottom nav label colour (preview .tabbar): active label white
-     (dark) / #14161d (light) via ?attr/zaynNavActiveLabel, inactive = ink-2. -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:color="?attr/zaynNavActiveLabel" android:state_checked="true" />
-    <item android:color="?attr/zaynNavActiveLabel" android:state_selected="true" />
-    <item android:color="?attr/grayTextColor" />
-</selector>

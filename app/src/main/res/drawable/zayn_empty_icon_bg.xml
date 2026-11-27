@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Zayn Play home empty-state icon tile (preview .he-ico): red tint at 12% alpha. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="#1FE8365D" />
-    <corners android:radius="20dp" />
-</shape>

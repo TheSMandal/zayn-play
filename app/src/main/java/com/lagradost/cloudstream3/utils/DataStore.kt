@@ -1,12 +1,13 @@
+@file:OptIn(InternalAPI::class)
 package com.lagradost.cloudstream3.utils
+import com.lagradost.cloudstream3.InternalAPI
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.core.content.edit
 import androidx.preference.PreferenceManager
-import com.lagradost.cloudstream3.CloudStreamApp.Companion.getKeyClass
-import com.lagradost.cloudstream3.CloudStreamApp.Companion.removeKey
-import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKeyClass
+import app.netlify.zaynplay.engine.EngineApp.getKeyClass
+import app.netlify.zaynplay.engine.EngineApp.removeKey
+import app.netlify.zaynplay.engine.EngineApp.setKeyClass
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJsonLiteral
@@ -146,9 +147,7 @@ object DataStore {
         try {
             val prefs = getSharedPrefs()
             if (prefs.contains(path)) {
-                prefs.edit {
-                    remove(path)
-                }
+                prefs.edit().remove(path).apply()
             }
         } catch (e: Exception) {
             logError(e)
@@ -158,11 +157,7 @@ object DataStore {
     fun Context.removeKeys(folder: String): Int {
         val keys = getKeys("$folder/")
         try {
-            getSharedPrefs().edit {
-                keys.forEach { value ->
-                    remove(value)
-                }
-            }
+            getSharedPrefs().edit().also { e -> keys.forEach { value -> e.remove(value) } }.apply()
             return keys.size
         } catch (e: Exception) {
             logError(e)
@@ -172,9 +167,7 @@ object DataStore {
 
     fun <T> Context.setKey(path: String, value: T) {
         try {
-            getSharedPrefs().edit {
-                putString(path, value?.toJsonLiteral())
-            }
+            getSharedPrefs().edit().putString(path, value?.toJsonLiteral()).apply()
         } catch (e: Exception) {
             logError(e)
         }

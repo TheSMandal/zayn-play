@@ -1,12 +1,9 @@
+// Zayn Play — UI-only build (v0.1.0). No engine: the app is the approved
+// preview UI (WebView) with a native splash. The engine phase comes later,
+// after the user approves this UI.
 plugins {
-    alias(libs.plugins.android.application) apply false
-    alias(libs.plugins.android.lint) apply false
-    alias(libs.plugins.android.multiplatform.library) apply false
-    alias(libs.plugins.buildkonfig) apply false // Universal build config
-    alias(libs.plugins.dokka) apply false
-    alias(libs.plugins.kotlin.jvm) apply false
-    alias(libs.plugins.kotlin.multiplatform) apply false
-    alias(libs.plugins.kotlin.serialization) apply false
-    alias(libs.plugins.compose.compiler) apply false
-    alias(libs.plugins.compose.multiplatform) apply false
+    id("com.android.application") version "8.5.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+    // Phase B: kotlinx-serialization plugin (1.9.24, matches the Kotlin plugin).
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.24" apply false
 }

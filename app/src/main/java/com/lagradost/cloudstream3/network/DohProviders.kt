@@ -1,5 +1,6 @@
 package com.lagradost.cloudstream3.network
 
+import com.lagradost.nicehttp.FallbackDns
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.dnsoverhttps.DnsOverHttps
@@ -9,15 +10,20 @@ import java.net.InetAddress
  * Based on https://github.com/tachiyomiorg/tachiyomi/blob/master/app/src/main/java/eu/kanade/tachiyomi/network/DohProviders.kt
  */
 
+// (v0.2.2) Every DoH resolver falls back to the system DNS when DoH
+// fails — see FallbackDns. A dead DoH endpoint must never take the
+// whole app's networking down with it.
 fun OkHttpClient.Builder.addGenericDns(url: String, ips: List<String>) = dns(
-    DnsOverHttps
-        .Builder()
-        .client(build())
-        .url(url.toHttpUrl())
-        .bootstrapDnsHosts(
-            ips.map { InetAddress.getByName(it) }
-        )
-        .build()
+    FallbackDns(
+        DnsOverHttps
+            .Builder()
+            .client(build())
+            .url(url.toHttpUrl())
+            .bootstrapDnsHosts(
+                ips.map { InetAddress.getByName(it) }
+            )
+            .build()
+    )
 )
 
 fun OkHttpClient.Builder.addGoogleDns() = (

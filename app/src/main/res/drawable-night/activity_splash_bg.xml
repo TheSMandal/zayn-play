@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash #13, dark form: #060608 with a red glow top-right,
+     a purple glow bottom-left, and soft bokeh dots. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#060608" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="320dp"
+                android:centerX="0.92"
+                android:centerY="0.04"
+                android:startColor="#2BE8261C"
+                android:endColor="#00E8261C" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="280dp"
+                android:centerX="0.06"
+                android:centerY="0.9"
+                android:startColor="#1F7C3AED"
+                android:endColor="#007C3AED" />
+        </shape>
+    </item>
+    <item android:left="260dp" android:top="90dp">
+        <shape android:shape="oval">
+            <size android:width="64dp" android:height="64dp" />
+            <solid android:color="#1FFFFFFF" />
+        </shape>
+    </item>
+    <item android:left="40dp" android:top="330dp">
+        <shape android:shape="oval">
+            <size android:width="48dp" android:height="48dp" />
+            <solid android:color="#14FFFFFF" />
+        </shape>
+    </item>
+    <item android:left="290dp" android:top="500dp">
+        <shape android:shape="oval">
+            <size android:width="40dp" android:height="40dp" />
+            <solid android:color="#1FE8261C" />
+        </shape>
+    </item>
+    <item android:left="70dp" android:top="640dp">
+        <shape android:shape="oval">
+            <size android:width="34dp" android:height="34dp" />
+            <solid android:color="#14FFFFFF" />
+        </shape>
+    </item>
+    <!-- Logo in the starting window, at exactly the layout's logo position:
+         the layout centres the whole splash block (logo 104dp + 18dp gap +
+         wordmark ~32dp + 10dp gap + tagline ~13dp + 26dp gap + dots 7dp,
+         ≈210dp tall), so the logo centre sits ≈53dp ABOVE the true screen
+         centre; bottom="106dp" shifts the centred 104dp logo up by that
+         same 53dp, so it does not jump when the layout inflates. -->
+    <item
+        android:width="104dp"
+        android:height="104dp"
+        android:bottom="106dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_logo_mark" />
+</layer-list>

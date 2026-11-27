@@ -1,0 +1,561 @@
+@file:OptIn(InternalAPI::class)
+package app.netlify.zaynplay
+import com.lagradost.cloudstream3.InternalAPI
+
+import android.app.UiModeManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.graphics.Color
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.util.Log
+import android.view.WindowManager
+import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.view.TextureView
+import android.view.View
+import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import app.netlify.zaynplay.engine.EngineApp
+import app.netlify.zaynplay.engine.EngineLogger
+import app.netlify.zaynplay.engine.EngineStore
+import app.netlify.zaynplay.engine.ZaynDownloads
+import app.netlify.zaynplay.engine.ZaynEngine
+import app.netlify.zaynplay.engine.ZaynPlayer
+import com.lagradost.api.setContext
+import com.lagradost.cloudstream3.CommonActivity
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.network.initClient
+import com.lagradost.cloudstream3.plugins.PluginManager
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+
+/**
+ * Zayn Play — UI-only build (v0.2.0-phaseB).
+ *
+ * The whole app UI is the approved preview (assets/zaynplay-app.html),
+ * shown in a single WebView. Phase B of the engine phase ports the
+ * CloudStream engine core (vendored, decoupled — see
+ * app/netlify/zaynplay/engine/ZaynEngine.kt): the "ZaynEngineNative"
+ * bridge now implements E1–E11 + E26–E28 (repos, providers, home feed,
+ * search, details, settings, update check). Player / downloads /
+ * accounts / updater are still engine_not_ready (Phase C). No
+ * CloudStream UI anywhere — the page is the approved preview only.
+ */
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var webView: WebView
+
+    // Engine bridge (phase B): the store behind settingsGet/settingsSet,
+    // the real dispatcher (ZaynEngine), an IO coroutine scope for bridge
+    // work, and the in-flight calls by id.
+    private lateinit var engineStore: EngineStore
+    private lateinit var zaynEngine: ZaynEngine
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val engineJobs = ConcurrentHashMap<String, Job>()
+
+    // Phase C player (P0 overlay, engine-design.md §5.5/§7.2): a
+    // chrome-less TextureView ExoPlayer renders into, positioned over the
+    // WebView's player stage from the rect the page reports. No native
+    // controls — every control stays HTML.
+    //
+    // TextureView (not SurfaceView) is deliberate: a SurfaceView lives on
+    // its own layer — behind the window it would be hidden by the
+    // WebView, above it (ZOrderOnTop/MediaOverlay) it would cover the
+    // HTML controls inside the stage. A TextureView composites as a
+    // normal View BELOW the WebView, so the HTML controls draw above the
+    // video and stay tappable; the page punches a transparent hole in
+    // the stage (body / #scr-player / .stage-video backgrounds off,
+    // poster hidden) while the surface is visible, and the WebView
+    // background is set transparent for the same window.
+    private lateinit var playerSurface: TextureView
+    private lateinit var zaynPlayer: ZaynPlayer
+    private lateinit var zaynDownloads: ZaynDownloads
+    private var lastStageRect: JSONObject? = null
+
+    // True while the player is fullscreen: the immersive hide must be
+    // re-applied after every rotation / focus change / resume, because the
+    // window re-layout on configuration change drops the hidden bars.
+    private var isPlayerFullscreen = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // FIX 5: follow the STORED app theme choice (System/Dark/Light);
+        // FOLLOW_SYSTEM only when nothing is stored yet. The WebView's
+        // prefers-color-scheme then matches the app theme, and the in-app
+        // theme setting switches the UI live.
+        ThemePrefs.applyStoredNightMode(this)
+        super.onCreate(savedInstanceState)
+        // Edge-to-edge for the whole app (v0.1.5): the page lays out behind
+        // the status bar on every screen — content starts at the very top
+        // edge and the status icons float over it. The theme already makes
+        // the status bar transparent and the nav bar app_bg; this only stops
+        // the system from pushing the WebView below the status bar. (The
+        // player still hides the bars entirely via setImmersiveMode.)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        // Fullscreen video must reach every edge, including the punch-hole
+        // camera cutout (v0.1.6): Android's default cutout mode insets the
+        // window on the cutout edge in landscape — a black strip on the
+        // left where the camera sits — even though the page itself lays out
+        // full-bleed (the WebView is match_parent and the player stage was
+        // measured at 0,0,2400,1080 in headless Chrome). SHORT_EDGES lets
+        // the window draw into the cutout on the short edges, so the video
+        // covers the whole screen; the camera dot itself simply covers a
+        // few pixels of video, as in every fullscreen video app.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val attrs = window.attributes
+            attrs.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            window.attributes = attrs
+        }
+        applyStatusBarIconAppearance()
+        // TV / tablet open in landscape by default, phone stays portrait.
+        // The page gets the same form factor (?form=...) so it can switch
+        // to the tablet / TV layout.
+        val form = formFactor()
+        requestedOrientation = if (form == "phone") ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        setContentView(R.layout.activity_main)
+
+        webView = findViewById(R.id.webview)
+        webView.setBackgroundColor(currentBackgroundColor())
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            allowFileAccess = true
+            allowContentAccess = true
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
+            textZoom = 100
+            mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        }
+        webView.webViewClient = object : WebViewClient() {
+            // Sample links inside the UI (provider sites, repo pages) open
+            // in the browser; the app UI itself stays in the WebView.
+            // The zaynplay://auth redirect is the OAuth capture path
+            // (design §5.8 Accounts): it stays in-app and is handed to
+            // the bridge as an authRedirect event.
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?,
+            ): Boolean {
+                val url = request?.url ?: return false
+                if (url.scheme == "zaynplay" && url.host == "auth") {
+                    val provider = url.getQueryParameter("provider") ?: ""
+                    val code = url.getQueryParameter("code") ?: ""
+                    pushEngineEvent(
+                        "authRedirect",
+                        JSONObject()
+                            .put("provider", provider)
+                            .put("redirectUrl", url.toString())
+                            .put("code", code),
+                    )
+                    EngineLogger.log("accounts", "auth redirect captured for $provider")
+                    return true
+                }
+                if (url.scheme == "http" || url.scheme == "https") {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
+                    return true
+                }
+                return false
+            }
+        }
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                message?.let { Log.d("ZaynPlay", "${it.sourceId()}:${it.lineNumber()} ${it.message()}") }
+                return true
+            }
+        }
+
+        // True fullscreen for the player: the page rotates the activity to
+        // real landscape via setOrientationLandscape and hides the Android
+        // status/nav bars through setFullscreen here, so the video covers
+        // the whole screen. (Named ZaynAppNative — the page already defines
+        // its own window.ZaynApp object for back navigation.)
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun setFullscreen(on: Boolean) {
+                runOnUiThread {
+                    isPlayerFullscreen = on
+                    setImmersiveMode(on)
+                }
+            }
+
+            @JavascriptInterface
+            fun setOrientationLandscape(on: Boolean) {
+                runOnUiThread {
+                    // Exiting fullscreen restores the form-appropriate
+                    // orientation (v0.1.5): portrait on a phone, landscape
+                    // on a tablet / TV — the old unconditional PORTRAIT
+                    // forced the whole app portrait on tablet/TV. Uses
+                    // the same formFactor() detection as onCreate, so
+                    // phone behaviour is unchanged.
+                    requestedOrientation = if (on) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        else if (formFactor() == "phone") ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                }
+            }
+
+            @JavascriptInterface
+            fun setThemePref(pref: String) {
+                // FIX 5: the WebView pushes every theme change here
+                // (System/Dark/Light) so the next cold start's splash
+                // follows the app's theme, not just the system setting.
+                // Stored for SplashActivity/MainActivity to read; applied
+                // live too so the running activity's native chrome
+                // (nav bar, WebView background) follows at once — no
+                // recreation: MainActivity handles uiMode config changes.
+                if (pref == "system" || pref == "dark" || pref == "light") {
+                    ThemePrefs.store(this@MainActivity, pref)
+                    runOnUiThread {
+                        AppCompatDelegate.setDefaultNightMode(ThemePrefs.modeFor(pref))
+                    }
+                }
+            }
+
+            @JavascriptInterface
+            fun setStatusBarDarkIcons(dark: Boolean) {
+                runOnUiThread {
+                    WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = dark
+                }
+            }
+
+            @JavascriptInterface
+            fun setWindowBrightness(value: Float) {
+                // Phase C: the brightness gesture drives the activity
+                // window brightness while the player is open (a native
+                // video surface has no per-view filter). -1 restores the
+                // system brightness. The page calls this only while the
+                // player screen is open; exitPlayerCleanup restores -1.
+                runOnUiThread {
+                    val attrs = window.attributes
+                    attrs.screenBrightness = if (value < 0) {
+                        WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    } else {
+                        value.coerceIn(0.01f, 1.0f)
+                    }
+                    window.attributes = attrs
+                }
+            }
+        }, "ZaynAppNative")
+
+        // Engine bridge (phase B, engine-design.md §4.2): a second
+        // interface, "ZaynEngineNative", with one async entry point. call()
+        // arrives on a WebView thread and returns at once — the work runs on
+        // the IO coroutine scope and the reply is posted to the main thread,
+        // which is the only thread allowed to call evaluateJavascript. The
+        // existing "ZaynAppNative" 4 methods above are untouched.
+        // Engine init: the DataStore-backed EngineApp shim, the NiceHttp
+        // client (Conscrypt + 50 MB cache + DNS from settings), the
+        // api-level context for WebViewResolver, then the initial plugin
+        // load (online + local .cs3) — engineReady means that load was
+        // attempted, even if it failed.
+        engineStore = EngineStore(this)
+        EngineApp.init(this, engineStore)
+        // (v0.2.6) Host-compat: plugins read the live activity via
+        // CommonActivity.INSTANCE.getActivity() (e.g. Cloudflare
+        // dialogs, donation prompts). Point it at this activity.
+        CommonActivity.setActivityInstance(this)
+        app.initClient(this)
+        setContext(applicationContext)
+        // Phase C: the headless player + downloads, owned here. Their
+        // events flow back into the page via pushEngineEvent.
+        playerSurface = findViewById(R.id.player_surface)
+        zaynPlayer = ZaynPlayer(this) { type, data -> pushEngineEvent(type, data) }
+        zaynPlayer.setSurface(playerSurface)
+        zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
+        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope) { rect ->
+            onPlayerStageRect(rect)
+        }
+        engineScope.launch {
+            try {
+                PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllOnlinePlugins(this@MainActivity)
+                PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllLocalPlugins(this@MainActivity, false)
+            } catch (e: Exception) {
+                EngineLogger.log("engine", "initial plugin load threw ${e.message}")
+            }
+            // (v0.2.1-g) APIHolder.initAll() was never called: apply
+            // MainAPI.init() / clone-site overrides to every loaded API.
+            // (loadPlugin also calls it per plugin; this covers the bulk
+            // load path end-to-end.)
+            try {
+                com.lagradost.cloudstream3.APIHolder.initAll()
+            } catch (e: Exception) {
+                EngineLogger.log("engine", "APIHolder.initAll threw ${e.message}")
+            }
+            zaynEngine.markReady()
+            pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
+            // (v0.2.11) C-11: NO boot auto-update check any more — it
+            // fetched every repo manifest and downloaded updates over the
+            // same slow link while the first home feed was loading, and
+            // could race the user's first toggle/test. Updates now run
+            // only when the user opens Settings -> Extensions (which
+            // already triggers a check) or taps update manually.
+        }
+        webView.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun call(id: String, method: String, json: String) {
+                val job = engineScope.launch {
+                    val params = try {
+                        JSONObject(json)
+                    } catch (e: Exception) {
+                        engineReply(id, engineError("invalid_input", "Bad request"))
+                        return@launch
+                    }
+                    EngineLogger.log("bridge", "$method id=$id")
+                    // (v1.0.2) The native side must ALWAYS reply. A native
+                    // timeout used to cancel this coroutine (homeFeed
+                    // rethrows CancellationException) and skip engineReply,
+                    // so JS heard nothing until its own 150 s timer — the
+                    // Home skeleton spun with no error for up to 150 s.
+                    // A cancelled call now replies "timeout"; a JS side
+                    // that already timed out ignores the late reply
+                    // (__zaynReply is a no-op once pending is deleted).
+                    val response = try {
+                        zaynEngine.call(method, params)
+                    } catch (e: CancellationException) {
+                        engineError("timeout", "Engine timed out — try again")
+                    }
+                    engineJobs.remove(id)
+                    engineReply(id, response)
+                }
+                engineJobs[id] = job
+            }
+
+            @JavascriptInterface
+            fun cancel(id: String) {
+                engineJobs.remove(id)?.cancel()
+            }
+        }, "ZaynEngineNative")
+
+        // The native splash already showed (?bootsplash=0 skips the
+        // in-WebView splash so the user is not shown it twice).
+        webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0&form=$form")
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // Let the UI handle Back first (close a sheet, or go Home);
+                // only leave the app when the UI is already on Home.
+                webView.evaluateJavascript("window.ZaynApp ? ZaynApp.goBack() : false") { result ->
+                    if (result != "true") {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            }
+        })
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Night mode changed (system theme switch): repaint the WebView
+        // background; the page itself re-themes live via matchMedia.
+        webView.setBackgroundColor(currentBackgroundColor())
+        // The rotation re-lays the window and drops the immersive hide:
+        // re-hide the bars while the player is fullscreen (posted so it
+        // runs after the new layout is applied).
+        if (isPlayerFullscreen) {
+            setImmersiveMode(true)
+            window.decorView.post { if (isPlayerFullscreen) setImmersiveMode(true) }
+            // The stage moved: ask the page to re-report its rect so the
+            // native video surface follows the new layout.
+            webView.evaluateJavascript("window.__zaynReportStage && window.__zaynReportStage()", null)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // FIX 6: pause the WebView with the activity — its JS timers and
+        // rendering stop while the user is in another app, so nothing
+        // keeps running (or playing) in the background.
+        webView.onPause()
+        webView.pauseTimers()
+        // Phase C: pause playback too (audio must not keep playing when
+        // the user leaves the app).
+        if (::zaynPlayer.isInitialized) zaynPlayer.pauseForBackground()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // (v0.2.6) Re-point CommonActivity at this activity on every
+        // resume, so plugins always see the live one.
+        CommonActivity.setActivityInstance(this)
+        // FIX 6: resume the WebView's rendering as soon as the activity
+        // returns, so the last screen repaints at once instead of leaving
+        // a black frame (window/WebView background) while it catches up.
+        // The activity was never pausing the WebView before, so a warm
+        // return from Recents showed black until the WebView redrew.
+        webView.onResume()
+        webView.resumeTimers()
+        // Returning to the activity (e.g. after the transient bars were
+        // swiped in, or after another app) must not leave the status bar
+        // visible over fullscreen video.
+        if (isPlayerFullscreen) setImmersiveMode(true)
+    }
+
+    override fun onDestroy() {
+        // Engine bridge: drop in-flight calls and stop the IO scope.
+        engineJobs.values.forEach { it.cancel() }
+        engineJobs.clear()
+        engineScope.cancel()
+        // Phase C: release the player + stop downloads.
+        if (::zaynPlayer.isInitialized) zaynPlayer.release()
+        if (::zaynDownloads.isInitialized) zaynDownloads.shutdown()
+        super.onDestroy()
+    }
+
+    /**
+     * Engine bridge dispatcher (phase B): all methods live in ZaynEngine
+     * (E1–E11 + E26–E28 real; the rest engine_not_ready until Phase C).
+     * Runs on the IO coroutine scope — never on the WebView thread, never
+     * on main.
+     */
+    private fun engineError(code: String, message: String): JSONObject =
+        JSONObject().put("ok", false).put("code", code).put("message", message)
+
+    /** Push a one-way engine event into the page (window.__zaynEvent). */
+    private fun pushEngineEvent(name: String, data: JSONObject) {
+        runOnUiThread {
+            if (::webView.isInitialized) {
+                webView.evaluateJavascript(
+                    "window.__zaynEvent && window.__zaynEvent(${JSONObject.quote(name)}, $data)",
+                    null
+                )
+            }
+        }
+    }
+
+    /** Post a bridge reply to the main thread, then into the page. */
+    private fun engineReply(id: String, response: JSONObject) {
+        val idJson = JSONObject.quote(id)
+        runOnUiThread {
+            if (::webView.isInitialized) {
+                webView.evaluateJavascript("window.__zaynReply($idJson, $response)", null)
+            }
+        }
+    }
+
+    /**
+     * P0 overlay positioning (engine-design.md §5.5/§7.2).
+     *
+     * The page reports the player stage rect in CSS px plus the viewport
+     * size (window.innerWidth/innerHeight). The scale from CSS px to
+     * physical px is webView.width / viewportWidth — exact for any
+     * viewport setup, no density guess. The surface is visible ONLY
+     * while the page says the player is open and fullscreen; otherwise
+     * it is GONE (never a black rectangle over the UI). The last rect is
+     * kept so a rotation can re-apply it once the page re-reports.
+     */
+    private fun onPlayerStageRect(rect: JSONObject) {
+        lastStageRect = rect
+        runOnUiThread {
+            if (!::playerSurface.isInitialized || !::webView.isInitialized) return@runOnUiThread
+            val visible = rect.optBoolean("visible", false)
+            if (!visible) {
+                playerSurface.visibility = View.GONE
+                // The page repaints its own backgrounds; restore the
+                // WebView background so a transparent hole never shows the
+                // window behind the UI.
+                if (::webView.isInitialized) webView.setBackgroundColor(currentBackgroundColor())
+                return@runOnUiThread
+            }
+            // Transparent WebView background while the surface shows, so
+            // the page's transparent stage hole reveals the video below.
+            if (::webView.isInitialized) webView.setBackgroundColor(Color.TRANSPARENT)
+            val vw = rect.optDouble("vw", 0.0)
+            val vh = rect.optDouble("vh", 0.0)
+            if (vw <= 0 || vh <= 0 || webView.width <= 0) return@runOnUiThread
+            val scale = webView.width / vw
+            val x = (rect.optDouble("x", 0.0) * scale).toInt()
+            val y = (rect.optDouble("y", 0.0) * scale).toInt()
+            val w = (rect.optDouble("w", 0.0) * scale).toInt().coerceAtLeast(1)
+            val h = (rect.optDouble("h", 0.0) * scale).toInt().coerceAtLeast(1)
+            val params = playerSurface.layoutParams as FrameLayout.LayoutParams
+            params.width = w
+            params.height = h
+            params.leftMargin = x
+            params.topMargin = y
+            playerSurface.layoutParams = params
+            playerSurface.visibility = View.VISIBLE
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Focus changes (notification shade, dialog, transient bars) clear
+        // the hide; re-apply it while the player is fullscreen.
+        if (hasFocus && isPlayerFullscreen) setImmersiveMode(true)
+    }
+
+    /**
+     * True immersive fullscreen for the player: hide the status +
+     * navigation bars and go edge-to-edge so the video covers the whole
+     * screen. Restored when leaving the player; the normal UI (status bar,
+     * gesture bar, dock) is untouched outside fullscreen.
+     */
+    /**
+     * Status-bar icon colour for normal (non-player) screens: dark icons
+     * when the system is in light mode, white icons when dark. The page
+     * overrides this live through setStatusBarDarkIcons() whenever its own
+     * theme (System / Dark / Light) resolves differently from the system.
+     */
+    private fun applyStatusBarIconAppearance() {
+        val night = resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !night
+    }
+
+    private fun setImmersiveMode(on: Boolean) {
+        // Edge-to-edge is permanent now (set once in onCreate): the page
+        // always lays out behind the status bar, so this only hides /
+        // shows the bars — it must NOT re-enable fitsSystemWindows here.
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        if (on) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun currentBackgroundColor(): Int {
+        val night = resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        return if (night) Color.parseColor("#0A0A0F") else Color.parseColor("#F2F3F7")
+    }
+
+    /**
+     * Form factor for orientation + the page layout: "tv" for Android TV
+     * (UiModeManager type television), "tablet" for smallest width >= 600dp,
+     * "phone" otherwise.
+     */
+    private fun formFactor(): String {
+        val uiMode = (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType
+        if (uiMode == Configuration.UI_MODE_TYPE_TELEVISION) return "tv"
+        return if (resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
+    }
+}

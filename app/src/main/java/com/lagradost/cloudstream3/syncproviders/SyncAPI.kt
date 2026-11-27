@@ -1,6 +1,7 @@
 package com.lagradost.cloudstream3.syncproviders
 
-import androidx.annotation.WorkerThread
+import com.fasterxml.jackson.annotation.JsonAlias
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.NextAiring
 import com.lagradost.cloudstream3.Score
@@ -10,65 +11,108 @@ import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ui.SyncWatchType
 import com.lagradost.cloudstream3.ui.library.ListSorting
-import com.lagradost.cloudstream3.utils.Levenshtein
 import com.lagradost.cloudstream3.utils.UiText
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import java.util.Date
 
+enum class SyncIdName {
+    Anilist,
+    MyAnimeList,
+    Kitsu,
+    Trakt,
+    Imdb,
+    Simkl,
+    LocalList,
+}
+
 /**
- * Stateless synchronization class, used for syncing status about a specific movie/show.
+ * (v0.2.10) Minimal faithful restore of upstream's sync stack, vendored
+ * because live plugins reference it:
+ *  - StreamPlayAnime / TorraStreamAnime <init> do
+ *    `SyncRepo(AccountManager.getAniListApi())` with a check-cast to
+ *    SyncAPI — without these classes both providers cannot instantiate.
+ *  - Their getMainPage calls SyncRepo.authUser() (null = no account
+ *    linked; the plugin then takes its non-Personal branch) and
+ *    SyncRepo.library(), reading LibraryMetadata.allLibraryLists and
+ *    LibraryList name/items.
  *
- * All non-null `AuthToken` will be non-expired when each function is called.
+ * What is NOT restored: login, token refresh, status updates, search —
+ * Zayn Play has no sync account at all, so authUser() always returns
+ * null and library() returns an empty library. No plugin in the sweep
+ * calls any other SyncAPI/AuthAPI member. SyncWatchType and
+ * ListSorting-adjacent UI (Page.sort) are not restored; ListSorting
+ * itself is vendored as a plain enum because LibraryMetadata's
+ * constructor takes a Set<ListSorting>.
+ *
+ * Copied shapes are verbatim from upstream (recloudstream/cloudstream
+ * master, syncproviders/): AuthUser, AuthAPI's plain vals, SyncAPI's
+ * nested Library* data classes.
+ */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@Serializable
+data class AuthUser(
+    @JsonProperty("name") @SerialName("name")
+    val name: String?,
+    @JsonProperty("id") @SerialName("id")
+    val id: Int,
+    @JsonProperty("profilePicture") @SerialName("profilePicture")
+    val profilePicture: String? = null,
+    @JsonProperty("profilePictureHeaders") @JsonAlias("profilePictureHeader")
+    @SerialName("profilePictureHeaders")
+    @kotlinx.serialization.json.JsonNames("profilePictureHeader")
+    val profilePictureHeaders: Map<String, String>? = null,
+)
+
+data class AuthLoginRequirement(
+    val password: Boolean = false,
+    val username: Boolean = false,
+    val email: Boolean = false,
+    val server: Boolean = false,
+)
+
+@Serializable
+data class AuthToken(
+    @JsonProperty("accessToken") @SerialName("accessToken")
+    val accessToken: String? = null,
+    @JsonProperty("refreshToken") @SerialName("refreshToken")
+    val refreshToken: String? = null,
+    @JsonProperty("accessTokenLifetime") @SerialName("accessTokenLifetime")
+    val accessTokenLifetime: Long? = null,
+    @JsonProperty("refreshTokenLifetime") @SerialName("refreshTokenLifetime")
+    val refreshTokenLifetime: Long? = null,
+    @JsonProperty("payload") @SerialName("payload")
+    val payload: String? = null,
+)
+
+@Serializable
+data class AuthData(
+    @JsonProperty("user") @SerialName("user") val user: AuthUser,
+    @JsonProperty("token") @SerialName("token") val token: AuthToken,
+)
+
+/** Stateless authentication class. No login is implemented here. */
+abstract class AuthAPI {
+    open val name: String = "NONE"
+    open val idPrefix: String = "NONE"
+    open val icon: Int? = null
+    open val requiresLogin: Boolean = true
+    open val createAccountUrl: String? = null
+    open val redirectUrlIdentifier: String? = null
+    open val hasOAuth2: Boolean = false
+    open val hasPin: Boolean = false
+    open val hasInApp: Boolean = false
+    open val inAppLoginRequirement: AuthLoginRequirement? = null
+}
+
+/**
+ * Stateless synchronization class. Minimal: only the members the
+ * vendored SyncRepo and the plugins touch. All login/status/search
+ * members of upstream SyncAPI are omitted — no plugin calls them.
  */
 abstract class SyncAPI : AuthAPI() {
-    /**
-     * Set this to true if the user updates something on the list like watch status or score
-     **/
     open var requireLibraryRefresh: Boolean = true
-    open val mainUrl: String = "NONE"
-
-    /** Currently unused, but will be used to correctly render the UI.
-     * This should specify what sync watch types can be used with this service. */
-    open val supportedWatchTypes: Set<SyncWatchType> = SyncWatchType.entries.toSet()
-    /**
-     * Allows certain providers to open pages from
-     * library links.
-     **/
     open val syncIdName: SyncIdName? = null
-
-    /** Modify the current status of an item */
-    @Throws
-    @WorkerThread
-    open suspend fun updateStatus(
-        auth: AuthData?,
-        id: String,
-        newStatus: AbstractSyncStatus
-    ): Boolean = throw NotImplementedError()
-
-    /** Get the current status of an item */
-    @Throws
-    @WorkerThread
-    open suspend fun status(auth: AuthData?, id: String): AbstractSyncStatus? =
-        throw NotImplementedError()
-
-    /** Get metadata about an item */
-    @Throws
-    @WorkerThread
-    open suspend fun load(auth: AuthData?, id: String): SyncResult? = throw NotImplementedError()
-
-    /** Search this service for any results for a given query */
-    @Throws
-    @WorkerThread
-    open suspend fun search(auth: AuthData?, query: String): List<SyncSearchResult>? =
-        throw NotImplementedError()
-
-    /** Get the current library/bookmarks of this service */
-    @Throws
-    @WorkerThread
-    open suspend fun library(auth: AuthData?): LibraryMetadata? = throw NotImplementedError()
-
-    /** Helper function, may be used in the future */
-    @Throws
-    open fun urlToId(url: String): String? = null
 
     data class SyncSearchResult(
         override val name: String,
@@ -91,23 +135,12 @@ abstract class SyncAPI : AuthAPI() {
         abstract var maxEpisodes: Int?
     }
 
-    data class SyncStatus(
-        override var status: SyncWatchType,
-        override var score: Score?,
-        override var watchedEpisodes: Int?,
-        override var isFavorite: Boolean? = null,
-        override var maxEpisodes: Int? = null,
-    ) : AbstractSyncStatus()
-
     data class SyncResult(
-        /**Used to verify*/
         var id: String,
-
         var totalEpisodes: Int? = null,
-
         var title: String? = null,
         var publicScore: Score? = null,
-        /**In minutes*/
+        /** In minutes */
         var duration: Int? = null,
         var synopsis: String? = null,
         var airStatus: ShowStatus? = null,
@@ -119,7 +152,6 @@ abstract class SyncAPI : AuthAPI() {
         var isAdult: Boolean? = null,
         var posterUrl: String? = null,
         var backgroundPosterUrl: String? = null,
-
         /** In unixtime */
         var startDate: Long? = null,
         /** In unixtime */
@@ -129,33 +161,6 @@ abstract class SyncAPI : AuthAPI() {
         var prevSeason: SyncSearchResult? = null,
         var actors: List<ActorData>? = null,
     )
-
-    data class Page(
-        val title: UiText, var items: List<LibraryItem>
-    ) {
-        fun sort(method: ListSorting?, query: String? = null) {
-            items = when (method) {
-                ListSorting.Query ->
-                    if (query != null) {
-                        items.sortedBy {
-                            -Levenshtein.partialRatio(
-                                query.lowercase(), it.name.lowercase()
-                            )
-                        }
-                    } else items
-
-                ListSorting.RatingHigh -> items.sortedBy { -(it.personalRating?.toInt(100) ?: 0) }
-                ListSorting.RatingLow -> items.sortedBy { (it.personalRating?.toInt(100) ?: 0) }
-                ListSorting.AlphabeticalA -> items.sortedBy { it.name }
-                ListSorting.AlphabeticalZ -> items.sortedBy { it.name }.reversed()
-                ListSorting.UpdatedNew -> items.sortedBy { it.lastUpdatedUnixTime?.times(-1) }
-                ListSorting.UpdatedOld -> items.sortedBy { it.lastUpdatedUnixTime }
-                ListSorting.ReleaseDateNew -> items.sortedByDescending { it.releaseDate }
-                ListSorting.ReleaseDateOld -> items.sortedBy { it.releaseDate }
-                else -> items
-            }
-        }
-    }
 
     data class LibraryMetadata(
         val allLibraryLists: List<LibraryList>,
@@ -170,11 +175,6 @@ abstract class SyncAPI : AuthAPI() {
     data class LibraryItem(
         override val name: String,
         override val url: String,
-        /**
-         * Unique unchanging string used for data storage.
-         * This should be the actual id when you change scores and status
-         * since score changes from library might get added in the future.
-         **/
         val syncId: String,
         val episodesCompleted: Int?,
         val episodesTotal: Int?,

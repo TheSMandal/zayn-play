@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Zayn Play: rotating loading ring (video 2 spec) — thin white "C" arc,
-     spinning clockwise while buffering. Used as the ProgressBar
-     indeterminateDrawable, so it animates automatically while visible.
-     No text, no percentage — the video picture stays visible behind it. -->
-<animated-rotate xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/zayn_loading_ring_shape"
-    android:pivotX="50%"
-    android:pivotY="50%" />
