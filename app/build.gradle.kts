@@ -107,6 +107,16 @@ android {
     }
 }
 
+// (V1.0.4) Exactly ONE coroutines-core on every classpath: the patched jar
+// in dependencies below. Any Maven coroutines-core — pulled transitively by
+// coroutines-android, ktor-http, or anything else — would put a second
+// BuildersKt next to it (the duplicate-class failure the multifile-part
+// shim trial hit; VERIFY-1.0.4 §1). files() deps ignore excludes, so the
+// patched jar survives this.
+configurations.all {
+    exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+}
+
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
 
@@ -121,7 +131,22 @@ dependencies {
     // requires Kotlin 2.0.0-RC1 (CI 45836444256 + local probe); 1.6.3
     // is the last 1.9-compatible release. Same for datetime 0.6.2.)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    // (V1.0.4) Patched coroutines-core, NOT the Maven artifact: byte-identical
+    // to kotlinx-coroutines-core-jvm 1.8.1 (Maven SHA-1
+    // 00bb0e192bd7c2b6b8217440d36e9758e377e450) except BuildersKt.class gains
+    // ONE method, runBlockingK, delegating to BuildersKt__BuildersKt.runBlocking
+    // — the JVM name coroutines 1.11.0 gives runBlocking, which the live Phisher
+    // plugins call (INVESTIGATION-3-runblocking.md). The patch was applied once
+    // offline with ASM (PatchBuildersKt.java, kept with the trial notes in
+    // verify-1.0.4/); re-run it if the core version ever changes. REMOVE the
+    // patched jar and restore the Maven core line if coroutines is ever upgraded
+    // to 1.11.0+, which ships runBlockingK natively.
+    // The global exclude below is load-bearing: ANY Maven core on the classpath
+    // (transitively pulled by coroutines-android, ktor-http, or anything else)
+    // would put a second BuildersKt next to this jar — the duplicate-class
+    // failure the multifile-part shim trial hit (VERIFY-1.0.4 §1). files() deps
+    // are not affected by excludes, so the patched jar survives it.
+    implementation(files("libs/kotlinx-coroutines-core-1.8.1-patched.jar"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     // kotlinx-datetime 0.6.2: MainAPI date APIs. 0.5.0 has NO format
     // package (no DateTimeComponents.Format/byUnicodePattern); 0.8.0
