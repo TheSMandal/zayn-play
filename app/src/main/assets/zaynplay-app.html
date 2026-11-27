@@ -1877,7 +1877,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.1</p>
+                  <p class="splash-ver">Zayn Play v1.0.2</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2717,12 +2717,30 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var feed = null, feedErr = null;
         try { feed = await engineHomeFeed(p.name, 1); } catch (e) { feedErr = e; }
         if (tok !== feedToken || currentProvider !== key) return;
+        /* (v1.0.2) Empty success is a failure (upstream HomeViewModel:
+           "No homepage responses"): count the items — an ok feed with
+           zero items is no_content, never a blank render. The native
+           homeFeed already returns no_content for this, but the check
+           here covers any ok-but-empty feed that still arrives. */
+        if (feed && feed.sections){
+          var _n = 0;
+          feed.sections.forEach(function(sec){ _n += ((sec && sec.items) || []).length; });
+          if (!_n){ feed = null; feedErr = { code: 'no_content' }; }
+        }
         if (!feed || !feed.sections){
           /* (v0.2.11) Target 13: show the failure reason + a retry, never
              blank rails. A cached feed stays on screen; without one, the
              error card explains what happened and retries on tap. */
           if (p.cachedFeed && p.cachedFeed.sections){ if (feedErr) toast(engineErrText(feedErr)); return; }
-          var reason = feedErr ? engineErrText(feedErr) : 'কনটেন্ট লোড হয়নি';
+          /* (v1.0.2) no_content means the site answered but gave nothing —
+             most often a Cloudflare challenge page parsing to zero items.
+             Say so plainly, with Retry. (There is no working "Bypass
+             Cloudflare" action in the UI — the provider gear only toasts —
+             so Retry is the action; inventing a bypass button that calls
+             nothing would be a fake fix.) */
+          var reason = (feedErr && feedErr.code === 'no_content')
+            ? 'কনটেন্ট পাওয়া যায়নি — সাইটটি হয়তো ব্লক করছে (Cloudflare)।'
+            : (feedErr ? engineErrText(feedErr) : 'কনটেন্ট লোড হয়নি');
           document.getElementById('h-trending').innerHTML = '<div class="home-err"><p>' + esc(reason) + '</p><button class="btn-play" onclick="renderProvider(\'' + key.replace(/'/g, "\\'") + '\')">আবার চেষ্টা করুন</button></div>';
           document.getElementById('h-series').innerHTML = '';
           document.getElementById('h-movies').innerHTML = '';
@@ -2751,7 +2769,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         trending = keys.slice(0, 5);
         p.trending = trending; p.series = series; p.movies = movies;
         p.hero = keys[0] || null;
-        p.cachedFeed = feed;
+        /* (v1.0.2) Never overwrite a good cached feed with an empty one —
+           an empty feed must not poison the instant load. */
+        if (keys.length) p.cachedFeed = feed;
         heroList = (p.hero ? [p.hero] : []).concat(p.trending).filter(function(k, i, arr){ return arr.indexOf(k) === i; });
         var dotsEl = document.getElementById('h-dots');
         dotsEl.innerHTML = '';
@@ -2766,7 +2786,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var swrap = document.getElementById('h-series-wrap');
         swrap.style.display = p.series.length ? '' : 'none';
         fillRail(document.getElementById('h-trending'), p.trending, 'rank');
-        if (p.series.length) fillRail(document.getElementById('h-series'), p.series, 'series');
+        /* (v1.0.2) Always clear the series rail too: the old conditional
+           left stale skeleton cards in #h-series on an empty feed. */
+        fillRail(document.getElementById('h-series'), p.series, 'series');
         fillRail(document.getElementById('h-movies'), p.movies, 'movie');
       }
       var feedToken = 0;
@@ -2991,10 +3013,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             var id = 'c' + (++self._seq);
             self._pending[id] = { resolve: resolve, reject: reject,
               timer: setTimeout(function(){ delete self._pending[id];
-                /* (v0.2.2) A timed-out JS wait must also cancel the native
-                   job, or a slow download keeps running unseen and a later
-                   retry can race it. */
-                try{ if (window.ZaynEngineNative && window.ZaynEngineNative.cancel) window.ZaynEngineNative.cancel(id); }catch(e){}
+                /* (v1.0.2) Do NOT cancel the native job on JS timeout: the
+                   cancel used to kill a repo install mid-save (and a slow
+                   download mid-flight). The native job finishes on its
+                   own; its late reply is ignored here (pending already
+                   deleted) and the next rebuildCatalog surfaces the
+                   result. */
                 reject({ ok: false, code: 'timeout', message: 'Engine timed out — try again' }); }, timeoutMs || 30000) };
             try{
               if (!window.ZaynEngineNative || !window.ZaynEngineNative.call) throw new Error('no native bridge');
@@ -3018,7 +3042,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          MainActivity.pushEngineEvent. */
       function onEngineEvent(name, data){
         try{
-          if (name === 'pluginsChanged'){ rebuildCatalog(); return; }
+          if (name === 'pluginsChanged'){ rebuildCatalog(); if (typeof runAppUpdateCheck === 'function') runAppUpdateCheck('boot'); return; }
           if (name === 'playerState'){ onEnginePlayerState(data); return; }
           if (name === 'playerError'){ onEnginePlayerError(data); return; }
           if (name === 'playerEnded'){ onEnginePlayerEnded(data); return; }
@@ -4927,7 +4951,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         toast('ইন্সটল হচ্ছে…');
         var repo = null;
         try {
-          var d = await engineCall('repoAdd', { input: r.url || r.id });
+          /* (v1.0.2) repoAdd does 3 sequential fetches (shortcode redirect,
+             repo.json, plugins.json) — the old 30 s wait could kill it
+             mid-save on a slow link. 120 s, like providerSetOn. */
+          var d = await engineCall('repoAdd', { input: r.url || r.id }, 120000);
           repo = d && d.repo;
           if (!repo){ toast('ইন্সটল করা যায়নি — আবার চেষ্টা করুন'); return false; }
         } catch (e) { toast(engineErrText(e)); return false; }
@@ -4982,6 +5009,36 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (window.ZP_v31plugAuto) return window.ZP_v31plugAuto();
         return true;
       }
+      /* (v1.0.2) Automatic app-update check, gated by the existing
+         "আপডেট এলে জানানো" toggle — the toggle MUST be read; it was dead
+         before (never read by any code). Silent unless an update is
+         found; a failed auto-check stays silent (the manual Check button
+         reports errors). 'boot' = on app open, at most once a day
+         (localStorage throttle); 'page' = opening the Updates screen,
+         at most once per 5 min. */
+      function updNotifyOn(){
+        if (window.ZP_v31updNotify){ try{ return !!window.ZP_v31updNotify(); }catch(e){} }
+        return true;
+      }
+      var _zpUpdPageAt = 0;
+      function runAppUpdateCheck(kind){
+        try{
+          if (!updNotifyOn()) return;
+          var now = Date.now();
+          if (kind === 'boot'){
+            var last = 0;
+            try{ last = parseInt(localStorage.getItem('zp_upd_last') || '0', 10) || 0; }catch(e2){}
+            if (now - last < 86400000) return;
+            try{ localStorage.setItem('zp_upd_last', String(now)); }catch(e2){}
+          } else {
+            if (now - _zpUpdPageAt < 300000) return;
+            _zpUpdPageAt = now;
+          }
+          engineCall('appUpdateCheck', { manual: false }, 60000).then(function(d){
+            if (d && d.updateAvailable) toast('নতুন আপডেট এসেছে — v' + (d.version || ''));
+          }).catch(function(){});
+        }catch(e){}
+      }
       async function runUpdateCheck(manual){
         if (manual) ST.uround++;
         var n = 0;
@@ -5018,7 +5075,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            parseRepoUrl) — no invented fake repo is ever created. */
         err.hidden = true;
         try {
-          var d = await engineCall('repoAdd', { input: v });
+          /* (v1.0.2) 120 s wait, like installRepo: repoAdd does 3
+             sequential fetches and the old 30 s wait could kill it. */
+          var d = await engineCall('repoAdd', { input: v }, 120000);
           var repo = d && d.repo;
           if (!repo){ fail('দুঃখিত — এই URL/শর্টকোডে কোনো রিপো পাওয়া যায়নি। লিংকটা ঠিক আছে কিনা দেখে আবার চেষ্টা করুন।'); return; }
           inp.value = '';
@@ -5087,7 +5146,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             if (typeof markRecentToggle === 'function') markRecentToggle(key);
             rebuildCatalog(); renderRepoUI();
             if (nowOn) setTimeout(function(){ checkOne(key, true); }, 700); /* (v0.2.11) B F7-3: post-toggle check is silent — a background sweep must not toast on Home */
-          }).catch(function(e){ toast(pn + testReasonText((e && e.code) || 'network_error')); renderRepoUI(); });
+          }).catch(function(e){ toast(pn + testReasonText((e && e.code) || 'network_error') + ((e && e.detail) ? ' — ' + e.detail : '')); renderRepoUI(); });
           return;
         }
         if ((t = e.target.closest('[data-rtest]'))){
@@ -6242,7 +6301,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.1</span></div>' +
+      '<span class="v31-val">Version 1.0.2</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
@@ -6736,7 +6795,7 @@ function render(inst, keepScroll){
   v31ApplyLang(inst);
   if (_scr) _scr.scrollTop = keepScroll ? st : 0; else inst.view.scrollTop = keepScroll ? st : 0;
 }
-function nav(inst, p, k){ inst.stack.push({ p: p, k: k }); render(inst); }
+function nav(inst, p, k){ inst.stack.push({ p: p, k: k }); if (p === 'g-upd' && typeof runAppUpdateCheck === 'function') runAppUpdateCheck('page'); render(inst); }
 function goBack(inst){ if (inst.stack.length > 1) inst.stack.pop(); render(inst); }
 function toast(inst, msg){
   var t = inst.toastEl;
@@ -6797,9 +6856,21 @@ function doAct(inst, act, el){
   } else if (act === 'checkUpdate'){
     toast(inst, 'আপডেট দেখা হচ্ছে…');
     engineCall('appUpdateCheck', { manual: true }, 60000).then(function(d){
+      /* (v1.0.2) Never report "up to date" when the check itself failed:
+         read d.error first — a network error used to masquerade as
+         "আপনার অ্যাপ হালনাগাদ আছে ✓". */
+      if (d && d.error === 'network_error'){ toast(inst, 'ইন্টারনেট সমস্যা — আবার চেষ্টা করুন'); return; }
+      if (d && d.error === 'rate_limited'){ toast(inst, 'অনেকবার চেষ্টা হয়েছে — একটু পরে চেষ্টা করুন'); return; }
       if (d && d.updateAvailable){
         toast(inst, 'নতুন ভার্সন এসেছে — v' + (d.version || ''));
-        engineCall('appUpdateDownload', { url: d.url || '' }).catch(function(e){ toast(inst, engineErrText(e)); });
+        engineCall('appUpdateDownload', { url: d.url || '' }).then(function(r){
+          /* (v1.0.2) Surface the download result — a failed download
+             used to fail silently after the "নতুন ভার্সন এসেছে" toast. */
+          if (r && r.started){ toast(inst, 'ডাউনলোড হয়েছে — ইনস্টল করুন'); }
+          else if (r && r.error === 'download_empty'){ toast(inst, 'ডাউনলোড অসম্পূর্ণ হয়েছে — আবার চেষ্টা করুন'); }
+          else if (r && r.error === 'install_permission'){ toast(inst, 'ইনস্টল করার অনুমতি দিন — সেটিংস খুলেছে, অনুমতি দিয়ে আবার চেষ্টা করুন'); }
+          else toast(inst, 'ডাউনলোড হয়নি — আবার চেষ্টা করুন');
+        }).catch(function(e){ toast(inst, engineErrText(e)); });
       } else toast(inst, 'আপনার অ্যাপ হালনাগাদ আছে ✓');
     }).catch(function(e){ toast(inst, engineErrText(e)); });
   } else if (act === 'preRelease'){ toast(inst, 'পরীক্ষামূলক ভার্সন এই মুহূর্তে নেই');
@@ -6926,7 +6997,7 @@ function extAct(inst, kind){
   }
   render(inst, true);
 }
-function addRepoSubmit(inst){
+async function addRepoSubmit(inst){
   var inp = inst.root.querySelector('[data-v31-addrepo-in]');
   var v = inp ? inp.value.trim() : '';
   var e = inst.ext;
@@ -6937,16 +7008,32 @@ function addRepoSubmit(inst){
     if ((all[i].code && all[i].code.toLowerCase() === v.toLowerCase()) || all[i].name.toLowerCase() === v.toLowerCase()){ found = all[i]; break; }
   }
   if (found){
-    if (inst.installed[found.id]){ e.repoOk = '“' + found.name + '” আগেই যোগ করা আছে।'; }
-    else { inst.installed[found.id] = true; inst.provOn[found.id] = inst.provOn[found.id] || {}; try{ if (typeof installRepo === 'function') installRepo(found); }catch(e){} e.repoOk = '“' + found.name + '” যোগ হয়েছে ✓ — খুলে প্রোভাইডার ON করুন।'; e.repoIn = ''; }
+    if (inst.installed[found.id]){ e.repoOk = '“' + found.name + '” আগেই যোগ করা আছে।'; render(inst, true); return; }
+    /* (v1.0.2) Await the real install — never report success before the
+       bridge answers (the old code set installed=true + a success line
+       while installRepo was still running). */
+    var ok = false;
+    try{ if (typeof installRepo === 'function') ok = await installRepo(found); }catch(e2){}
+    if (ok){ e.repoOk = '“' + found.name + '” যোগ হয়েছে ✓ — খুলে প্রোভাইডার ON করুন।'; e.repoIn = ''; }
+    else { e.repoErr = 'ইন্সটল করা যায়নি — আবার চেষ্টা করুন'; }
     render(inst, true); return;
   }
-  if (/^https?:\/\/.+repo\.json/i.test(v)){
-    try{ if (typeof installRepo === 'function') installRepo({ id: 'custom', name: v, url: v }); }catch(e){}
-    e.repoOk = 'চেক হচ্ছে — রিপো লোড হলে লিস্টে আসবে।';
-    render(inst, true); return;
+  /* (v1.0.2) Every other input — a bare shortcode OR a repo.json URL —
+     goes to the bridge exactly like the setup path (addRepoFrom):
+     parseRepoUrl resolves shortcodes via cutt.ly / py.md. The old code
+     rejected every bare shortcode locally ("মেলেনি") and never called
+     the bridge at all, and the URL branch reported "চেক হচ্ছে" before
+     knowing the result. Await the real native result; surface its error. */
+  try {
+    var d = await engineCall('repoAdd', { input: v }, 120000);
+    var repo = d && d.repo;
+    if (!repo){ e.repoErr = 'দুঃখিত — এই URL/শর্টকোডে কোনো রিপো পাওয়া যায়নি। লিংকটা ঠিক আছে কিনা দেখে আবার চেষ্টা করুন।'; render(inst, true); return; }
+    await rebuildCatalog();
+    e.repoOk = '“' + repo.name + '” যোগ হয়েছে ✓ — খুলে প্রোভাইডার ON করুন।'; e.repoIn = '';
+    toast(inst, repo.name + ' ইন্সটল হয়েছে ✓ — ভেতরে গিয়ে প্রোভাইডার ON করুন');
+  } catch (err) {
+    e.repoErr = engineErrText(err);
   }
-  e.repoErr = 'মেলেনি — ঠিকমতো শর্টকোড (যেমন: cspr) বা repo.json URL দিন।';
   render(inst, true);
 }
 function addSiteSubmit(inst){
@@ -7418,7 +7505,11 @@ function bindInstance(inst){
           }
         }catch(e){}
       }).catch(function(e){
-        try{ toast(inst, pn + testReasonText((e && e.code) || 'network_error')); render(inst, true); }catch(e2){}
+        /* (v1.0.2) Diagnostic only — the native detail names the exact
+           exception (e.g. VerifyError) so the next "load failed"
+           screenshot names the cause instead of hiding it. No Fibwatch
+           fix is attempted: its cause is still unproven. */
+        try{ toast(inst, pn + testReasonText((e && e.code) || 'network_error') + ((e && e.detail) ? ' — ' + e.detail : '')); render(inst, true); }catch(e2){}
       }).then(function(){
         try{ delete window.ZP_PROVTOG_PENDING[key]; if (el){ el.removeAttribute('aria-disabled'); el.style.opacity = ''; } }catch(e){}
       });
@@ -7496,9 +7587,11 @@ if (instances.length) buildSearchIndex(instances[0]);
     var inst = instances[0]; if (!inst) return;
     inst.stack = [{ p: 'hub' }];
     if (page && GROUPS.some(function(g){ return g.p === page; })) inst.stack.push({ p: page });
+    if (page === 'g-upd' && typeof runAppUpdateCheck === 'function') runAppUpdateCheck('page');
     render(inst, true);
   };
   window.ZP_v31plugAuto = function(){ var inst = instances[0]; return inst ? !!inst.set.plugAutoUpd : true; };
+  window.ZP_v31updNotify = function(){ var inst = instances[0]; return inst ? inst.set.updNotify !== false : true; };
   window.ZP_v31hold2x = function(){ var inst = instances[0]; return inst ? inst.set.gHold2x !== false : true; };
   window.ZP_v31resetHub = function(){
     var inst = instances[0]; if (!inst) return;
