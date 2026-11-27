@@ -166,6 +166,14 @@ open class Requests(
      * @param verify false to ignore SSL errors
      * @param timeout timeout in seconds
      * */
+    // (v0.2.9) Fix B: the trailing `cacheControlOverride` param is REMOVED
+    // from get(). Upstream's get() has 12 params; every plugin's app.get()
+    // call targets the 12-param get$default synthetic. Our 13-param form
+    // (added v0.2.2 for FORCE_NETWORK .cs3 downloads) meant the 12-param
+    // get$default did not exist, so the FIRST network call in any
+    // provider's content path threw NoSuchMethodError and Content failed
+    // everywhere. The .cs3 download keeps FORCE_NETWORK via custom()
+    // (RepositoryManager), which still takes cacheControlOverride.
     suspend fun get(
         url: String,
         headers: Map<String, String> = mapOf(),
@@ -178,13 +186,11 @@ open class Requests(
         timeout: Long = defaultTimeOut,
         interceptor: Interceptor? = null,
         verify: Boolean = true,
-        responseParser: ResponseParser? = this.responseParser,
-        cacheControlOverride: CacheControl? = null
+        responseParser: ResponseParser? = this.responseParser
     ): NiceResponse {
         return custom(
             "GET", url, headers, referer, params, cookies, null, null, null, null,
-            allowRedirects, cacheTime, cacheUnit, timeout, interceptor, verify, responseParser,
-            cacheControlOverride
+            allowRedirects, cacheTime, cacheUnit, timeout, interceptor, verify, responseParser
         )
     }
 
