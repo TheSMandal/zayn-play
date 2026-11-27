@@ -1,30 +1,15 @@
 package com.lagradost.cloudstream3.plugins
 
 /**
- * Phase B: RepositoryData + REPOSITORIES_KEY, copied verbatim from upstream
- * ExtensionsViewModel.kt:22-42 (the class lived in the UI layer there;
- * RepositoryManager references it, so it now lives next to it).
+ * (v1.0.2) The real RepositoryData class lives at the upstream location,
+ * com.lagradost.cloudstream3.ui.settings.extensions.RepositoryData (see
+ * that file for why: plugins compiled against upstream call it by that
+ * exact type). This typealias keeps every existing plugins-package
+ * reference compiling unchanged — it erases to the UI-package class,
+ * so RepositoryManager.getRepositories()/addRepository() carry the
+ * UI-package JVM descriptors that compiled plugins expect.
  */
 
-import kotlinx.serialization.Serializable
+typealias RepositoryData = com.lagradost.cloudstream3.ui.settings.extensions.RepositoryData
 
 const val REPOSITORIES_KEY = "REPOSITORIES_KEY"
-
-@Serializable
-data class RepositoryData(
-    val iconUrl: String?,
-    val name: String,
-    val url: String,
-    val description: String? = null,
-) {
-    constructor(
-        name: String,
-        url: String,
-    ) : this(null, name, url, null)
-
-    constructor(
-        iconUrl: String?,
-        name: String,
-        url: String,
-    ) : this(iconUrl, name, url, null)
-}
