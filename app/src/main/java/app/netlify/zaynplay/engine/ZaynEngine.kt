@@ -1852,11 +1852,32 @@ class ZaynEngine(
     private suspend fun probePlayable(link: ExtractorLink): Boolean {
         return try {
             withTimeout(3000) {
+                val isManifest = link.type == ExtractorLinkType.M3U8 ||
+                    link.type == ExtractorLinkType.DASH
                 val req = Request.Builder().url(link.url)
                     .apply { link.getAllHeaders().forEach { (k, v) -> header(k, v) } }
-                    .header("Range", "bytes=0-0").build()
+                    // (v1.0.7) Manifest links fetch the first 2 KB so the
+                    // body can be validated below. The old bytes=0-0 range
+                    // returns exactly 1 byte — a literal "read the first
+                    // 2 KB" check on it would fail every manifest link.
+                    .header("Range", if (isManifest) "bytes=0-2047" else "bytes=0-0").build()
                 com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use { resp ->
-                    resp.body?.close()
+                    // (v1.0.7) Read the head of the body BEFORE closing it:
+                    // a malformed/empty/JSON-error manifest with a benign
+                    // content-type used to pass the probe and fail inside
+                    // ExoPlayer as PARSING_MANIFEST_MALFORMED. Read with a
+                    // manual loop so a short body (< 2 KB) is a short
+                    // read, not an exception; a real read error propagates
+                    // to the fail-open catch below.
+                    val head = ByteArray(2048)
+                    var headLen = 0
+                    resp.body?.byteStream()?.use { stream ->
+                        while (headLen < head.size) {
+                            val r = stream.read(head, headLen, head.size - headLen)
+                            if (r == -1) break
+                            headLen += r
+                        }
+                    }
                     val ct = (resp.header("Content-Type") ?: "").lowercase()
                     // Total length: Content-Range ("bytes 0-0/<total>") for
                     // a 206, else Content-Length. (A 206's Content-Length
@@ -1872,6 +1893,7 @@ class ZaynEngine(
                             link.type != ExtractorLinkType.M3U8 &&
                             link.type != ExtractorLinkType.DASH -> "content-type text/plain"
                         totalLen != null && totalLen in 1..2 -> "stub body ($totalLen bytes)"
+                        isManifest && !isValidManifest(link.type, head, headLen) -> "not a valid M3U8/DASH manifest"
                         else -> null
                     }
                     if (reason != null) {
@@ -1885,6 +1907,23 @@ class ZaynEngine(
         } catch (e: Exception) {
             EngineLogger.log("player", "probe failed (fail-open) ${link.source}: ${e.message}")
             true
+        }
+    }
+
+    /**
+     * (v1.0.7) Validate the head of a manifest body: an M3U8 playlist
+     * starts with #EXTM3U; a DASH manifest contains <MPD (after the XML
+     * declaration). A leading BOM / whitespace is tolerated. Anything
+     * else (empty body, JSON error, HTML, truncated playlist) is not a
+     * valid manifest.
+     */
+    private fun isValidManifest(type: ExtractorLinkType, head: ByteArray, headLen: Int): Boolean {
+        val text = head.copyOf(headLen).decodeToString()
+            .trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+        return when (type) {
+            ExtractorLinkType.M3U8 -> text.startsWith("#EXTM3U")
+            ExtractorLinkType.DASH -> text.contains("<MPD")
+            else -> true
         }
     }
 
@@ -2085,6 +2124,10 @@ class ZaynEngine(
 
     private suspend fun playerControl(params: JSONObject): JSONObject {
         val action = params.optString("action", "")
+        // (v1.0.7) Log the action on every call: the V1.0.6 log recorded
+        // playerControl ids only, so whether the 4x "first frame rendered"
+        // re-fires were seeks or surface re-attachment was unknowable.
+        EngineLogger.log("player", "playerControl $action")
         return when (action) {
             "toggle", "pause", "resume", "seek", "rate", "volume", "mute" -> {
                 val value = if (params.has("value") && !params.isNull("value")) params.optDouble("value") else null
