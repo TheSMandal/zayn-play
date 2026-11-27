@@ -349,6 +349,16 @@ class ZaynEngine(
      * name = SitePlugin.name and notLoaded=true when it is not loaded.
      * ON/OFF/health state stays keyed by (repoId, row name).
      */
+    /** (v0.2.11) Mega: true when the plugin is loaded in-memory right
+     * now yet registers no MainAPI — a Plugin-only plugin (its load()
+     * does something else, e.g. adding repos). A stored-but-not-loaded
+     * plugin is NOT noApi: its APIs simply are not in memory yet. */
+    private fun pluginHasNoApi(repo: RepositoryData, p: SitePlugin): Boolean {
+        if (apisForPlugin(repo, p).isNotEmpty()) return false
+        val data = storedPluginData(repo, p.internalName) ?: return false
+        return PluginManager.plugins.containsKey(data.filePath)
+    }
+
     private fun providerEntries(repo: RepositoryData, wrappers: List<PluginWrapper>): JSONArray {
         val arr = JSONArray()
         // (v0.2.9) Fix G: enforce the provLang setting on ROWS only (see
@@ -372,7 +382,7 @@ class ZaynEngine(
             }
             if (apis.isEmpty()) {
                 if (langRowWanted(p.language, wantedCodes)) {
-                    arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true))
+                    arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true, noApi = pluginHasNoApi(repo, p)))
                 }
             } else {
                 for (api in apis) {
@@ -411,6 +421,7 @@ class ZaynEngine(
         name: String,
         api: MainAPI?,
         notLoaded: Boolean,
+        noApi: Boolean = false,
     ): JSONObject {
         val id = repoId(repo.url)
         val loadedPlugin = api?.let { loadedPluginFor(it) }
@@ -435,6 +446,7 @@ class ZaynEngine(
             .put("authors", JSONArray(p.authors))
             .put("fileSize", p.fileSize ?: JSONObject.NULL)
             .put("notLoaded", notLoaded)
+            .put("noApi", noApi)
     }
 
     /** Loaded MainAPIs registered by one SitePlugin (via its stored .cs3). */
@@ -573,6 +585,9 @@ class ZaynEngine(
         code == "file_missing" -> "$providerName: plugin file is missing — try again"
         code == "bad_manifest" -> "$providerName: file info is unreadable — the repo file is broken"
         code == "load_failed" -> "$providerName: could not load — try again"
+        // (v0.2.11) Mega: loaded fine, registers no MainAPI — it adds
+        // repositories instead of streaming video.
+        code == "plugin_only" -> "$providerName: loaded — adds repositories, no video provider"
         else -> "Could not download $providerName"
     }
 
@@ -700,8 +715,20 @@ class ZaynEngine(
             // `downloaded` is kept for the log line only.
             // (v0.2.4) The code is threaded from the download call.
             if (api == null) {
-                error = downloadCode ?: "load_failed"
-                EngineLogger.log("bridge", "providerTest $providerName failed: $error (downloaded=$downloaded)")
+                // (v0.2.11) Mega: a Plugin-only plugin (no MainAPI — e.g.
+                // MegaProvider, whose Plugin.load() adds repos) loads
+                // SUCCESSFULLY (downloaded=true, no code) yet registers
+                // no API. That is not a load failure: report load=true
+                // with the distinct plugin_only code so the row shows
+                // "loads, adds repos" instead of three red crosses.
+                if (downloaded && downloadCode == null) {
+                    load = true
+                    error = "plugin_only"
+                    EngineLogger.log("bridge", "providerTest $providerName: plugin-only (no MainAPI) — loaded OK")
+                } else {
+                    error = downloadCode ?: "load_failed"
+                    EngineLogger.log("bridge", "providerTest $providerName failed: $error (downloaded=$downloaded)")
+                }
             }
         }
         val apiForCheck = api
