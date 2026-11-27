@@ -1,6 +1,7 @@
 package app.netlify.zaynplay.engine
 
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -227,18 +228,30 @@ class ZaynPlayer(
             .setLoadControl(loadControlFor(pendingBufferLevel))
             .build()
         exo.addListener(listener)
-        textureView?.let { exo.setVideoTextureView(it) }
         player = exo
         builtBufferLevel = pendingBufferLevel
         EngineLogger.log("player", "ExoPlayer created")
     }
 
-    /** Attach (or detach with null) the video surface. Main thread. */
-    fun setSurface(view: TextureView?) {
-        mainHandler.post {
-            textureView = view
-            player?.setVideoTextureView(view)
-        }
+    /** (v1.0.8) Store the TextureView for play-time logging only. The
+     *  SurfaceTexture lifecycle is owned by MainActivity's own
+     *  SurfaceTextureListener; the Surface is handed to the player via
+     *  [setVideoSurfaceFromTexture]. setVideoTextureView is NOT used
+     *  anywhere: it would replace the app's listener, and re-registering
+     *  Media3's listener on a surfaceless view cannot CREATE a
+     *  SurfaceTexture (V1.0.7 black screen). setSurface is retired. */
+    fun setTextureView(view: TextureView?) {
+        textureView = view
+    }
+
+    /** (v1.0.8) Hand a Surface built from the app-owned SurfaceTexture to the player.
+     *  Unlike setVideoTextureView, setVideoSurface does NOT replace the
+     *  TextureView's listener, so the app keeps observing the texture lifecycle. */
+    fun setVideoSurfaceFromTexture(st: SurfaceTexture) {
+        mainHandler.post { player?.setVideoSurface(android.view.Surface(st)) }
+    }
+    fun clearVideoSurface() {
+        mainHandler.post { player?.setVideoSurface(null) }
     }
 
     /**
@@ -266,12 +279,11 @@ class ZaynPlayer(
                 releaseNow()
             }
             ensurePlayer(cacheSizeBytes)
-            // (v1.0.7) Re-assert the video surface on every play: if the
-            // TextureView's SurfaceTexture was destroyed/recreated
-            // (rotation, GONE->VISIBLE, player rebuild), the renderer can
-            // silently fall back to Media3's PlaceholderSurface and
-            // onRenderedFirstFrame still fires — the V1.0.6 black screen.
-            textureView?.let { player?.setVideoTextureView(it) }
+            // (v1.0.8) Attach the SurfaceTexture if one already exists
+            // (e.g. a later play reusing the view): setVideoSurface does
+            // NOT replace the app's SurfaceTextureListener, unlike
+            // setVideoTextureView, which could never create a texture.
+            textureView?.surfaceTexture?.let { player?.setVideoSurface(android.view.Surface(it)) }
             val p = player ?: return@post
             currentLink = link
             currentSubtitleText = subtitleText
