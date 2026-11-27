@@ -19,6 +19,7 @@ import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
@@ -131,6 +132,34 @@ class ZaynPlayer(
         }
     }
 
+    // (v1.0.10, web-research lead 3) Log the SELECTED video decoder's
+    // name + whether it is hardware or software, so the next log proves
+    // or refutes the decoder as the cause. Heuristic: OMX.google.* /
+    // c2.android.* / *.sw.* are software decoders; anything else (OMX.qcom,
+    // c2.qcom, ...) is hardware. The 10-bit HEVC silent-failure cause is
+    // already REFUTED for our links (avc1.640028 H.264 in the V1.0.9 log),
+    // but the decoder identity itself was never logged.
+    // NOTE: onVideoDecoderInitialized is an AnalyticsListener callback, NOT
+    // a Player.Listener one — an override inside the Player.Listener failed
+    // CI 46044585085 ("overrides nothing"). It lives on the analytics
+    // listener, registered next to the Player.Listener in ensurePlayer.
+    private val analyticsListener = object : AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: AnalyticsListener.EventTime,
+            decoderName: String,
+            initializationDurationMs: Long,
+        ) {
+            val lower = decoderName.lowercase()
+            val software = lower.startsWith("omx.google.") ||
+                lower.startsWith("c2.android.") || ".sw." in lower
+            val mime = player?.videoFormat?.sampleMimeType ?: "?"
+            EngineLogger.log(
+                "player",
+                "video decoder $decoderName mime=$mime software=$software",
+            )
+        }
+    }
+
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             val p = player ?: return
@@ -182,23 +211,6 @@ class ZaynPlayer(
         // a POSITIVE size proves the sink was told its output size.
         override fun onSurfaceSizeChanged(width: Int, height: Int) {
             EngineLogger.log("player", "surface size ${width}x${height}")
-        }
-
-        // (v1.0.10, web-research lead 3) Log the SELECTED video decoder's
-        // name + whether it is hardware or software, so the next log proves
-        // or refutes the decoder as the cause. Heuristic: OMX.google.* /
-        // c2.android.* / *.sw.* are software decoders; anything else (OMX.qcom,
-        // c2.qcom, ...) is hardware. The 10-bit HEVC silent-failure cause is
-        // already REFUTED for our links (avc1.640028 H.264 in the V1.0.9 log),
-        // but the decoder identity itself was never logged.
-        override fun onVideoDecoderInitialized(mimeType: String, codecName: String, initializationDurationMs: Long) {
-            val lower = codecName.lowercase()
-            val software = lower.startsWith("omx.google.") ||
-                lower.startsWith("c2.android.") || ".sw." in lower
-            EngineLogger.log(
-                "player",
-                "video decoder $codecName mime=$mimeType software=$software",
-            )
         }
 
         override fun onRenderedFirstFrame() {
@@ -264,6 +276,7 @@ class ZaynPlayer(
             .setLoadControl(loadControlFor(pendingBufferLevel))
             .build()
         exo.addListener(listener)
+        exo.addAnalyticsListener(analyticsListener)
         player = exo
         // (v1.0.9) Register Media3's view-managed surface API: its
         // componentListener reports the REAL view size to the sink
