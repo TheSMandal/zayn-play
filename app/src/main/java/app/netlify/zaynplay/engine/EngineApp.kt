@@ -36,6 +36,22 @@ object EngineApp {
         appContext = context.applicationContext
         this.store = store
         syncFlagsFromStore()
+        initNewPipeDownloader()
+    }
+
+    // (v0.2.10) NewPipe.init once, guarded: the YoutubeProvider
+    // plugin never calls it itself, and the extractor NPEs without a
+    // downloader. A failure here must never break startup — Youtube
+    // just stays broken, exactly as before.
+    private var newPipeInitDone = false
+    private fun initNewPipeDownloader() {
+        if (newPipeInitDone) return
+        newPipeInitDone = true
+        try {
+            org.schabi.newpipe.extractor.NewPipe.init(ZaynNewPipeDownloader())
+        } catch (t: Throwable) {
+            android.util.Log.e("ZaynEngine", "NewPipe.init failed", t)
+        }
     }
 
     /** Re-read jsdelivrProxy / dns from EngineStore (call after settingsSet). */
