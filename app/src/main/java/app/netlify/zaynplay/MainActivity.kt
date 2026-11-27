@@ -50,9 +50,9 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /**
- * Zayn Play — UI-only build (v0.2.0-phaseB).
+ * Zayn Play (v1.0.3).
  *
- * The whole app UI is the approved preview (assets/zaynplay-app.html),
+ * The app shows the approved preview (assets/zaynplay-app.html),
  * shown in a single WebView. Phase B of the engine phase ports the
  * CloudStream engine core (vendored, decoupled — see
  * app/netlify/zaynplay/engine/ZaynEngine.kt): the "ZaynEngineNative"
