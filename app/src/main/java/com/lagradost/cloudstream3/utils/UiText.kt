@@ -29,5 +29,3 @@ sealed class UiText {
     }
 }
 
-fun txt(value: String) = UiText.DynamicString(value)
-
