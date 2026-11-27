@@ -38,7 +38,7 @@ class ZaynUpdater(private val context: Context) {
     companion object {
         const val GITHUB_USER = "TheSMandal"
         const val GITHUB_REPO = "zayn-play"
-        private val VERSION_REGEX = Regex("""((\d+)\.(\d+)\.(\d+))\.apk""")
+        private val VERSION_REGEX = Regex("""((\d+)\.(\d+)\.(\d+))(?:-vc\d+)?\.apk""")
         private val VC_REGEX = Regex("""-vc(\d+)\.apk$""")
     }
 
@@ -87,7 +87,10 @@ class ZaynUpdater(private val context: Context) {
         val releases = try {
             JSONArray(releasesText)
         } catch (e: Exception) {
-            return JSONObject().put("updateAvailable", false)
+            // (v0.2.11) C-14: a GitHub rate-limit returns a JSON object,
+            // not an array — report it, never silent "up to date".
+            val errCode = if (releasesText.contains("rate limit", ignoreCase = true)) "rate_limited" else "network_error"
+            return JSONObject().put("updateAvailable", false).put("error", errCode)
         }
         var best: JSONObject? = null
         var bestCode = -1L
@@ -160,6 +163,11 @@ class ZaynUpdater(private val context: Context) {
             }
             file.outputStream().use { out ->
                 body.byteStream().use { input -> input.copyTo(out) }
+            }
+            // (v0.2.11) C-14: a truncated/empty download must fail here,
+            // not later at the system installer with no message.
+            if (!file.exists() || file.length() <= 0) {
+                return JSONObject().put("started", false).put("error", "download_empty")
             }
             val uri: Uri = FileProvider.getUriForFile(
                 context, "${context.packageName}.provider", file,
