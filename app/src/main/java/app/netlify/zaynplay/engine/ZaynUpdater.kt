@@ -6,6 +6,7 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.lagradost.cloudstream3.app
 import java.io.File
@@ -150,6 +151,24 @@ class ZaynUpdater(private val context: Context) {
     /** Download the APK to cacheDir/ZaynPlay.apk and fire the installer. */
     suspend fun downloadUpdate(url: String): JSONObject {
         if (url.isBlank()) return JSONObject().put("started", false)
+        // (v1.0.2) Android 8+ needs the per-app unknown-sources grant
+        // before ANY install intent can work — and the V1.0.1 APK did not
+        // even declare REQUEST_INSTALL_PACKAGES, so the grant could never
+        // be given. Check FIRST (before the ~26 MB download): if the
+        // grant is missing, open this app's "Install unknown apps"
+        // screen and report install_permission, so the user grants it
+        // and taps again instead of downloading for nothing.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !context.packageManager.canRequestPackageInstalls()
+        ) {
+            EngineLogger.log("updater", "unknown-sources grant missing — opening Settings")
+            val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                data = Uri.parse("package:${context.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(settingsIntent)
+            return JSONObject().put("started", false).put("error", "install_permission")
+        }
         return try {
             // Delete stale update files first.
             context.cacheDir.listFiles()
