@@ -83,6 +83,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: zayn-play-1.0.14
+          name: zayn-play-1.0.15
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
