@@ -102,6 +102,15 @@ class MainActivity : AppCompatActivity() {
     // each; 20 = 5 s) + whether the UNHEALTHY line already fired.
     private var probePolls = 0
     private var probeHealthLogged = false
+    // (v1.0.14 G4) Stall detector: lastFrameTs baseline + consecutive
+    // playing polls with NO new frame. frameCount is cumulative, so it
+    // can never catch a mid-play freeze — this can.
+    private var lastHealthFrameTs = 0L
+    private var healthStallPolls = 0
+    // (v1.0.14 G2) Whether playback was playing when the activity paused,
+    // so onResume can surface the paused state (tap-to-resume; never
+    // auto-resume — product decision pending).
+    private var wasPlayingAtPause = false
     private lateinit var zaynDownloads: ZaynDownloads
     private var lastStageRect: JSONObject? = null
     // (v1.0.5 A1/A4) Last KNOWN-GOOD stage rect (visible=true, non-degenerate):
@@ -374,10 +383,16 @@ class MainActivity : AppCompatActivity() {
             onPlayerStageRect(rect)
         }
         engineScope.launch {
+            // (v1.0.14 P5-9) Track whether the initial plugin load threw:
+            // before this, markReady() + pluginsChanged{ready:true} fired
+            // unconditionally after swallowed exceptions, so the page
+            // believed plugins were ready when they were not.
+            var pluginLoadError: String? = null
             try {
                 PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllOnlinePlugins(this@MainActivity)
                 PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllLocalPlugins(this@MainActivity, false)
             } catch (e: Exception) {
+                pluginLoadError = "${e.javaClass.simpleName}: ${e.message}"
                 EngineLogger.log("engine", "initial plugin load threw ${e.message}")
             }
             // (v0.2.1-g) APIHolder.initAll() was never called: apply
@@ -387,10 +402,15 @@ class MainActivity : AppCompatActivity() {
             try {
                 com.lagradost.cloudstream3.APIHolder.initAll()
             } catch (e: Exception) {
+                if (pluginLoadError == null) pluginLoadError = "${e.javaClass.simpleName}: ${e.message}"
                 EngineLogger.log("engine", "APIHolder.initAll threw ${e.message}")
             }
-            zaynEngine.markReady()
-            pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
+            if (pluginLoadError != null) {
+                pushEngineEvent("pluginsChanged", JSONObject().put("ready", false).put("error", pluginLoadError))
+            } else {
+                zaynEngine.markReady()
+                pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
+            }
             // (v0.2.11) C-11: NO boot auto-update check any more — it
             // fetched every repo manifest and downloaded updates over the
             // same slow link while the first home feed was loading, and
@@ -408,7 +428,12 @@ class MainActivity : AppCompatActivity() {
                         engineReply(id, engineError("invalid_input", "Bad request"))
                         return@launch
                     }
-                    EngineLogger.log("bridge", "$method id=$id")
+                    // (v1.0.14 P4/F4) Feed-lifecycle logging: name the
+                    // provider for homeFeed so the log shows WHICH feed is
+                    // loading. Only the providerName field is read — never
+                    // the full params JSON (it can carry tokens/URLs).
+                    val _prov = if (method == "homeFeed") " provider=${params.optString("providerName", "?")}" else ""
+                    EngineLogger.log("bridge", "$method id=$id$_prov")
                     // (v1.0.2) The native side must ALWAYS reply. A native
                     // timeout used to cancel this coroutine (homeFeed
                     // rethrows CancellationException) and skip engineReply,
@@ -484,6 +509,10 @@ class MainActivity : AppCompatActivity() {
             // The stage moved: ask the page to re-report its rect so the
             // native video surface follows the new layout.
             webView.evaluateJavascript("window.__zaynReportStage && window.__zaynReportStage()", null)
+            // (v1.0.14 G3) Rotation can lose the SurfaceTexture while the
+            // hole looks fine — verify it 200 ms after layout and recover
+            // if it is gone (postSurfaceCheck does both, either engine).
+            postSurfaceCheck()
         }
     }
 
@@ -494,6 +523,10 @@ class MainActivity : AppCompatActivity() {
         // keeps running (or playing) in the background.
         webView.onPause()
         webView.pauseTimers()
+        // (v1.0.14 G2) Remember whether playback was playing BEFORE
+        // pausing, so onResume can surface the paused state.
+        wasPlayingAtPause = (::zaynPlayer.isInitialized && zaynPlayer.isPlaying()) ||
+            (::zaynMpvPlayer.isInitialized && zaynMpvPlayer.isPlaying())
         // Phase C: pause playback too (audio must not keep playing when
         // the user leaves the app).
         if (::zaynPlayer.isInitialized) zaynPlayer.pauseForBackground()
@@ -530,7 +563,26 @@ class MainActivity : AppCompatActivity() {
         if (isPlayerFullscreen) {
             reassertVideoHole()
             webView.evaluateJavascript("window.__zaynReportStage && window.__zaynReportStage()", null)
+            // (v1.0.14 G2) Verify the surface itself, not just the hole: a
+            // texture lost while backgrounded is never detected otherwise.
+            // (v1.0.14 G3 shape, reused here.)
+            postSurfaceCheck()
+            if (wasPlayingAtPause) {
+                // Tap-to-resume (never auto-resume): push the paused state
+                // so the player UI shows the paused toggle instead of a
+                // silently frozen frame. The user taps play to resume.
+                val snapshot = if (::zaynEngine.isInitialized && zaynEngine.isMpvActive() && ::zaynMpvPlayer.isInitialized) {
+                    zaynMpvPlayer.stateSnapshot()
+                } else if (::zaynPlayer.isInitialized) {
+                    zaynPlayer.stateSnapshot()
+                } else null
+                if (snapshot != null) {
+                    EngineLogger.log("player", "activity resume — was playing at pause, surfacing paused state (tap to resume)")
+                    pushEngineEvent("playerState", snapshot)
+                }
+            }
         }
+        wasPlayingAtPause = false
     }
 
     override fun onDestroy() {
@@ -557,6 +609,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Push a one-way engine event into the page (window.__zaynEvent). */
     private fun pushEngineEvent(name: String, data: JSONObject) {
+        // (v1.0.14 P4 rank 5) Stamp the bridge version on every event so
+        // the page can ignore events from a mismatched bridge.
+        if (!data.has("v")) data.put("v", 1)
         runOnUiThread {
             if (::webView.isInitialized) {
                 webView.evaluateJavascript(
@@ -569,6 +624,10 @@ class MainActivity : AppCompatActivity() {
 
     /** Post a bridge reply to the main thread, then into the page. */
     private fun engineReply(id: String, response: JSONObject) {
+        // (v1.0.14 P4 rank 9) A reply into a finishing/destroyed activity
+        // is a WebView call into a dead page — skip it (the JS side has
+        // already timed out or gone away with the activity).
+        if (isFinishing || isDestroyed) return
         val idJson = JSONObject.quote(id)
         runOnUiThread {
             if (::webView.isInitialized) {
@@ -772,17 +831,23 @@ class MainActivity : AppCompatActivity() {
                     // middle transparent) — it dims, it cannot black out.
                     "alpha=${playerSurface.alpha}",
             )
-            // (v1.0.12 §9) Surface recovery trigger: still no texture 200 ms
-            // after stage-open while fullscreen with ExoPlayer active — one
+            // (v1.0.12 §9, v1.0.14 G5) Surface recovery trigger: still
+            // no texture 200 ms after stage-open while fullscreen — one
             // bounded detach+re-attach (max 1 per play, enforced in the
             // player). A slow texture is normal (session 1 took ~1 s), so
-            // this only re-registers Media3's listener; it never blocks.
+            // this only re-registers the listener; it never blocks. The
+            // old mpv exclusion is lifted: libmpv now has recoverSurface()
+            // too, and a null texture on mpv got no repair at all.
             if (playerSurface.surfaceTexture == null && isPlayerFullscreen &&
-                ::zaynEngine.isInitialized && !zaynEngine.isMpvActive() &&
-                ::zaynPlayer.isInitialized
+                ::zaynEngine.isInitialized
             ) {
-                EngineLogger.log("playerStage", "surface check texture null while fullscreen — recovering surface (bounded 1/play)")
-                zaynPlayer.recoverSurface()
+                if (zaynEngine.isMpvActive() && ::zaynMpvPlayer.isInitialized) {
+                    EngineLogger.log("playerStage", "surface check texture null while fullscreen (mpv) — recovering surface (bounded 1/play)")
+                    zaynMpvPlayer.recoverSurface()
+                } else if (::zaynPlayer.isInitialized) {
+                    EngineLogger.log("playerStage", "surface check texture null while fullscreen — recovering surface (bounded 1/play)")
+                    zaynPlayer.recoverSurface()
+                }
             }
         }, 200)
     }
@@ -823,6 +888,8 @@ class MainActivity : AppCompatActivity() {
                         lastFrameTs = 0L
                         probePolls = 0
                         probeHealthLogged = false
+                        lastHealthFrameTs = 0L
+                        healthStallPolls = 0
                         EngineLogger.log(
                             "player",
                             "player texture frame probe attached tex=$texId",
@@ -860,16 +927,29 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                // (v1.0.12 §9) Audio-without-video is UNHEALTHY, never
-                // healthy: 5 s (20 consecutive playing polls) with zero
-                // frames while an engine reports playing. Polls only count
-                // while playing, so a slow start is not a false positive.
+                // (v1.0.12 §9, v1.0.14 G4) Audio-without-video is
+                // UNHEALTHY, never healthy: 5 s (20 consecutive playing
+                // polls) with NO NEW FRAME while an engine reports playing.
+                // The old check (frameCount == 0) only fired when zero
+                // frames EVER arrived — a mid-play freeze at frame N never
+                // tripped it, because frameCount is cumulative. The stall
+                // rule subsumes it: no frame ever = stalled since play.
                 val playingNow = (::zaynPlayer.isInitialized && zaynPlayer.isPlaying()) ||
                     (::zaynMpvPlayer.isInitialized && zaynMpvPlayer.isPlaying())
-                if (playingNow) probePolls++ else probePolls = 0
-                if (frameCount == 0 && probePolls > 20 && !probeHealthLogged) {
+                if (playingNow) {
+                    probePolls++
+                    if (lastFrameTs == lastHealthFrameTs) healthStallPolls++ else {
+                        healthStallPolls = 0
+                        lastHealthFrameTs = lastFrameTs
+                    }
+                } else {
+                    probePolls = 0
+                    healthStallPolls = 0
+                    lastHealthFrameTs = lastFrameTs
+                }
+                if (healthStallPolls > 20 && !probeHealthLogged) {
                     probeHealthLogged = true
-                    EngineLogger.log("player", "health UNHEALTHY — audio playing but no video frame in 5s (no texture frame arrived)")
+                    EngineLogger.log("player", "health UNHEALTHY — audio playing but no video frame in 5s (frames stopped at #$frameCount)")
                 }
                 playerSurface.postDelayed(this, 250)
             }
