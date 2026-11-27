@@ -599,6 +599,9 @@ object PluginManager {
         // (v0.2.6) Declared outside the try so the catch can name
         // the plugin class in the forensic log line.
         var pluginClassName: String? = null
+        // (v0.2.9) Fix G: set when the old version is evicted below, so
+        // the catch knows this load was a RELOAD (see there).
+        var evictedOldVersion = false
 
         return try {
             // In case of Android 14+ then: ART refuses a WRITABLE dex
@@ -713,6 +716,7 @@ object PluginManager {
             if (plugins.containsKey(filePath)) {
                 Log.i(TAG, "Plugin $name already loaded, reloading from new file")
                 unloadPlugin(filePath)
+                evictedOldVersion = true
             }
 
             pluginInstance.filename = file.absolutePath
@@ -802,6 +806,28 @@ object PluginManager {
             // (see readPluginManifest): deleting it raced concurrent
             // loads of the same file and produced the empty
             // DexPathList. The next test re-downloads fresh.
+            // (v0.2.9) Fix G: a failed reload used to leave a STALE
+            // PluginData record: the stored record still points at this
+            // file, but the file on disk is now the NEW version that just
+            // failed to load, and the old version was already evicted
+            // (and its bytes overwritten on disk by the download). The
+            // boot scan would retry the broken file forever while the UI
+            // showed the provider as installed. The previous file cannot
+            // be re-loaded (its bytes are gone), so delete the stale
+            // record when the old version was evicted, or when the
+            // failure proves the file itself can never load
+            // (load_class_missing / dex_writable). A merely transient
+            // load() failure keeps its record for the next retry.
+            if (evictedOldVersion || lastLoadError == "load_class_missing" || lastLoadError == "dex_writable") {
+                try {
+                    deletePluginData(data)
+                    EngineLogger.log(
+                        "load",
+                        "deleted stale record for ${data.internalName} after failed load ($lastLoadError)"
+                    )
+                } catch (_: Throwable) {
+                }
+            }
             currentlyLoading = null
             Triple(false, lastLoadError, lastLoadDetail)
         }
