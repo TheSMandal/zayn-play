@@ -1,7 +1,6 @@
 package app.netlify.zaynplay.engine
 
 import android.content.Context
-import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -152,10 +151,14 @@ class ZaynPlayer(
             pushState()
         }
 
-        // (v1.0.7) CORRECTS the v1.0.6 M2 comment, which was false:
-        // onRenderedFirstFrame fires when a frame is rendered to WHATEVER
-        // output surface is attached — including Media3's
-        // PlaceholderSurface when no real surface is attached — so it
+        // (v1.0.9) CORRECTS the v1.0.7 comment, which was wrong about the
+        // mechanism: in the sink path onRenderedFirstFrame fires from the
+        // VideoSink.Listener.onFirstFrameRendered callback, gated only on
+        // displaySurface != null — it means the sink processed a frame,
+        // NOT that a frame reached the display. Media3's PlaceholderSurface
+        // is NOT used on this device (shouldUsePlaceholderSurface is false:
+        // SDK>=23, no tunneling, no secure-codec case), and with a VideoSink
+        // the codec renders into the sink's input surface anyway. So it
         // proves decoding, NOT display. The V1.0.6 black screen had a
         // video track selected (854x480) and frames rendered, yet the
         // visible TextureView stayed black.
@@ -168,8 +171,16 @@ class ZaynPlayer(
                 "player",
                 "video size ${videoSize.width}x${videoSize.height} " +
                     "videoFormat=${vf?.sampleMimeType ?: "none"} ${vf?.codecs ?: ""} " +
-                    "${vf?.width ?: 0}x${vf?.height ?: 0}",
+                    "${vf?.width ?: 0}x${vf?.height ?: 0} " +
+                    "drmInitData=${vf?.drmInitData != null}",
             )
+        }
+
+        // (v1.0.9) Media3 reports the output-surface size here whenever the
+        // size changes — this is the MSG_SET_VIDEO_OUTPUT_RESOLUTION path:
+        // a POSITIVE size proves the sink was told its output size.
+        override fun onSurfaceSizeChanged(width: Int, height: Int) {
+            EngineLogger.log("player", "surface size ${width}x${height}")
         }
 
         override fun onRenderedFirstFrame() {
@@ -229,29 +240,37 @@ class ZaynPlayer(
             .build()
         exo.addListener(listener)
         player = exo
+        // (v1.0.9) Register Media3's view-managed surface API: its
+        // componentListener reports the REAL view size to the sink
+        // (MSG_SET_VIDEO_OUTPUT_RESOLUTION), which the raw-Surface path
+        // could never do (it only ever reported -1x-1).
+        textureView?.let { exo.setVideoTextureView(it) }
         builtBufferLevel = pendingBufferLevel
         EngineLogger.log("player", "ExoPlayer created")
     }
 
-    /** (v1.0.8) Store the TextureView for play-time logging only. The
-     *  SurfaceTexture lifecycle is owned by MainActivity's own
-     *  SurfaceTextureListener; the Surface is handed to the player via
-     *  [setVideoSurfaceFromTexture]. setVideoTextureView is NOT used
-     *  anywhere: it would replace the app's listener, and re-registering
-     *  Media3's listener on a surfaceless view cannot CREATE a
-     *  SurfaceTexture (V1.0.7 black screen). setSurface is retired. */
+    /** (v1.0.9) Store the TextureView and, if a player already exists,
+     *  hand it to Media3 via setVideoTextureView at once; otherwise
+     *  ensurePlayer applies it at creation. The V1.0.8 raw-Surface path
+     *  (setVideoSurfaceFromTexture / clearVideoSurface) is RETIRED: a raw
+     *  Surface can only ever report size (-1,-1) to the sink, so the sink
+     *  never learned its output size (V1.0.8 black screen), and
+     *  setVideoSurface removes Media3's componentListener. The V1.0.8
+     *  comment that setVideoTextureView "is NOT used anywhere" was the bug:
+     *  it is the ONLY API that delivers the surface SIZE. setSurface is
+     *  retired. On release only, the view is detached via
+     *  setVideoTextureView(null) in releaseNow. */
     fun setTextureView(view: TextureView?) {
         textureView = view
+        if (view != null) player?.setVideoTextureView(view)
     }
 
-    /** (v1.0.8) Hand a Surface built from the app-owned SurfaceTexture to the player.
-     *  Unlike setVideoTextureView, setVideoSurface does NOT replace the
-     *  TextureView's listener, so the app keeps observing the texture lifecycle. */
-    fun setVideoSurfaceFromTexture(st: SurfaceTexture) {
-        mainHandler.post { player?.setVideoSurface(android.view.Surface(st)) }
-    }
-    fun clearVideoSurface() {
-        mainHandler.post { player?.setVideoSurface(null) }
+    /** (v1.0.9) The size ExoPlayerImpl tracks for the output surface —
+     *  the proof line: positive (e.g. 2392x1080) means the sink was told
+     *  its output size; -1x-1 means it never was. */
+    fun surfaceSizeText(): String {
+        val sz = player?.surfaceSize
+        return "${sz?.width ?: -1}x${sz?.height ?: -1}"
     }
 
     /**
@@ -279,11 +298,10 @@ class ZaynPlayer(
                 releaseNow()
             }
             ensurePlayer(cacheSizeBytes)
-            // (v1.0.8) Attach the SurfaceTexture if one already exists
-            // (e.g. a later play reusing the view): setVideoSurface does
-            // NOT replace the app's SurfaceTextureListener, unlike
-            // setVideoTextureView, which could never create a texture.
-            textureView?.surfaceTexture?.let { player?.setVideoSurface(android.view.Surface(it)) }
+            // (v1.0.9) NO raw-Surface attach here: setVideoSurface calls
+            // removeSurfaceCallbacks(), which would remove Media3's
+            // componentListener and break the size notifications. The view
+            // is attached via setVideoTextureView in ensurePlayer.
             val p = player ?: return@post
             currentLink = link
             currentSubtitleText = subtitleText
@@ -323,6 +341,9 @@ class ZaynPlayer(
                     .setPreferredAudioLanguage(preferredAudioLang)
                     .build()
             }
+            // (v1.0.9) Belt-and-braces: make the framework create the
+            // SurfaceTexture promptly, before prepare.
+            textureView?.visibility = View.VISIBLE
             p.prepare()
             if (startAtMs > 0) p.seekTo(startAtMs)
             p.play()
@@ -350,6 +371,7 @@ class ZaynPlayer(
             EngineLogger.log(
                 "player",
                 "play surfaceTexture=${tv?.surfaceTexture != null} " +
+                    "surfaceSize=${p.surfaceSize.width}x${p.surfaceSize.height} " +
                     "textureView=${tv?.width ?: 0}x${tv?.height ?: 0} visibility=$tvVis",
             )
         }
@@ -540,6 +562,11 @@ class ZaynPlayer(
 
     private fun releaseNow() {
         stopTicker()
+        try {
+            // (v1.0.9) Detach the view-managed surface on release only.
+            player?.setVideoTextureView(null)
+        } catch (e: Exception) {
+        }
         try {
             player?.release()
         } catch (e: Exception) {
