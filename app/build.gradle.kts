@@ -14,8 +14,8 @@ android {
         minSdk = 24
         targetSdk = 34
         // UI-review build only — never to be released as-is.
-        versionCode = 17
-        versionName = "0.2.8"
+        versionCode = 18
+        versionName = "0.2.9"
     }
 
     buildTypes {
