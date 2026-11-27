@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -324,6 +325,25 @@ class MainActivity : AppCompatActivity() {
         // Phase C: the headless player + downloads, owned here. Their
         // events flow back into the page via pushEngineEvent.
         playerSurface = findViewById(R.id.player_surface)
+        // (v1.0.8) Own the SurfaceTexture lifecycle: the app observes the
+        // texture directly and hands the Surface to the player itself.
+        // V1.0.7 proved Media3's setVideoTextureView cannot CREATE a
+        // SurfaceTexture — the TextureView had none at all — so the app
+        // must see the callback itself. setVideoSurface (used below) does
+        // NOT replace this listener, unlike setVideoTextureView.
+        playerSurface.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                EngineLogger.log("player", "surfaceTexture available ${w}x${h}")
+                if (::zaynPlayer.isInitialized) zaynPlayer.setVideoSurfaceFromTexture(st)
+            }
+            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                EngineLogger.log("player", "surfaceTexture destroyed")
+                if (::zaynPlayer.isInitialized) zaynPlayer.clearVideoSurface()
+                return true
+            }
+            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+        }
         // (v1.0.5 A3) Re-assert the video hole on every playerState event
         // while the player is open, so one visible=false report — or a
         // missed report — cannot leave the surface GONE for the session.
@@ -331,7 +351,7 @@ class MainActivity : AppCompatActivity() {
             if (type == "playerState") reassertVideoHole()
             pushEngineEvent(type, data)
         }
-        zaynPlayer.setSurface(playerSurface)
+        zaynPlayer.setTextureView(playerSurface)
         zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
         zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }) { rect ->
             onPlayerStageRect(rect)
@@ -554,16 +574,21 @@ class MainActivity : AppCompatActivity() {
             // Transparent WebView background while the surface shows, so
             // the page's transparent stage hole reveals the video below.
             if (::webView.isInitialized) setWebViewBackground(Color.TRANSPARENT)
-            // (v1.0.7) Re-attach the surface whenever the stage opens, so a
-            // SurfaceTexture destroyed while the stage was closed cannot
-            // leave the renderer on the PlaceholderSurface for the whole
-            // play (the V1.0.6 black screen).
-            if (::zaynPlayer.isInitialized) zaynPlayer.setSurface(playerSurface)
+            // (v1.0.8) Attach the SurfaceTexture if one already exists.
+            // setVideoSurface does NOT replace the app's own
+            // SurfaceTextureListener (set in onCreate), unlike
+            // setVideoTextureView, which re-registers Media3's listener
+            // and cannot create a SurfaceTexture (V1.0.7 black screen).
+            playerSurface.surfaceTexture?.let { st ->
+                if (::zaynPlayer.isInitialized) zaynPlayer.setVideoSurfaceFromTexture(st)
+            }
             // (v1.0.4) The surface must be VISIBLE whenever the page says
             // the player is open, even if this report's rect is degenerate
             // (a 0-size rect used to leave it GONE while the page showed
             // the player as open). Positioning follows on the next report.
             playerSurface.visibility = View.VISIBLE
+            // (v1.0.8) Post-stage-open surface-state check (see postSurfaceCheck).
+            postSurfaceCheck()
             // (v1.0.5 A4) A degenerate rect must NOT leave the surface at
             // its 1dp×1dp XML size: apply the last known-good rect, or the
             // full WebView size when no good rect exists yet.
@@ -626,6 +651,26 @@ class MainActivity : AppCompatActivity() {
         return "$vis ${playerSurface.width}x${playerSurface.height} layout=${lp?.width}x${lp?.height}"
     }
 
+    /** (v1.0.8) Delayed surface-state check after the stage opens (layout
+     *  + first draw, ~200 ms): logs whether the framework created a
+     *  SurfaceTexture. This is the line that decides the next step if the
+     *  screen is still black — surfaceTexture=false means the framework
+     *  never created one; true + still black means renderer/content. */
+    private fun postSurfaceCheck() {
+        playerSurface.postDelayed({
+            val vis = when (playerSurface.visibility) {
+                View.VISIBLE -> "VISIBLE"
+                View.GONE -> "GONE"
+                else -> "INVISIBLE"
+            }
+            EngineLogger.log(
+                "playerStage",
+                "surface check surfaceTexture=${playerSurface.surfaceTexture != null} " +
+                    "textureView=${playerSurface.width}x${playerSurface.height} visibility=$vis",
+            )
+        }, 200)
+    }
+
     /**
      * (v1.0.5 A3) Re-assert the video hole from the last known-good rect,
      * independently of what the page last reported. Called on every
@@ -653,6 +698,8 @@ class MainActivity : AppCompatActivity() {
                     "re-assert hole from lastGoodRect surface=${surfaceState()} " +
                         "webViewBg=#%08X".format(lastWebViewBgColor),
                 )
+                // (v1.0.8) A repair is a re-open: re-check the surface state after layout.
+                postSurfaceCheck()
             }
         }
     }
