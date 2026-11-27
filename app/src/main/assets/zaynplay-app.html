@@ -1381,6 +1381,11 @@ body.native-video{ background:transparent !important; }
     .plogo.sm{width:22px;height:22px;border-radius:7px;font-size:9.5px}
     .plogo.xs{width:15px;height:15px;border-radius:4.5px;font-size:8px;vertical-align:-3px;box-shadow:none}
     .plogo.lg{width:38px;height:38px;border-radius:11px;font-size:15px}
+    .plogo-img{width:32px;height:32px;border-radius:9px;object-fit:cover;flex:none;background:#e5e7eb}
+    .rp-row .plogo-img{width:30px;height:30px}
+    .home-err{padding:22px 14px;text-align:center}
+    .home-err p{margin:0 0 12px;font-size:14px}
+    .v31-prov-desc{display:block;font-size:12px;opacity:.75;line-height:1.35}
     .rp-url{display:block;font-size:11px;font-weight:500;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .rp-site{padding:5px 0 5px 14px;border-bottom:1px dashed rgba(127,127,127,.12)}
     .rp-site .rp-name{font-size:12.5px;font-weight:600}
@@ -1872,7 +1877,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v0.2.10</p>
+                  <p class="splash-ver">Zayn Play v0.2.11</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -1977,17 +1982,28 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     </div>
                   </div>
                   <!-- Step 5: Media (Zayn Play setup step 4) -->
-                  <div class="setup-step" data-step-panel="4">
+                  <div class="setup-step" data-step-panel="4" data-media-panel>
                     <h2>Preferred Media</h2>
                     <p class="setup-sub">কী ধরনের কনটেন্ট বেশি দেখতে চান — NSFW ছাড়া বাকি সব ডিফল্টে অন থাকে (Zayn Play-এ যেমন)।</p>
-                    <div class="opt-list">
-                      <button class="opt-row on" data-opt><span>Movie</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
-                      <button class="opt-row on" data-opt><span>TV Series</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
-                      <button class="opt-row on" data-opt><span>Anime</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
-                      <button class="opt-row on" data-opt><span>Cartoon</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
-                      <button class="opt-row on" data-opt><span>Documentary</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
-                      <button class="opt-row on" data-opt><span>Live TV</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
-                      <button class="opt-row" data-opt><span>NSFW<small>শুধু সাপোর্টেড এক্সটেনশনে</small></span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                                        <div class="opt-list">
+                      <button class="opt-row on" data-opt data-media="Movie"><span>Movie</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="AnimeMovie"><span>Anime Movie</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="TvSeries"><span>TV Series</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Cartoon"><span>Cartoon</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Anime"><span>Anime</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="OVA"><span>OVA</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Torrent"><span>Torrent</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Documentary"><span>Documentary</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="AsianDrama"><span>Asian Drama</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Live"><span>Live TV</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row" data-opt data-media="NSFW"><span>NSFW<small>শুধু সাপোর্টেড এক্সটেনশনে</small></span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Others"><span>Others</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Music"><span>Music</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="AudioBook"><span>Audio Book</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="CustomMedia"><span>Custom Media</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Audio"><span>Audio</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Podcast"><span>Podcast</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
+                      <button class="opt-row on" data-opt data-media="Video"><span>Video</span><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2"><path d="m5 13 4.5 4.5L19 8"/></svg></span></button>
                     </div>
                   </div>
                   <!-- Step 6: Layout (Zayn Play setup step 5) -->
@@ -2392,6 +2408,27 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var L = provLogo(name);
         return '<span class="plogo ' + (cls || '') + '" style="background:' + L.bg + ';color:' + L.fg + '" aria-hidden="true">' + L.mark + '</span>';
       }
+      /* (v0.2.11) Target 16: provider rows show the ORIGINAL logo when the
+         repo carries an iconUrl (upstream PluginAdapter: iconUrl with
+         %size% replaced, fallback tile when blank) plus the same fields
+         upstream shows — language, version, file size — and the
+         description. Authors exist in the data (bridge row) but upstream
+         shows them only in the detail sheet, not the row. */
+      function fmtSize(b){ if (b == null || isNaN(b)) return ''; if (b >= 1048576) return (b/1048576).toFixed(1) + ' MB'; if (b >= 1024) return Math.round(b/1024) + ' kB'; return b + ' B'; }
+      function provRowLogo(row, name){
+        var u = row && row.iconUrl;
+        if (u){ u = String(u).replace(/%size%/g, '96').replace(/%exact_size%/g, '96'); return '<img class="plogo-img" src="' + esc(u) + '" alt="" onerror="this.style.display=\'none\'"/>'; }
+        return logoHTML(name);
+      }
+      function provRowMeta(row){
+        if (!row) return '';
+        var parts = [];
+        if (row.lang) parts.push(row.lang);
+        if (row.version) parts.push('v' + row.version);
+        var sz = fmtSize(row.fileSize);
+        if (sz) parts.push(sz);
+        return parts.join(' • ');
+      }
       /* ===== multi-site providers (Zayn Play's cloned-sites model):
          each site is its OWN named provider entry — own tab, own feed ===== */
             function sitesOf(st, r, pn){
@@ -2669,21 +2706,39 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('home-feed').style.display = '';
         var chips = document.querySelectorAll('#prov-row button');
         for (var i=0;i<chips.length;i++) chips[i].classList.toggle('on', chips[i].getAttribute('data-provider') === key);
-        /* fast-feel: skeleton shimmer shows instantly, the real feed swaps
-           in when the bridge answers — the screen never sits blank. */
-        var swrap = document.getElementById('h-series-wrap');
-        skeletonRails();
+        /* (v0.2.11) Instant load: a previously loaded feed renders at once;
+           the fresh feed replaces it when it arrives. First load still
+           shows the skeleton, but never longer than the feed needs. */
+        var swrap0 = document.getElementById('h-series-wrap');
+        if (p.cachedFeed && p.cachedFeed.sections) renderFeedInto(p, p.cachedFeed);
+        else skeletonRails();
         renderPSearch();
         var tok = ++feedToken;
-        var feed = null;
-        try { feed = await engineHomeFeed(p.name, 1); } catch (e) { feed = null; }
+        var feed = null, feedErr = null;
+        try { feed = await engineHomeFeed(p.name, 1); } catch (e) { feedErr = e; }
         if (tok !== feedToken || currentProvider !== key) return;
         if (!feed || !feed.sections){
-          document.getElementById('h-trending').innerHTML = '';
+          /* (v0.2.11) Target 13: show the failure reason + a retry, never
+             blank rails. A cached feed stays on screen; without one, the
+             error card explains what happened and retries on tap. */
+          if (p.cachedFeed && p.cachedFeed.sections){ if (feedErr) toast(engineErrText(feedErr)); return; }
+          var reason = feedErr ? engineErrText(feedErr) : 'কনটেন্ট লোড হয়নি';
+          document.getElementById('h-trending').innerHTML = '<div class="home-err"><p>' + esc(reason) + '</p><button class="btn-play" onclick="renderProvider(\'' + key.replace(/'/g, "\\'") + '\')">আবার চেষ্টা করুন</button></div>';
           document.getElementById('h-series').innerHTML = '';
           document.getElementById('h-movies').innerHTML = '';
+          if (feedErr) toast(engineErrText(feedErr));
+          /* (v0.2.11) A P6: provider_not_found right after boot usually
+             means the plugin had not finished loading — retry once. */
+          if (feedErr && feedErr.code === 'provider_not_found' && !p._coldRetried){
+            p._coldRetried = true;
+            setTimeout(function(){ if (currentProvider === key) renderProvider(key); }, 3000);
+          }
           return;
         }
+        p._coldRetried = false;
+        renderFeedInto(p, feed);
+      }
+      function renderFeedInto(p, feed){
         var keys = [], trending = [], series = [], movies = [];
         var mainUrl = (feed.provider && feed.provider.mainUrl) || p.url;
         feed.sections.forEach(function(sec){
@@ -2696,6 +2751,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         trending = keys.slice(0, 5);
         p.trending = trending; p.series = series; p.movies = movies;
         p.hero = keys[0] || null;
+        p.cachedFeed = feed;
         heroList = (p.hero ? [p.hero] : []).concat(p.trending).filter(function(k, i, arr){ return arr.indexOf(k) === i; });
         var dotsEl = document.getElementById('h-dots');
         dotsEl.innerHTML = '';
@@ -2707,6 +2763,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         });
         if (p.hero){ showHero(0); startHeroTimer(); }
         renderPSearch();
+        var swrap = document.getElementById('h-series-wrap');
         swrap.style.display = p.series.length ? '' : 'none';
         fillRail(document.getElementById('h-trending'), p.trending, 'rank');
         if (p.series.length) fillRail(document.getElementById('h-series'), p.series, 'series');
@@ -3077,6 +3134,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           dex_writable: ' — phone would not load the file',
           load_class_missing: ' — file is broken',
           load_failed: ' — load failed',
+          plugin_only: ' — adds repos, no video',
           load_no_manifest: ' — file is missing its manifest',
           bad_zip: ' — file is damaged',
           file_missing: ' — file not found',
@@ -3128,8 +3186,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         try{
           var _insts = (typeof window !== 'undefined' && window.__v31Instances) || [];
           _insts.forEach(function(inst){
-            Object.keys(set || {}).forEach(function(k){ if (k in inst.set) inst.set[k] = set[k]; });
+            Object.keys(set || {}).forEach(function(k){ if (k in inst.set) inst.set[k] = (k === 'media') ? normMediaList(set[k]) : set[k]; });
           });
+          try{ if (set && set.media) window.ZP_MEDIA = normMediaList(set.media); }catch(e){}
           /* render() lives inside the v31 IIFE — re-render through its hook. */
           if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
           syncPBFromSettings(set);
@@ -3162,11 +3221,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       function engineRepos(){ return engineCall('repos', {}); }
       function engineRepoProviders(repoId){ return engineCall('repoProviders', { repoId: repoId }); }
-      function engineHomeFeed(providerName, page){ return engineCall('homeFeed', { providerName: providerName, page: page || 1 }); }
+      function engineHomeFeed(providerName, page){ return engineCall('homeFeed', { providerName: providerName, page: page || 1 }, 150000 /* (v0.2.11) A P1: native getMainPage gets 120 s — the JS wait must not kill it at 30 s */); }
       function engineSearch(query, providerName, page){
         var p = { query: query, page: page || 1 };
         if (providerName) p.providerName = providerName;
-        return engineCall('search', p);
+        /* (v0.2.11) C-10: single-provider search 150 s, all-provider
+           fan-out 90 s (native cap is 60 s) — never the 30 s default. */
+        return engineCall('search', p, providerName ? 150000 : 90000);
       }
       function engineDetails(url, providerName){ return engineCall('details', { url: url, providerName: providerName }); }
       /* Sync ST provider state from a providerHealthCheck result (the
@@ -3773,6 +3834,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       function finishSetup(){
         applyProfile();
+        try{ var _fm = readSetupMedia(); window.ZP_MEDIA = _fm; enginePersistSetting('media', _fm); }catch(e){}
         setupDone = true;
         try{ localStorage.setItem('zayn-setup-done','1'); }catch(e){}
         setupEl.classList.add('hide');
@@ -4319,6 +4381,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          data (details dataUrl) or loads the URL itself. */
       function playParamsFor(title, tt, extra){
         var p = { title: title, providerName: (tt && tt.prov) || '', url: (tt && tt.url) || '', type: (tt && tt.type) || 'movie', poster: (tt && tt.poster) || '' };
+        /* (v0.2.11) C-6: the stored Stream-timeout setting finally reaches
+           the engine (it was stored but never read — playback always died
+           at the 10 s default while the UI waited 60/90 s). */
+        if (typeof PB !== 'undefined' && PB.timeout) p.timeoutSec = parseInt(PB.timeout, 10) || 30;
         if (tt && tt.data) p.data = tt.data;
         if (extra) for (var k in extra) p[k] = extra[k];
         return p;
@@ -4502,21 +4568,16 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       syncPBUI();
 
       /* ===== Repositories: install, provider ON/OFF, test, health, auto-update ===== */
-      /* Phase C (#9): the 24-repo catalogue (rebuilt 2026-11-26 from live
-         manifests + plugins.json; 3 dropped — extcloud, cuxplug, sarapcanagii,
-         all dead upstream with no replacement found; turkish kept — its
-         manifest 404s but plugins.json is live with 67 plugins, flagged
-         manifestDead) stays browsable in setup — display fallback only;
-         installed state always comes from the bridge (ST.list).
-         plugins[] holds live SitePlugin.name values; pluginMeta holds
-         {name, internalName} per plugin; netmirror.providers holds its
-         MainAPI names (Netflix, Disney Plus, Hotstar, Prime Video). */
-      var REPO_CATALOGUE = [{"id": "cspr", "name": "Zayn Play Providers", "url": "https://raw.githubusercontent.com/recloudstream/extensions/master/repo.json", "desc": "The only official Zayn Play repository maintained by the core team.", "tags": ["official", "english"], "code": "cspr", "plugins": ["DailymotionProvider", "InternetArchiveProvider", "InvidiousProvider", "TwitchProvider", "YoutubeProvider"], "pluginMeta": [{"name": "DailymotionProvider", "internalName": "DailymotionProvider"}, {"name": "InternetArchiveProvider", "internalName": "InternetArchiveProvider"}, {"name": "InvidiousProvider", "internalName": "InvidiousProvider"}, {"name": "TwitchProvider", "internalName": "TwitchProvider"}, {"name": "YoutubeProvider", "internalName": "YoutubeProvider"}]}, {"id": "mega", "name": "Mega Repository", "url": "https://raw.githubusercontent.com/self-similarity/MegaRepo/builds/repo.json", "desc": "The \"Mega\" plugin adds ALL repositories each time the app is opened. Uninstall after one run if you do not want all repo", "tags": ["multilang", "english"], "code": "megarepo", "plugins": ["MegaProvider"], "pluginMeta": [{"name": "MegaProvider", "internalName": "MegaProvider"}]}, {"id": "phisher", "name": "Phisher Repo", "url": "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json", "desc": "Plugins in Hindi, English, and other languages of India. Huge collection of sources.", "tags": ["multilang", "english", "hindi"], "code": "phisherrepo", "plugins": ["AllMovieLandProvider", "Anichi", "Anikage", "AniKoto", "Anilight", "Animeav1", "AnimeCloud", "AnimeDekhoProvider", "Animedubhindi", "Animekhor", "Animenosub", "AnimePahe", "Animesalt", "Animexin", "AniPm", "AniSnatch", "AniVortex", "Aniworld", "Anizone", "BanglaPlex", "Chikianimation", "Cinefreak", "Cinemacity", "Coflix", "Comix", "Desicinemas", "Donghuastream", "DoraBash", "DudeFilms", "Fibwatch", "Fivemovierulz", "FourKHDHub", "GoldenAudiobooks", "Goojara", "Gotaku", "HDhub4u", "Hdmovie2", "HiAnime", "Hindmoviez", "IdlixProvider", "IPTVPlayer", "IStreamFlare", "Jellyfin", "Kartoons", "Kickassanime", "KisskhProvider", "Latanime", "LayarKacaProvider", "MassTamilanProvider", "Megakino", "Microtv", "MovieBoxProvider", "MovieNestBD", "Movies4u", "MultiMoviesProvider", "Netcinez", "ObejrzyjTo", "OHLI24", "OnePace", "OneTouchTV", "Pencurimovie", "Pinoymoviepedia", "Piratexplay", "Pmsm", "PublicSportsIPTV", "QuickIPTV", "Reanime", "RingZ", "ShowBox", "StreamPlay", "StremioAddon", "StremioX", "SuperStream", "Tamilblasters", "ToonHub", "Toonstream", "ToonTales", "Topcartoons", "Topstreamfilm", "TorraStream", "UHDmoviesProvider", "Ultima", "WatchParty", "XDMovies", "XonProvider", "YTS", "ZDKSerials", "Zinkmovies"], "pluginMeta": [{"name": "AllMovieLandProvider", "internalName": "AllMovieLandProvider"}, {"name": "Anichi", "internalName": "Anichi"}, {"name": "Anikage", "internalName": "Anikage"}, {"name": "AniKoto", "internalName": "AniKoto"}, {"name": "Anilight", "internalName": "Anilight"}, {"name": "Animeav1", "internalName": "Animeav1"}, {"name": "AnimeCloud", "internalName": "AnimeCloud"}, {"name": "AnimeDekhoProvider", "internalName": "AnimeDekhoProvider"}, {"name": "Animedubhindi", "internalName": "Animedubhindi"}, {"name": "Animekhor", "internalName": "Animekhor"}, {"name": "Animenosub", "internalName": "Animenosub"}, {"name": "AnimePahe", "internalName": "AnimePahe"}, {"name": "Animesalt", "internalName": "Animesalt"}, {"name": "Animexin", "internalName": "Animexin"}, {"name": "AniPm", "internalName": "AniPm"}, {"name": "AniSnatch", "internalName": "AniSnatch"}, {"name": "AniVortex", "internalName": "AniVortex"}, {"name": "Aniworld", "internalName": "Aniworld"}, {"name": "Anizone", "internalName": "Anizone"}, {"name": "BanglaPlex", "internalName": "BanglaPlex"}, {"name": "Chikianimation", "internalName": "Chikianimation"}, {"name": "Cinefreak", "internalName": "Cinefreak"}, {"name": "Cinemacity", "internalName": "Cinemacity"}, {"name": "Coflix", "internalName": "Coflix"}, {"name": "Comix", "internalName": "Comix"}, {"name": "Desicinemas", "internalName": "Desicinemas"}, {"name": "Donghuastream", "internalName": "Donghuastream"}, {"name": "DoraBash", "internalName": "DoraBash"}, {"name": "DudeFilms", "internalName": "DudeFilms"}, {"name": "Fibwatch", "internalName": "Fibwatch"}, {"name": "Fivemovierulz", "internalName": "Fivemovierulz"}, {"name": "FourKHDHub", "internalName": "FourKHDHub"}, {"name": "GoldenAudiobooks", "internalName": "GoldenAudiobooks"}, {"name": "Goojara", "internalName": "Goojara"}, {"name": "Gotaku", "internalName": "Gotaku"}, {"name": "HDhub4u", "internalName": "HDhub4u"}, {"name": "Hdmovie2", "internalName": "Hdmovie2"}, {"name": "HiAnime", "internalName": "HiAnime"}, {"name": "Hindmoviez", "internalName": "Hindmoviez"}, {"name": "IdlixProvider", "internalName": "IdlixProvider"}, {"name": "IPTVPlayer", "internalName": "IPTVPlayer"}, {"name": "IStreamFlare", "internalName": "IStreamFlare"}, {"name": "Jellyfin", "internalName": "Jellyfin"}, {"name": "Kartoons", "internalName": "Kartoons"}, {"name": "Kickassanime", "internalName": "Kickassanime"}, {"name": "KisskhProvider", "internalName": "KisskhProvider"}, {"name": "Latanime", "internalName": "Latanime"}, {"name": "LayarKacaProvider", "internalName": "LayarKacaProvider"}, {"name": "MassTamilanProvider", "internalName": "MassTamilanProvider"}, {"name": "Megakino", "internalName": "Megakino"}, {"name": "Microtv", "internalName": "Microtv"}, {"name": "MovieBoxProvider", "internalName": "MovieBoxProvider"}, {"name": "MovieNestBD", "internalName": "MovieNestBD"}, {"name": "Movies4u", "internalName": "Movies4u"}, {"name": "MultiMoviesProvider", "internalName": "MultiMoviesProvider"}, {"name": "Netcinez", "internalName": "Netcinez"}, {"name": "ObejrzyjTo", "internalName": "ObejrzyjTo"}, {"name": "OHLI24", "internalName": "OHLI24"}, {"name": "OnePace", "internalName": "OnePace"}, {"name": "OneTouchTV", "internalName": "OneTouchTV"}, {"name": "Pencurimovie", "internalName": "Pencurimovie"}, {"name": "Pinoymoviepedia", "internalName": "Pinoymoviepedia"}, {"name": "Piratexplay", "internalName": "Piratexplay"}, {"name": "Pmsm", "internalName": "Pmsm"}, {"name": "PublicSportsIPTV", "internalName": "PublicSportsIPTV"}, {"name": "QuickIPTV", "internalName": "QuickIPTV"}, {"name": "Reanime", "internalName": "Reanime"}, {"name": "RingZ", "internalName": "RingZ"}, {"name": "ShowBox", "internalName": "ShowBox"}, {"name": "StreamPlay", "internalName": "StreamPlay"}, {"name": "StremioAddon", "internalName": "StremioAddon"}, {"name": "StremioX", "internalName": "StremioX"}, {"name": "SuperStream", "internalName": "SuperStream"}, {"name": "Tamilblasters", "internalName": "Tamilblasters"}, {"name": "ToonHub", "internalName": "ToonHub"}, {"name": "Toonstream", "internalName": "Toonstream"}, {"name": "ToonTales", "internalName": "ToonTales"}, {"name": "Topcartoons", "internalName": "Topcartoons"}, {"name": "Topstreamfilm", "internalName": "Topstreamfilm"}, {"name": "TorraStream", "internalName": "TorraStream"}, {"name": "UHDmoviesProvider", "internalName": "UHDmoviesProvider"}, {"name": "Ultima", "internalName": "Ultima"}, {"name": "WatchParty", "internalName": "WatchParty"}, {"name": "XDMovies", "internalName": "XDMovies"}, {"name": "XonProvider", "internalName": "XonProvider"}, {"name": "YTS", "internalName": "YTS"}, {"name": "ZDKSerials", "internalName": "ZDKSerials"}, {"name": "Zinkmovies", "internalName": "Zinkmovies"}]}, {"id": "megix", "name": "Megix Repo", "url": "https://raw.githubusercontent.com/SaurabhKaperwan/CSX/builds/CS.json", "desc": "Hindi and English content with a great selection of movie and streaming sources.", "tags": ["hindi", "english"], "code": "csx", "plugins": ["Bollyflix", "CineStream", "MoviesDrive", "Moviesmod", "VegaMovies"], "pluginMeta": [{"name": "Bollyflix", "internalName": "Bollyflix"}, {"name": "CineStream", "internalName": "CineStream"}, {"name": "MoviesDrive", "internalName": "MoviesDrive"}, {"name": "Moviesmod", "internalName": "Moviesmod"}, {"name": "VegaMovies", "internalName": "VegaMovies"}]}, {"id": "3rabi", "name": "3rabi عربي", "url": "https://raw.githubusercontent.com/Abodabodd/re-3arabi/refs/heads/main/repo", "desc": "Comprehensive Arabic repository with movies, series, anime and local content.", "tags": ["arabic"], "code": "arb", "plugins": ["3isk", "5TV", "Aflaam", "Asia2tv 2", "Akwam", "Alooytv", "Anime3rb", "Anime-Phoenix", "Anime4up", "Animerco", "AnimeRift", "AnimeWitcher", "Brstej", "Carateen", "Cee (🇮🇶)", "CimaClub", "Cimalight", "Cimatn", "Shabakaty Cinemana (🇮🇶)", "Dima toon", "EgyWatch", "Egydead", "Elif", "Eshek", "Faselhd", "Krmzy", "LodyNet", "Mycima", "OscarTv", ".Extension Rating تقييم الاضافات", "FullMatchShows", "Shahid4u", "Shahidwbas", "Syrialive", "TopCinema", "Tuktukcima", "TuniflexBlog", "Tuniflix", "TVgarden(Famelack)", "VIU", "Vodu", "WeCima", "Witanime", "Yacintv", "YouTube"], "pluginMeta": [{"name": "3isk", "internalName": "3isk"}, {"name": "5TV", "internalName": "5TV"}, {"name": "Aflaam", "internalName": "Aflaam"}, {"name": "Asia2tv 2", "internalName": "Aia2tv 2"}, {"name": "Akwam", "internalName": "Akwam"}, {"name": "Alooytv", "internalName": "Alooytv"}, {"name": "Anime3rb", "internalName": "Anim3rb"}, {"name": "Anime-Phoenix", "internalName": "Anime-Phoenix"}, {"name": "Anime4up", "internalName": "Anime4up"}, {"name": "Animerco", "internalName": "Animerco"}, {"name": "AnimeRift", "internalName": "AnimeRift"}, {"name": "AnimeWitcher", "internalName": "Animewitcher"}, {"name": "Brstej", "internalName": "Bristege"}, {"name": "Carateen", "internalName": "Carateen"}, {"name": "Cee (🇮🇶)", "internalName": "Cee"}, {"name": "CimaClub", "internalName": "CimaClub"}, {"name": "Cimalight", "internalName": "Cimalight"}, {"name": "Cimatn", "internalName": "Cimatn"}, {"name": "Shabakaty Cinemana (🇮🇶)", "internalName": "cinemana"}, {"name": "Dima toon", "internalName": "dima-toon"}, {"name": "EgyWatch", "internalName": "Egy"}, {"name": "Egydead", "internalName": "Egydead"}, {"name": "Elif", "internalName": "Elif"}, {"name": "Eshek", "internalName": "eseek"}, {"name": "Faselhd", "internalName": "Faselhd"}, {"name": "Krmzy", "internalName": "Krmzy"}, {"name": "LodyNet", "internalName": "Lodynet"}, {"name": "Mycima", "internalName": "MyCimaProvider"}, {"name": "OscarTv", "internalName": "OscarTv"}, {"name": ".Extension Rating تقييم الاضافات", "internalName": "Rate"}, {"name": "FullMatchShows", "internalName": "Replaymatch"}, {"name": "Shahid4u", "internalName": "Shahid4u"}, {"name": "Shahidwbas", "internalName": "Shahidwbas"}, {"name": "Syrialive", "internalName": "Syria-live"}, {"name": "TopCinema", "internalName": "Topcinema"}, {"name": "Tuktukcima", "internalName": "TukTukcima"}, {"name": "TuniflexBlog", "internalName": "TuniflexBlog"}, {"name": "Tuniflix", "internalName": "Tuniflix"}, {"name": "TVgarden(Famelack)", "internalName": "TVgarden"}, {"name": "VIU", "internalName": "Viu"}, {"name": "Vodu", "internalName": "Vodu"}, {"name": "WeCima", "internalName": "Wecima"}, {"name": "Witanime", "internalName": "Witanime"}, {"name": "Yacintv", "internalName": "Yacintv"}, {"name": "YouTube", "internalName": "Youtube"}]}, {"id": "indostream", "name": "IndoStream Repo", "url": "https://raw.githubusercontent.com/TeKuma25/IndoStream/builds/repo.json", "desc": "Indonesian repository with a wide selection of anime and local drama content.", "tags": ["indonesian"], "code": "indos", "plugins": ["Anichin", "Animasu", "AnimeIndo", "AnimeSail", "Anoboy", "Budi", "DramaQu", "Dubbindo", "Dutamovie", "Gomunime", "Idlix", "IndoTV", "Kuramanime", "Kuronime", "Layaranime", "LayarKaca", "Minioppai", "Nekopoi", "Ngefilm", "Nimegami", "NontonAnimeID", "NontonDrama", "Oploverz", "Oppadrama", "Otakudesu", "Pencurimovie", "Samehadaku"], "pluginMeta": [{"name": "Anichin", "internalName": "Anichin"}, {"name": "Animasu", "internalName": "Animasu"}, {"name": "AnimeIndo", "internalName": "AnimeIndo"}, {"name": "AnimeSail", "internalName": "AnimeSail"}, {"name": "Anoboy", "internalName": "Anoboy"}, {"name": "Budi", "internalName": "Budi"}, {"name": "DramaQu", "internalName": "DramaQu"}, {"name": "Dubbindo", "internalName": "Dubbindo"}, {"name": "Dutamovie", "internalName": "Dutamovie"}, {"name": "Gomunime", "internalName": "Gomunime"}, {"name": "Idlix", "internalName": "Idlix"}, {"name": "IndoTV", "internalName": "IndoTV"}, {"name": "Kuramanime", "internalName": "Kuramanime"}, {"name": "Kuronime", "internalName": "Kuronime"}, {"name": "Layaranime", "internalName": "Layaranime"}, {"name": "LayarKaca", "internalName": "LayarKaca"}, {"name": "Minioppai", "internalName": "Minioppai"}, {"name": "Nekopoi", "internalName": "Nekopoi"}, {"name": "Ngefilm", "internalName": "Ngefilm"}, {"name": "Nimegami", "internalName": "Nimegami"}, {"name": "NontonAnimeID", "internalName": "NontonAnimeID"}, {"name": "NontonDrama", "internalName": "NontonDrama"}, {"name": "Oploverz", "internalName": "Oploverz"}, {"name": "Oppadrama", "internalName": "Oppadrama"}, {"name": "Otakudesu", "internalName": "Otakudesu"}, {"name": "Pencurimovie", "internalName": "Pencurimovie"}, {"name": "Samehadaku", "internalName": "Samehadaku"}]}, {"id": "cloudx", "name": "CloudX Repository", "url": "https://raw.githubusercontent.com/Asm0d3usX/CloudX/builds/repo.json", "desc": "Indonesian-focused repository with movies, dramas, and streaming plugins.", "tags": ["indonesian"], "code": "cloudx", "plugins": ["Dutamovie", "Filmkita", "Filmlokal", "Idlix", "Indomax", "Kawanfilm", "KlikXXi", "LayarKaca", "LayarWarna", "MidasXXi", "Moviebox", "Ngefilm", "Nomat", "Pencurimovie", "Pusatmovie", "Sarangfilm", "Savefilm", "WGFilm21"], "pluginMeta": [{"name": "Dutamovie", "internalName": "Dutamovie"}, {"name": "Filmkita", "internalName": "Filmkita"}, {"name": "Filmlokal", "internalName": "Filmlokal"}, {"name": "Idlix", "internalName": "Idlix"}, {"name": "Indomax", "internalName": "Indomax"}, {"name": "Kawanfilm", "internalName": "Kawanfilm"}, {"name": "KlikXXi", "internalName": "KlikXXi"}, {"name": "LayarKaca", "internalName": "LayarKaca"}, {"name": "LayarWarna", "internalName": "LayarWarna"}, {"name": "MidasXXi", "internalName": "MidasXXi"}, {"name": "Moviebox", "internalName": "Moviebox"}, {"name": "Ngefilm", "internalName": "Ngefilm"}, {"name": "Nomat", "internalName": "Nomat"}, {"name": "Pencurimovie", "internalName": "Pencurimovie"}, {"name": "Pusatmovie", "internalName": "Pusatmovie"}, {"name": "Sarangfilm", "internalName": "Sarangfilm"}, {"name": "Savefilm", "internalName": "Savefilm"}, {"name": "WGFilm21", "internalName": "WGFilm21"}]}, {"id": "dogior", "name": "doGior's Had Enough", "url": "https://raw.githubusercontent.com/doGior/doGiorsHadEnough/refs/heads/builds/repo.json", "desc": "A mix of Italian, English, and international streaming plugins and live TV sources.", "tags": ["multilang", "english"], "code": "gior", "plugins": ["AltaDefinizione", "AnimeUnity", "AnimeWorld", "Arte", "CalcioStreaming", "CorsaroNero", "IlCorsaroViola", "IPTV", "Nebula", "SimklProvider", "StreamCenter", "StreamingCommunity", "TV", "Vavoo", "YouTube"], "pluginMeta": [{"name": "AltaDefinizione", "internalName": "AltaDefinizione"}, {"name": "AnimeUnity", "internalName": "AnimeUnity"}, {"name": "AnimeWorld", "internalName": "AnimeWorld"}, {"name": "Arte", "internalName": "Arte"}, {"name": "CalcioStreaming", "internalName": "CalcioStreaming"}, {"name": "CorsaroNero", "internalName": "CorsaroNero"}, {"name": "IlCorsaroViola", "internalName": "IlCorsaroViola"}, {"name": "IPTV", "internalName": "IPTV"}, {"name": "Nebula", "internalName": "Nebula"}, {"name": "SimklProvider", "internalName": "SimklProvider"}, {"name": "StreamCenter", "internalName": "StreamCenter"}, {"name": "StreamingCommunity", "internalName": "StreamingCommunity"}, {"name": "TV", "internalName": "TV"}, {"name": "Vavoo", "internalName": "Vavoo"}, {"name": "YouTube", "internalName": "YouTube"}]}, {"id": "cncverse", "name": "CNC Verse Repository", "url": "https://raw.githubusercontent.com/NivinCNC/CNCVerse-Cloud-Stream-Extension/refs/heads/builds/CNC.json", "desc": "A diverse repository covering Indian, Tamil, and global streaming content.", "tags": ["multilang", "hindi", "english"], "code": "cncv", "plugins": ["AniKoto", "AnimeSuge", "BilibiliProvider", "CastleTvProvider", "CineDozeProvider", "CineTvProvider", "CineVoodProvider", "ClownIPTVProvider", "CNC Verse", "CNC Verse Mobile", "CricifyProvider", "DaddyLiveProvider", "DesiSerialsProvider", "DoFlixProvider", "EasyPlayProvider", "EinthusanProvider", "GoldenAudiobook", "HDOProvider", "HDrezkaProvider", "JioTVPlusProvider", "LibriVoxAudiobook", "LivXowProvider", "M3UPlaylistPlayerProvider", "MLSBDProvider", "MovieBoxProvider", "MovieBoxProviderIN", "MovieLinkBDProvider", "MoviePlusProvider", "MoviezwapProvider", "NTVProvider", "PikashowProvider", "PlayFyProvider", "PlayZTVProvider", "PPVProvider", "RadioIndiaProvider", "Rtally", "SKTechProvider", "SonyLIVProvider", "SportzxProvider", "StreamFlixProvider", "SubscriptionManager", "TamilDhoolProvider", "Tamilian", "TamilUltraProvider", "VegaMoviesProvider", "Watch32", "XonProvider"], "pluginMeta": [{"name": "AniKoto", "internalName": "AniKoto"}, {"name": "AnimeSuge", "internalName": "AnimeSuge"}, {"name": "BilibiliProvider", "internalName": "BilibiliProvider"}, {"name": "CastleTvProvider", "internalName": "CastleTvProvider"}, {"name": "CineDozeProvider", "internalName": "CineDozeProvider"}, {"name": "CineTvProvider", "internalName": "CineTvProvider"}, {"name": "CineVoodProvider", "internalName": "CineVoodProvider"}, {"name": "ClownIPTVProvider", "internalName": "ClownIPTVProvider"}, {"name": "CNC Verse", "internalName": "CNC Verse"}, {"name": "CNC Verse Mobile", "internalName": "CNC Verse Mobile"}, {"name": "CricifyProvider", "internalName": "CricifyProvider"}, {"name": "DaddyLiveProvider", "internalName": "DaddyLiveProvider"}, {"name": "DesiSerialsProvider", "internalName": "DesiSerialsProvider"}, {"name": "DoFlixProvider", "internalName": "DoFlixProvider"}, {"name": "EasyPlayProvider", "internalName": "EasyPlayProvider"}, {"name": "EinthusanProvider", "internalName": "EinthusanProvider"}, {"name": "GoldenAudiobook", "internalName": "GoldenAudiobook"}, {"name": "HDOProvider", "internalName": "HDOProvider"}, {"name": "HDrezkaProvider", "internalName": "HDrezkaProvider"}, {"name": "JioTVPlusProvider", "internalName": "JioTVPlusProvider"}, {"name": "LibriVoxAudiobook", "internalName": "LibriVoxAudiobook"}, {"name": "LivXowProvider", "internalName": "LivXowProvider"}, {"name": "M3UPlaylistPlayerProvider", "internalName": "M3UPlaylistPlayerProvider"}, {"name": "MLSBDProvider", "internalName": "MLSBDProvider"}, {"name": "MovieBoxProvider", "internalName": "MovieBoxProvider"}, {"name": "MovieBoxProviderIN", "internalName": "MovieBoxProviderIN"}, {"name": "MovieLinkBDProvider", "internalName": "MovieLinkBDProvider"}, {"name": "MoviePlusProvider", "internalName": "MoviePlusProvider"}, {"name": "MoviezwapProvider", "internalName": "MoviezwapProvider"}, {"name": "NTVProvider", "internalName": "NTVProvider"}, {"name": "PikashowProvider", "internalName": "PikashowProvider"}, {"name": "PlayFyProvider", "internalName": "PlayFyProvider"}, {"name": "PlayZTVProvider", "internalName": "PlayZTVProvider"}, {"name": "PPVProvider", "internalName": "PPVProvider"}, {"name": "RadioIndiaProvider", "internalName": "RadioIndiaProvider"}, {"name": "Rtally", "internalName": "Rtally"}, {"name": "SKTechProvider", "internalName": "SKTechProvider"}, {"name": "SonyLIVProvider", "internalName": "SonyLIVProvider"}, {"name": "SportzxProvider", "internalName": "SportzxProvider"}, {"name": "StreamFlixProvider", "internalName": "StreamFlixProvider"}, {"name": "SubscriptionManager", "internalName": "SubscriptionManager"}, {"name": "TamilDhoolProvider", "internalName": "TamilDhoolProvider"}, {"name": "Tamilian", "internalName": "Tamilian"}, {"name": "TamilUltraProvider", "internalName": "TamilUltraProvider"}, {"name": "VegaMoviesProvider", "internalName": "VegaMoviesProvider"}, {"name": "Watch32", "internalName": "Watch32"}, {"name": "XonProvider", "internalName": "XonProvider"}]}, {"id": "diegon", "name": "DieGon / ItaliaInStreaming", "url": "https://pastebin.com/raw/qndZtL6D", "desc": "Italian repository with a rich selection of local streaming, anime and sports sources.", "tags": ["italian", "multilang"], "code": "diegon7", "plugins": ["AltaDefinizione", "AnimeSaturn", "AnimeUnion", "AnimeUnity", "AnimeWorld", "Arte", "AutoExtensions", "CalcioStreaming", "CB01", "GuardaPlay", "GuardaSerie", "Huhu", "La7Play", "Nuvio", "OnlineSerieTV", "PlexWatch", "SectionOrganizer", "SleepGuard", "StreamingCommunity", "Stremio", "SyncStream", "Torrentio", "TV", "WatchParty", "Wrapped"], "pluginMeta": [{"name": "AltaDefinizione", "internalName": "AltaDefinizione"}, {"name": "AnimeSaturn", "internalName": "AnimeSaturn"}, {"name": "AnimeUnion", "internalName": "AnimeUnion"}, {"name": "AnimeUnity", "internalName": "AnimeUnity"}, {"name": "AnimeWorld", "internalName": "AnimeWorld"}, {"name": "Arte", "internalName": "Arte"}, {"name": "AutoExtensions", "internalName": "AutoExtensions"}, {"name": "CalcioStreaming", "internalName": "CalcioStreaming"}, {"name": "CB01", "internalName": "CB01"}, {"name": "GuardaPlay", "internalName": "GuardaPlay"}, {"name": "GuardaSerie", "internalName": "GuardaSerie"}, {"name": "Huhu", "internalName": "Huhu"}, {"name": "La7Play", "internalName": "La7Play"}, {"name": "Nuvio", "internalName": "Nuvio"}, {"name": "OnlineSerieTV", "internalName": "OnlineSerieTV"}, {"name": "PlexWatch", "internalName": "PlexWatch"}, {"name": "SectionOrganizer", "internalName": "SectionOrganizer"}, {"name": "SleepGuard", "internalName": "SleepGuard"}, {"name": "StreamingCommunity", "internalName": "StreamingCommunity"}, {"name": "Stremio", "internalName": "Stremio"}, {"name": "SyncStream", "internalName": "SyncStream"}, {"name": "Torrentio", "internalName": "Torrentio"}, {"name": "TV", "internalName": "TV"}, {"name": "WatchParty", "internalName": "WatchParty"}, {"name": "Wrapped", "internalName": "Wrapped"}]}, {"id": "cskarma", "name": "cs-karma", "url": "https://raw.githubusercontent.com/Kraptor123/cs-Karma/refs/heads/master/repo.json", "desc": "Multi-language repository focused on sports, anime, drama and international content.", "tags": ["multilang", "english"], "code": "cskarma", "plugins": ["AnimeAV", "Animejara", "AnimeWorld", "AnimeYTX", "BasketballReplays", "DocumentaryArea", "DoramasLatinoX", "Dubbindo", "Esheaq", "Flixlatam", "Footballia", "FootReplays", "FullRaces", "Gnulahd", "Hackstore", "Iwatchtheoffice", "JPFilms", "KissKH", "Krmzy", "Latanime", "LayarKaca", "Movix", "Nekokun", "OK", "OnShort", "Sokuja", "Streamed", "Subsplease", "Supercartoons", "TVGarden", "WatchWrestling", "Wcoflix", "Yablom", "YoTurkish"], "pluginMeta": [{"name": "AnimeAV", "internalName": "AnimeAV"}, {"name": "Animejara", "internalName": "Animejara"}, {"name": "AnimeWorld", "internalName": "AnimeWorld"}, {"name": "AnimeYTX", "internalName": "AnimeYTX"}, {"name": "BasketballReplays", "internalName": "BasketballReplays"}, {"name": "DocumentaryArea", "internalName": "DocumentaryArea"}, {"name": "DoramasLatinoX", "internalName": "DoramasLatinoX"}, {"name": "Dubbindo", "internalName": "Dubbindo"}, {"name": "Esheaq", "internalName": "Esheaq"}, {"name": "Flixlatam", "internalName": "Flixlatam"}, {"name": "Footballia", "internalName": "Footballia"}, {"name": "FootReplays", "internalName": "FootReplays"}, {"name": "FullRaces", "internalName": "FullRaces"}, {"name": "Gnulahd", "internalName": "Gnulahd"}, {"name": "Hackstore", "internalName": "Hackstore"}, {"name": "Iwatchtheoffice", "internalName": "Iwatchtheoffice"}, {"name": "JPFilms", "internalName": "JPFilms"}, {"name": "KissKH", "internalName": "KissKH"}, {"name": "Krmzy", "internalName": "Krmzy"}, {"name": "Latanime", "internalName": "Latanime"}, {"name": "LayarKaca", "internalName": "LayarKaca"}, {"name": "Movix", "internalName": "Movix"}, {"name": "Nekokun", "internalName": "Nekokun"}, {"name": "OK", "internalName": "OK"}, {"name": "OnShort", "internalName": "OnShort"}, {"name": "Sokuja", "internalName": "Sokuja"}, {"name": "Streamed", "internalName": "Streamed"}, {"name": "Subsplease", "internalName": "Subsplease"}, {"name": "Supercartoons", "internalName": "Supercartoons"}, {"name": "TVGarden", "internalName": "TVGarden"}, {"name": "WatchWrestling", "internalName": "WatchWrestling"}, {"name": "Wcoflix", "internalName": "Wcoflix"}, {"name": "Yablom", "internalName": "Yablom"}, {"name": "YoTurkish", "internalName": "YoTurkish"}]}, {"id": "cakestwix", "name": "CakesTwix (Ukrainian)", "url": "https://codeberg.org/CakesTwix/cloudstream-extensions-uk/raw/branch/master/repo.json", "desc": "Ukrainian providers repository with local and international streaming content.", "tags": ["multilang"], "code": "cakes", "plugins": ["AnimeONProvider", "AnimeUAProvider", "AnitubeinuaProvider", "BambooUAProvider", "CikavaIdeyaProvider", "CoaninetProvider", "DoramyWorldProvider", "EneyidaProvider", "HentaiUkrProvider", "KinostrainProvider", "KinoTronProvider", "KinoVezhaProvider", "KlonTVProvider", "SerialnoProvider", "SimpsonsUATvProvider", "SyncPlugin", "UAFlixProvider", "UaKinoCXProvider", "UakinoProvider", "UASerialsProProvider", "UFDubProvider", "UnimayProvider"], "pluginMeta": [{"name": "AnimeONProvider", "internalName": "AnimeONProvider"}, {"name": "AnimeUAProvider", "internalName": "AnimeUAProvider"}, {"name": "AnitubeinuaProvider", "internalName": "AnitubeinuaProvider"}, {"name": "BambooUAProvider", "internalName": "BambooUAProvider"}, {"name": "CikavaIdeyaProvider", "internalName": "CikavaIdeyaProvider"}, {"name": "CoaninetProvider", "internalName": "CoaninetProvider"}, {"name": "DoramyWorldProvider", "internalName": "DoramyWorldProvider"}, {"name": "EneyidaProvider", "internalName": "EneyidaProvider"}, {"name": "HentaiUkrProvider", "internalName": "HentaiUkrProvider"}, {"name": "KinostrainProvider", "internalName": "KinostrainProvider"}, {"name": "KinoTronProvider", "internalName": "KinoTronProvider"}, {"name": "KinoVezhaProvider", "internalName": "KinoVezhaProvider"}, {"name": "KlonTVProvider", "internalName": "KlonTVProvider"}, {"name": "SerialnoProvider", "internalName": "SerialnoProvider"}, {"name": "SimpsonsUATvProvider", "internalName": "SimpsonsUATvProvider"}, {"name": "SyncPlugin", "internalName": "SyncPlugin"}, {"name": "UAFlixProvider", "internalName": "UAFlixProvider"}, {"name": "UaKinoCXProvider", "internalName": "UaKinoCXProvider"}, {"name": "UakinoProvider", "internalName": "UakinoProvider"}, {"name": "UASerialsProProvider", "internalName": "UASerialsProProvider"}, {"name": "UFDubProvider", "internalName": "UFDubProvider"}, {"name": "UnimayProvider", "internalName": "UnimayProvider"}]}, {"id": "lawlietrepo", "name": "lawlietrepo", "url": "https://raw.githubusercontent.com/lawlietbr/lietrepo/refs/heads/main/builds/repo.json", "desc": "Brazilian Portuguese repository with anime and local streaming sources.", "tags": ["multilang"], "code": "lietrepo", "plugins": ["AnimeFire", "AnimesFHD", "AniTube", "CineAgora", "DattebayoBR", "Doramogo", "EmbedTV", "Goyabu", "MendigoFlix", "PobreFlix", "ReiDosEmbeds", "StreamFlix"], "pluginMeta": [{"name": "AnimeFire", "internalName": "AnimeFire"}, {"name": "AnimesFHD", "internalName": "AnimesFHD"}, {"name": "AniTube", "internalName": "AniTube"}, {"name": "CineAgora", "internalName": "CineAgora"}, {"name": "DattebayoBR", "internalName": "DattebayoBR"}, {"name": "Doramogo", "internalName": "Doramogo"}, {"name": "EmbedTV", "internalName": "EmbedTV"}, {"name": "Goyabu", "internalName": "Goyabu"}, {"name": "MendigoFlix", "internalName": "MendigoFlix"}, {"name": "PobreFlix", "internalName": "PobreFlix"}, {"name": "ReiDosEmbeds", "internalName": "ReiDosEmbeds"}, {"name": "StreamFlix", "internalName": "StreamFlix"}]}, {"id": "king", "name": "King", "url": "https://pastebin.com/raw/Cd2g2tfz", "desc": "XtreamIPTV is the only plugin — requires an Xtream code and account to access live IPTV categories.", "tags": ["multilang"], "code": "kingl", "plugins": ["XtreamIPTV"], "pluginMeta": [{"name": "XtreamIPTV", "internalName": "XtreamIPTV"}]}, {"id": "italianprovider", "name": "Italian Providers Repository", "url": "https://raw.githubusercontent.com/Gian-Fr/ItalianProvider/builds/repo.json", "desc": "Italian providers repository with popular local streaming sources.", "tags": ["italian"], "code": "ipr", "plugins": ["AltadefinizioneProvider", "GuardaSerieProvider"], "pluginMeta": [{"name": "AltadefinizioneProvider", "internalName": "AltadefinizioneProvider"}, {"name": "GuardaSerieProvider", "internalName": "GuardaSerieProvider"}]}, {"id": "netmirror", "name": "Netmirror Repo", "url": "https://raw.githubusercontent.com/Sushan64/NetMirror-Extension/refs/heads/builds/Netflix.json", "desc": "Provides Netflix, Disney Plus, Hotstar, and Prime Video mirror sources.", "tags": ["english", "multilang"], "code": "Netmirror", "plugins": ["Netmirror"], "pluginMeta": [{"name": "Netmirror", "internalName": "Netmirror"}], "providers": ["Netflix", "Disney Plus", "Hotstar", "Prime Video"]}, {"id": "redowan", "name": "Redowan's BDIX Repository", "url": "https://raw.githubusercontent.com/redowan99/Redowan-Cloudstream/master/repo.json", "desc": "BDIX-focused Bangladeshi repository with local TV, movies and sports replay content.", "tags": ["multilang"], "code": "redowan", "plugins": ["9kMovies", "BanglaPlex", "BdixBdipTV", "BdixCircleftp", "BdixCloudTV", "BdixDflix", "BdixDhakaFlix", "BdixICCFtp", "BdixMyMovieBazarTV", "BdixRoarZoneTV", "EmwBD", "FootReplays", "FullReplays", "FullyMaza", "MoviPK", "Mp4Moviez", "TheMoviesFlix", "WatchMoviesPk"], "pluginMeta": [{"name": "9kMovies", "internalName": "9kMovies"}, {"name": "BanglaPlex", "internalName": "BanglaPlex"}, {"name": "BdixBdipTV", "internalName": "BdixBdipTV"}, {"name": "BdixCircleftp", "internalName": "BdixCircleftp"}, {"name": "BdixCloudTV", "internalName": "BdixCloudTV"}, {"name": "BdixDflix", "internalName": "BdixDflix"}, {"name": "BdixDhakaFlix", "internalName": "BdixDhakaFlix"}, {"name": "BdixICCFtp", "internalName": "BdixICCFtp"}, {"name": "BdixMyMovieBazarTV", "internalName": "BdixMyMovieBazarTV"}, {"name": "BdixRoarZoneTV", "internalName": "BdixRoarZoneTV"}, {"name": "EmwBD", "internalName": "EmwBD"}, {"name": "FootReplays", "internalName": "FootReplays"}, {"name": "FullReplays", "internalName": "FullReplays"}, {"name": "FullyMaza", "internalName": "FullyMaza"}, {"name": "MoviPK", "internalName": "MoviPK"}, {"name": "Mp4Moviez", "internalName": "Mp4Moviez"}, {"name": "TheMoviesFlix", "internalName": "TheMoviesFlix"}, {"name": "WatchMoviesPk", "internalName": "WatchMoviesPk"}]}, {"id": "saimuel", "name": "Saimuel Repo", "url": "https://raw.githubusercontent.com/saimuelbr/saimuelrepo/refs/heads/main/builds/repo.json", "desc": "Brazilian repository with a wide range of anime, films, and streaming sources.", "tags": ["multilang"], "code": "saim", "plugins": ["NetCine", "PobreFlix", "TopFilmes", "AnimesCloud", "MegaFlix", "UltraCine", "DonghuaNoSekai", "Doramas", "AnimesDigital", "OverFlix"], "pluginMeta": [{"name": "NetCine", "internalName": "NetCine"}, {"name": "PobreFlix", "internalName": "PobreFlix"}, {"name": "TopFilmes", "internalName": "TopFilmes"}, {"name": "AnimesCloud", "internalName": "AnimesCloud"}, {"name": "MegaFlix", "internalName": "MegaFlix"}, {"name": "UltraCine", "internalName": "UltraCine"}, {"name": "DonghuaNoSekai", "internalName": "DonghuaNoSekai"}, {"name": "Doramas", "internalName": "Doramas"}, {"name": "AnimesDigital", "internalName": "AnimesDigital"}, {"name": "OverFlix", "internalName": "OverFlix"}]}, {"id": "vietnamese", "name": "Zayn Play Vietnamese", "url": "https://gitlab.com/tearrs/cloudstream-vietnamese/-/raw/main/repo.json", "desc": "Vietnamese repository with local streaming, IPTV and sync features.", "tags": ["multilang"], "code": "viet", "plugins": ["Cross-Device Sync", "FshareProvider", "IPTVProvider", "MonPlayerProvider", "ViStreamProvider", "XtreamIPTVProvider", "StremioProvider"], "pluginMeta": [{"name": "Cross-Device Sync", "internalName": "SyncProvider"}, {"name": "FshareProvider", "internalName": "FshareProvider"}, {"name": "IPTVProvider", "internalName": "IPTVProvider"}, {"name": "MonPlayerProvider", "internalName": "MonPlayerProvider"}, {"name": "ViStreamProvider", "internalName": "ViStreamProvider"}, {"name": "XtreamIPTVProvider", "internalName": "XtreamIPTVProvider"}, {"name": "StremioProvider", "internalName": "StremioProvider"}]}, {"id": "turkish", "name": "Turkish Providers | @kraptor123", "url": "https://raw.githubusercontent.com/Kraptor123/cs-kraptor/refs/heads/master/repo.json", "desc": "The most comprehensive Turkish repository with hundreds of local TV, series, anime and film sources.", "tags": ["turkish"], "code": "kraptorcs", "plugins": ["AnimeciX", "Animeler", "Animely", "AnimPow", "Anizium", "AsyaAnimeleri", "AsyaFanatiklerim", "AsyaMinik", "AsyaWatch", "BelgeselX", "CizgiMax", "CizgiveDizi", "Ddizi", "DiziAsia", "DiziAsya", "DiziBox", "DiziFilmORG", "Dizigecesi", "DiziKorea", "DiziLife", "Dizilla", "DiziMom", "DiziPal", "DiziPalOrijinal", "Dizipod", "DiziYo", "DiziYou", "DramaDizilerim", "FilmEkseni", "FilmHane", "FilmMakinesi", "FilmModu", "Filmzal", "FullHDFilmizlesene", "GinikoCanli", "HDFilmCehennemi", "HDFilmDelisi", "HDFilmizle", "InatBox", "JetFilmizle", "KickTR", "KraptorPlus", "KultFilmler", "MirrorVerse", "OnePaceTr", "OpenAnime", "RareFilmm", "RecTV", "SeiCode", "SelcukFlix", "SetFilmIzle", "SezonlukDizi", "SinemaCX", "SineWix", "Sinezy", "TrAnimeIzle", "TurkAnime", "Turkdizileri", "TvDiziler", "WebDramaTurkey", "WebteIzle", "WFilmizle", "YabanciDizi", "YeniKaynak", "YesilCamTv", "Youtube", "YTS"], "pluginMeta": [{"name": "AnimeciX", "internalName": "AnimeciX"}, {"name": "Animeler", "internalName": "Animeler"}, {"name": "Animely", "internalName": "Animely"}, {"name": "AnimPow", "internalName": "AnimPow"}, {"name": "Anizium", "internalName": "Anizium"}, {"name": "AsyaAnimeleri", "internalName": "AsyaAnimeleri"}, {"name": "AsyaFanatiklerim", "internalName": "AsyaFanatiklerim"}, {"name": "AsyaMinik", "internalName": "AsyaMinik"}, {"name": "AsyaWatch", "internalName": "AsyaWatch"}, {"name": "BelgeselX", "internalName": "BelgeselX"}, {"name": "CizgiMax", "internalName": "CizgiMax"}, {"name": "CizgiveDizi", "internalName": "CizgiveDizi"}, {"name": "Ddizi", "internalName": "Ddizi"}, {"name": "DiziAsia", "internalName": "DiziAsia"}, {"name": "DiziAsya", "internalName": "DiziAsya"}, {"name": "DiziBox", "internalName": "DiziBox"}, {"name": "DiziFilmORG", "internalName": "DiziFilmORG"}, {"name": "Dizigecesi", "internalName": "Dizigecesi"}, {"name": "DiziKorea", "internalName": "DiziKorea"}, {"name": "DiziLife", "internalName": "DiziLife"}, {"name": "Dizilla", "internalName": "Dizilla"}, {"name": "DiziMom", "internalName": "DiziMom"}, {"name": "DiziPal", "internalName": "DiziPal"}, {"name": "DiziPalOrijinal", "internalName": "DiziPalOrijinal"}, {"name": "Dizipod", "internalName": "Dizipod"}, {"name": "DiziYo", "internalName": "DiziYo"}, {"name": "DiziYou", "internalName": "DiziYou"}, {"name": "DramaDizilerim", "internalName": "DramaDizilerim"}, {"name": "FilmEkseni", "internalName": "FilmEkseni"}, {"name": "FilmHane", "internalName": "FilmHane"}, {"name": "FilmMakinesi", "internalName": "FilmMakinesi"}, {"name": "FilmModu", "internalName": "FilmModu"}, {"name": "Filmzal", "internalName": "Filmzal"}, {"name": "FullHDFilmizlesene", "internalName": "FullHDFilmizlesene"}, {"name": "GinikoCanli", "internalName": "GinikoCanli"}, {"name": "HDFilmCehennemi", "internalName": "HDFilmCehennemi"}, {"name": "HDFilmDelisi", "internalName": "HDFilmDelisi"}, {"name": "HDFilmizle", "internalName": "HDFilmizle"}, {"name": "InatBox", "internalName": "InatBox"}, {"name": "JetFilmizle", "internalName": "JetFilmizle"}, {"name": "KickTR", "internalName": "KickTR"}, {"name": "KraptorPlus", "internalName": "KraptorPlus"}, {"name": "KultFilmler", "internalName": "KultFilmler"}, {"name": "MirrorVerse", "internalName": "MirrorVerse"}, {"name": "OnePaceTr", "internalName": "OnePaceTr"}, {"name": "OpenAnime", "internalName": "OpenAnime"}, {"name": "RareFilmm", "internalName": "RareFilmm"}, {"name": "RecTV", "internalName": "RecTV"}, {"name": "SeiCode", "internalName": "SeiCode"}, {"name": "SelcukFlix", "internalName": "SelcukFlix"}, {"name": "SetFilmIzle", "internalName": "SetFilmIzle"}, {"name": "SezonlukDizi", "internalName": "SezonlukDizi"}, {"name": "SinemaCX", "internalName": "SinemaCX"}, {"name": "SineWix", "internalName": "SineWix"}, {"name": "Sinezy", "internalName": "Sinezy"}, {"name": "TrAnimeIzle", "internalName": "TrAnimeIzle"}, {"name": "TurkAnime", "internalName": "TurkAnime"}, {"name": "Turkdizileri", "internalName": "Turkdizileri"}, {"name": "TvDiziler", "internalName": "TvDiziler"}, {"name": "WebDramaTurkey", "internalName": "WebDramaTurkey"}, {"name": "WebteIzle", "internalName": "WebteIzle"}, {"name": "WFilmizle", "internalName": "WFilmizle"}, {"name": "YabanciDizi", "internalName": "YabanciDizi"}, {"name": "YeniKaynak", "internalName": "YeniKaynak"}, {"name": "YesilCamTv", "internalName": "YesilCamTv"}, {"name": "Youtube", "internalName": "Youtube"}, {"name": "YTS", "internalName": "YTS"}], "manifestDead": true}, {"id": "german", "name": "German Providers Repository", "url": "https://raw.githubusercontent.com/Bnyro/GermanProviders/refs/heads/master/repo.json", "desc": "German-language repository with public broadcasters, streaming sites and IPTV.", "tags": ["german"], "code": "gpr", "plugins": ["Aniworld", "ARD", "Arte", "C3TV", "Discovery", "EinschaltenIn", "FilmFrei24", "Filmo", "FilmPalast", "FlixiTV", "HDFilme", "HuhuTo", "IptvOrg", "KellerKino", "Kinoger", "KinoKing", "Megakino", "Moflix", "Netzkino", "PlutoTV", "Serienstream", "Southpark", "SpiegelTV", "Welt", "ZDF"], "pluginMeta": [{"name": "Aniworld", "internalName": "Aniworld"}, {"name": "ARD", "internalName": "ARD"}, {"name": "Arte", "internalName": "Arte"}, {"name": "C3TV", "internalName": "C3TV"}, {"name": "Discovery", "internalName": "Discovery"}, {"name": "EinschaltenIn", "internalName": "EinschaltenIn"}, {"name": "FilmFrei24", "internalName": "FilmFrei24"}, {"name": "Filmo", "internalName": "Filmo"}, {"name": "FilmPalast", "internalName": "FilmPalast"}, {"name": "FlixiTV", "internalName": "FlixiTV"}, {"name": "HDFilme", "internalName": "HDFilme"}, {"name": "HuhuTo", "internalName": "HuhuTo"}, {"name": "IptvOrg", "internalName": "IptvOrg"}, {"name": "KellerKino", "internalName": "KellerKino"}, {"name": "Kinoger", "internalName": "Kinoger"}, {"name": "KinoKing", "internalName": "KinoKing"}, {"name": "Megakino", "internalName": "Megakino"}, {"name": "Moflix", "internalName": "Moflix"}, {"name": "Netzkino", "internalName": "Netzkino"}, {"name": "PlutoTV", "internalName": "PlutoTV"}, {"name": "Serienstream", "internalName": "Serienstream"}, {"name": "Southpark", "internalName": "Southpark"}, {"name": "SpiegelTV", "internalName": "SpiegelTV"}, {"name": "Welt", "internalName": "Welt"}, {"name": "ZDF", "internalName": "ZDF"}]}, {"id": "luna712", "name": "Luna712 Extensions", "url": "https://raw.githubusercontent.com/Luna712/Luna712-Cloudstream-Extensions/28885d17ceb7f24782b732b6056085c14c1fd027/repo.json", "desc": "Small repository providing archive and video platform integrations.", "tags": ["multilang", "english"], "code": "luna712", "plugins": ["DailymotionProvider", "InternetArchiveProvider"], "pluginMeta": [{"name": "DailymotionProvider", "internalName": "DailymotionProvider"}, {"name": "InternetArchiveProvider", "internalName": "InternetArchiveProvider"}]}, {"id": "zzikozz", "name": "zzikozz / French Repo", "url": "https://raw.githubusercontent.com/zzikozz/frenchCS/refs/heads/main/repo.json", "desc": "Maintained repository for French streaming providers, anime and TV sources.", "tags": ["french", "multilang"], "code": "zzikozz", "plugins": ["FrenchStreamProvider", "WiflixProvider", "HDStoProvider", "WookaFRProvider", "SerieCenterProvider", "DuLourdProvider", "HdssProvider", "BuzzMonclickProvider", "GogoflixProvider", "VostfreeProvider", "SadisflixProvider", "Senpai-Stream", "1Jour1Film", "WookaFR.app", "FStreamzz"], "pluginMeta": [{"name": "FrenchStreamProvider", "internalName": "FrenchStreamProvider"}, {"name": "WiflixProvider", "internalName": "WiflixProvider"}, {"name": "HDStoProvider", "internalName": "HDStoProvider"}, {"name": "WookaFRProvider", "internalName": "WookaFRProvider"}, {"name": "SerieCenterProvider", "internalName": "SerieCenterProvider"}, {"name": "DuLourdProvider", "internalName": "DuLourdProvider"}, {"name": "HdssProvider", "internalName": "HdssProvider"}, {"name": "BuzzMonclickProvider", "internalName": "BuzzMonclickProvider"}, {"name": "GogoflixProvider", "internalName": "GogoflixProvider"}, {"name": "VostfreeProvider", "internalName": "VostfreeProvider"}, {"name": "SadisflixProvider", "internalName": "SadisflixProvider"}, {"name": "Senpai-Stream", "internalName": "SenpaiStreamProvider"}, {"name": "1Jour1Film", "internalName": "UnJourUnFilmProvider"}, {"name": "WookaFR.app", "internalName": "WookaAPP"}, {"name": "FStreamzz", "internalName": "FStreamzzProvider"}]}, {"id": "gramflix", "name": "GramFlix / French Repo", "url": "https://raw.githubusercontent.com/tOntOnbOuLii/GramFlix/main/repo.json", "desc": "Another great French repository for streaming movies and TV series.", "tags": ["french", "multilang"], "code": "gramflix", "plugins": ["1JOUR1FILMGF", "Anime-SamaGF", "CinePlateformeGF", "MuiflixGF", "CoFliXGF", "FlemmixGF", "FrenchstreamGF", "DarkiWorldGF", "HDssGF", "MoiFliXGF", "NebryxGF", "PapaDuStreamGF", "PurstreamGF", "Senpai-StreamGF", "WoW-FilmsGF", "FanStreamGF", "GogoFlixGF", "FrembedGF", "FilmoFlixGF", "MovixGF", "AfterDarkGF", "XalaflixGF", "SadisflixGF", "WookafrGF"], "pluginMeta": [{"name": "1JOUR1FILMGF", "internalName": "1jour1filmgf"}, {"name": "Anime-SamaGF", "internalName": "animesamagf"}, {"name": "CinePlateformeGF", "internalName": "cineplateformegf"}, {"name": "MuiflixGF", "internalName": "muiflixgf"}, {"name": "CoFliXGF", "internalName": "coflixgf"}, {"name": "FlemmixGF", "internalName": "flemmixgf"}, {"name": "FrenchstreamGF", "internalName": "frenchstreamgf"}, {"name": "DarkiWorldGF", "internalName": "darkiworldgf"}, {"name": "HDssGF", "internalName": "hdssgf"}, {"name": "MoiFliXGF", "internalName": "moiflixgf"}, {"name": "NebryxGF", "internalName": "nebryxgf"}, {"name": "PapaDuStreamGF", "internalName": "papadustreamgf"}, {"name": "PurstreamGF", "internalName": "purstreamgf"}, {"name": "Senpai-StreamGF", "internalName": "senpaistreamgf"}, {"name": "WoW-FilmsGF", "internalName": "wowfilmsgf"}, {"name": "FanStreamGF", "internalName": "fanstreamgf"}, {"name": "GogoFlixGF", "internalName": "gogoflixgf"}, {"name": "FrembedGF", "internalName": "frembedgf"}, {"name": "FilmoFlixGF", "internalName": "filmoflixgf"}, {"name": "MovixGF", "internalName": "movixgf"}, {"name": "AfterDarkGF", "internalName": "afterdarkgf"}, {"name": "XalaflixGF", "internalName": "xalaflixgf"}, {"name": "SadisflixGF", "internalName": "sadisflixgf"}, {"name": "WookafrGF", "internalName": "wookafrgf"}]}, {"id": "raghav", "name": "Raghav Repo", "url": "https://raw.githubusercontent.com/KSHITIJ8473/raghav/builds/repo.json", "desc": "Indian repo — anime, movies and live TV in Hindi and English.", "tags": ["multilang", "english", "hindi"], "code": "raghav", "plugins": ["AniChan", "Anidap", "AniKotoAnime", "AniLight", "AnimeInWeb", "AnimeTH", "AnimeWorldIndia", "AniPM", "AniSuge", "AniWaves", "Anv", "DamiTVProvider", "EliteStreams", "GoTaku", "HiCine", "JustPlay", "Kdesa", "LiveTGTV + M3U PLAYER", "LIVETVProvider", "Movy", "Multimovies", "Nepu", "NetNaija", "NetNaija-box", "NineAnime", "Play4u", "RaghavAnime", "RaghavAnimeKitsu", "RareAnimesIndia", "ReAnime", "Senshi", "TheMoviesFlix", "Toonix", "TorrentsV1", "TwoDHive", "VegaMovies", "Xanime"], "pluginMeta": [{"name": "AniChan", "internalName": "AniChan"}, {"name": "Anidap", "internalName": "Anidap"}, {"name": "AniKotoAnime", "internalName": "AniKotoAnime"}, {"name": "AniLight", "internalName": "AniLight"}, {"name": "AnimeInWeb", "internalName": "AnimeInWeb"}, {"name": "AnimeTH", "internalName": "AnimeTH"}, {"name": "AnimeWorldIndia", "internalName": "AnimeWorldIndia"}, {"name": "AniPM", "internalName": "AniPM"}, {"name": "AniSuge", "internalName": "AniSuge"}, {"name": "AniWaves", "internalName": "AniWaves"}, {"name": "Anv", "internalName": "Anv"}, {"name": "DamiTVProvider", "internalName": "DamiTVProvider"}, {"name": "EliteStreams", "internalName": "EliteStreams"}, {"name": "GoTaku", "internalName": "GoTaku"}, {"name": "HiCine", "internalName": "HiCine"}, {"name": "JustPlay", "internalName": "JustPlay"}, {"name": "Kdesa", "internalName": "Kdesa"}, {"name": "LiveTGTV + M3U PLAYER", "internalName": "LiveTGTV + M3U PLAYER"}, {"name": "LIVETVProvider", "internalName": "LIVETVProvider"}, {"name": "Movy", "internalName": "Movy"}, {"name": "Multimovies", "internalName": "Multimovies"}, {"name": "Nepu", "internalName": "Nepu"}, {"name": "NetNaija", "internalName": "NetNaija"}, {"name": "NetNaija-box", "internalName": "NetNaija-box"}, {"name": "NineAnime", "internalName": "NineAnime"}, {"name": "Play4u", "internalName": "Play4u"}, {"name": "RaghavAnime", "internalName": "RaghavAnime"}, {"name": "RaghavAnimeKitsu", "internalName": "RaghavAnimeKitsu"}, {"name": "RareAnimesIndia", "internalName": "RareAnimesIndia"}, {"name": "ReAnime", "internalName": "ReAnime"}, {"name": "Senshi", "internalName": "Senshi"}, {"name": "TheMoviesFlix", "internalName": "TheMoviesFlix"}, {"name": "Toonix", "internalName": "Toonix"}, {"name": "TorrentsV1", "internalName": "TorrentsV1"}, {"name": "TwoDHive", "internalName": "TwoDHive"}, {"name": "VegaMovies", "internalName": "VegaMovies"}, {"name": "Xanime", "internalName": "Xanime"}]}, {"id": "eclipsia", "name": "Eclipsia", "url": "https://cs.eclipsia.dpdns.org/repo.json", "desc": "Eclipsia — movies, anime and BDIX sources. Manifest not reachable from here (403); names from the wiki.", "tags": ["multilang", "english"], "code": "eclp", "plugins": ["Eclipsia", "EclipsiaAnime", "EclipsiaBDIX", "LiveSports", "NetMirror"], "pluginMeta": [{"name": "Eclipsia", "internalName": "Eclipsia"}, {"name": "EclipsiaAnime", "internalName": "EclipsiaAnime"}, {"name": "EclipsiaBDIX", "internalName": "EclipsiaBDIX"}, {"name": "LiveSports", "internalName": "LiveSports"}, {"name": "NetMirror", "internalName": "NetMirror"}], "manifestDead": true}, {"id": "indflix", "name": "Indflix", "url": "https://raw.githubusercontent.com/dipender98/Indflix/builds/repo.json", "desc": "Hindi, English, Tamil and Telugu content.", "tags": ["multilang", "english", "hindi"], "code": "indflix", "plugins": ["IndStream", "Multimovies", "Vegamovies"], "pluginMeta": [{"name": "IndStream", "internalName": "IndStream"}, {"name": "Multimovies", "internalName": "Multimovies"}, {"name": "Vegamovies", "internalName": "Vegamovies"}]}, {"id": "storm", "name": "Storm Ext", "url": "https://raw.githubusercontent.com/redblacker8/storm-ext/refs/heads/builds/repo.json", "desc": "Spanish and Latin movies, series, anime and documentaries.", "tags": ["multilang", "spanish"], "code": "strr", "plugins": ["AllCalidadProvider", "AngulismoTvProvider", "AnimeAV1Provider", "AnimeflvProvider", "AnimeJlProvider", "AreaDocumentalProvider", "CablevisionHdProvider", "CatalogoGeneral", "CatalogoHboMax", "CatalogoInfantil", "CatalogoNetflix", "CinecalidadProvider", "CineHdPlusProvider", "CuevanaProvider", "DisneyPlusProvider", "DocumaniaTVProvider", "DoramasFlixProvider", "DoramasYTProvider", "EntrepeliculasyseriesProvider", "HDFullProvider", "IzziGoProvider", "JKAnimeProvider", "LACartoonsProvider", "LaMovieProvider", "LatAnimeProvider", "MonoschinosProvider", "MundoDonghuaProvider", "PeliculasFlixProvider", "PelispediaProvider", "Pelisplus4KProvider", "PelisplusHDProvider", "PpvProvider", "PrimeVideoProvider", "ReyDonghuaProvider", "SeriesflixProvider", "SeriesMetroProvider", "SoloLatinoProvider", "SportsBiteProvider", "TioAnimeProvider"], "pluginMeta": [{"name": "AllCalidadProvider", "internalName": "AllCalidadProvider"}, {"name": "AngulismoTvProvider", "internalName": "AngulismoTvProvider"}, {"name": "AnimeAV1Provider", "internalName": "AnimeAV1Provider"}, {"name": "AnimeflvProvider", "internalName": "AnimeflvProvider"}, {"name": "AnimeJlProvider", "internalName": "AnimeJlProvider"}, {"name": "AreaDocumentalProvider", "internalName": "AreaDocumentalProvider"}, {"name": "CablevisionHdProvider", "internalName": "CablevisionHdProvider"}, {"name": "CatalogoGeneral", "internalName": "CatalogoGeneral"}, {"name": "CatalogoHboMax", "internalName": "CatalogoHboMax"}, {"name": "CatalogoInfantil", "internalName": "CatalogoInfantil"}, {"name": "CatalogoNetflix", "internalName": "CatalogoNetflix"}, {"name": "CinecalidadProvider", "internalName": "CinecalidadProvider"}, {"name": "CineHdPlusProvider", "internalName": "CineHdPlusProvider"}, {"name": "CuevanaProvider", "internalName": "CuevanaProvider"}, {"name": "DisneyPlusProvider", "internalName": "DisneyPlusProvider"}, {"name": "DocumaniaTVProvider", "internalName": "DocumaniaTVProvider"}, {"name": "DoramasFlixProvider", "internalName": "DoramasFlixProvider"}, {"name": "DoramasYTProvider", "internalName": "DoramasYTProvider"}, {"name": "EntrepeliculasyseriesProvider", "internalName": "EntrepeliculasyseriesProvider"}, {"name": "HDFullProvider", "internalName": "HDFullProvider"}, {"name": "IzziGoProvider", "internalName": "IzziGoProvider"}, {"name": "JKAnimeProvider", "internalName": "JKAnimeProvider"}, {"name": "LACartoonsProvider", "internalName": "LACartoonsProvider"}, {"name": "LaMovieProvider", "internalName": "LaMovieProvider"}, {"name": "LatAnimeProvider", "internalName": "LatAnimeProvider"}, {"name": "MonoschinosProvider", "internalName": "MonoschinosProvider"}, {"name": "MundoDonghuaProvider", "internalName": "MundoDonghuaProvider"}, {"name": "PeliculasFlixProvider", "internalName": "PeliculasFlixProvider"}, {"name": "PelispediaProvider", "internalName": "PelispediaProvider"}, {"name": "Pelisplus4KProvider", "internalName": "Pelisplus4KProvider"}, {"name": "PelisplusHDProvider", "internalName": "PelisplusHDProvider"}, {"name": "PpvProvider", "internalName": "PpvProvider"}, {"name": "PrimeVideoProvider", "internalName": "PrimeVideoProvider"}, {"name": "ReyDonghuaProvider", "internalName": "ReyDonghuaProvider"}, {"name": "SeriesflixProvider", "internalName": "SeriesflixProvider"}, {"name": "SeriesMetroProvider", "internalName": "SeriesMetroProvider"}, {"name": "SoloLatinoProvider", "internalName": "SoloLatinoProvider"}, {"name": "SportsBiteProvider", "internalName": "SportsBiteProvider"}, {"name": "TioAnimeProvider", "internalName": "TioAnimeProvider"}]}, {"id": "reflex", "name": "Reflex Repo", "url": "https://raw.githubusercontent.com/Reflex755/ReflexRepo/refs/heads/builds/repo.json", "desc": "English repository — DiviCast and LibraryOfLadev.", "tags": ["english"], "code": "reflex", "plugins": ["DiviCast", "LibraryOfLadev"], "pluginMeta": [{"name": "DiviCast", "internalName": "DiviCast"}, {"name": "LibraryOfLadev", "internalName": "LibraryOfLadev"}]}, {"id": "flummox", "name": "Flummox Repo", "url": "https://raw.githubusercontent.com/FlummoxGamer/FLUMMOX-Repo/builds/repo.json", "desc": "Movies, TV series and anime.", "tags": ["english"], "code": "flummox", "plugins": ["BingeCloud", "Otakutsu"], "pluginMeta": [{"name": "BingeCloud", "internalName": "BingeCloud"}, {"name": "Otakutsu", "internalName": "Otakutsu"}]}, {"id": "plaviohd", "name": "PlavioHD", "url": "https://raw.githubusercontent.com/kotlinsyd/plaviohd/builds/repo.json", "desc": "English and multi-language movies, series and anime.", "tags": ["multilang", "english"], "code": "plaviohd", "plugins": ["4KHDHub", "AniKage", "AniZone", "Castle", "CineCalidad", "Cinejoy", "Cinezo", "Dexter", "Dulo", "Einthusan", "HackStore", "HDHub4u", "HDMovie4", "KissKH", "KmMovies", "LaMovie", "MalluMV", "Mapple", "MaxVOD", "MovieBox", "MovieLinkBD", "Movies4u", "MoviesBazar", "MoviesDrive", "MoviesHunt", "MoviesMod", "Movy", "MultiMovies", "NetMirror", "Nxsha", "Obejrzyj", "OndaSpanish", "PremiumSmart", "SoraStream", "SpaceDom", "TamilBlasters", "ToonWorld4All", "UHDMovies", "VAplayer", "VegaMovies", "VidBolt", "VidFast", "Vidlink", "VidNest", "Vidrock", "Way2Movies"], "pluginMeta": [{"name": "4KHDHub", "internalName": "4KHDHub"}, {"name": "AniKage", "internalName": "AniKage"}, {"name": "AniZone", "internalName": "AniZone"}, {"name": "Castle", "internalName": "Castle"}, {"name": "CineCalidad", "internalName": "CineCalidad"}, {"name": "Cinejoy", "internalName": "Cinejoy"}, {"name": "Cinezo", "internalName": "Cinezo"}, {"name": "Dexter", "internalName": "Dexter"}, {"name": "Dulo", "internalName": "Dulo"}, {"name": "Einthusan", "internalName": "Einthusan"}, {"name": "HackStore", "internalName": "HackStore"}, {"name": "HDHub4u", "internalName": "HDHub4u"}, {"name": "HDMovie4", "internalName": "HDMovie4"}, {"name": "KissKH", "internalName": "KissKH"}, {"name": "KmMovies", "internalName": "KmMovies"}, {"name": "LaMovie", "internalName": "LaMovie"}, {"name": "MalluMV", "internalName": "MalluMV"}, {"name": "Mapple", "internalName": "Mapple"}, {"name": "MaxVOD", "internalName": "MaxVOD"}, {"name": "MovieBox", "internalName": "MovieBox"}, {"name": "MovieLinkBD", "internalName": "MovieLinkBD"}, {"name": "Movies4u", "internalName": "Movies4u"}, {"name": "MoviesBazar", "internalName": "MoviesBazar"}, {"name": "MoviesDrive", "internalName": "MoviesDrive"}, {"name": "MoviesHunt", "internalName": "MoviesHunt"}, {"name": "MoviesMod", "internalName": "MoviesMod"}, {"name": "Movy", "internalName": "Movy"}, {"name": "MultiMovies", "internalName": "MultiMovies"}, {"name": "NetMirror", "internalName": "NetMirror"}, {"name": "Nxsha", "internalName": "Nxsha"}, {"name": "Obejrzyj", "internalName": "Obejrzyj"}, {"name": "OndaSpanish", "internalName": "OndaSpanish"}, {"name": "PremiumSmart", "internalName": "PremiumSmart"}, {"name": "SoraStream", "internalName": "SoraStream"}, {"name": "SpaceDom", "internalName": "SpaceDom"}, {"name": "TamilBlasters", "internalName": "TamilBlasters"}, {"name": "ToonWorld4All", "internalName": "ToonWorld4All"}, {"name": "UHDMovies", "internalName": "UHDMovies"}, {"name": "VAplayer", "internalName": "VAplayer"}, {"name": "VegaMovies", "internalName": "VegaMovies"}, {"name": "VidBolt", "internalName": "VidBolt"}, {"name": "VidFast", "internalName": "VidFast"}, {"name": "Vidlink", "internalName": "Vidlink"}, {"name": "VidNest", "internalName": "VidNest"}, {"name": "Vidrock", "internalName": "Vidrock"}, {"name": "Way2Movies", "internalName": "Way2Movies"}]}, {"id": "csar", "name": "CS-AR", "url": "https://raw.githubusercontent.com/mo7AmMeD64/cs-ar/main/repo/repo.json", "desc": "Arabic repository with movies, TV series and anime.", "tags": ["arabic"], "code": "iq3", "plugins": ["Aflaam", "Akwam", "AlooyTv", "Anime Phoenix", "Anime3rb", "AnimeWitcher", "Cee", "Cima Cloud", "Cinema Box", "Cinema Plus", "DramaWorld", "EgyDead", "FaselHD", "MeowTV", "MovieBox", "MyCima", "Oscar TV", "Shabakaty Cinemana", "StreamPlay", "Top Cinema", "Vio-La", "Wecima", "Yacine TV", "أنمي داي", "أنمي رِفت (AnimeRift)", "أنمي سلاير", "إيجي واتش", "ستارديما", "عرب سيد", "قرمزي", "قصة عشق", "كراتين", "كرتون مدبلج", "ويت أنمي (WitAnime)"], "pluginMeta": [{"name": "Aflaam", "internalName": "Aflaam"}, {"name": "Akwam", "internalName": "Akwam"}, {"name": "AlooyTv", "internalName": "Alooytv"}, {"name": "Anime Phoenix", "internalName": "Anime-Phoenix"}, {"name": "Anime3rb", "internalName": "Anim3rb"}, {"name": "AnimeWitcher", "internalName": "Animewitcher"}, {"name": "Cee", "internalName": "Cee"}, {"name": "Cima Cloud", "internalName": "CimaCloud"}, {"name": "Cinema Box", "internalName": "CinemaBox"}, {"name": "Cinema Plus", "internalName": "CinemaPlus"}, {"name": "DramaWorld", "internalName": "DramaWorld"}, {"name": "EgyDead", "internalName": "Egydead"}, {"name": "FaselHD", "internalName": "Faselhd"}, {"name": "MeowTV", "internalName": "MeowTv"}, {"name": "MovieBox", "internalName": "MovieBoxProvider"}, {"name": "MyCima", "internalName": "MyCimaProvider"}, {"name": "Oscar TV", "internalName": "OscarTv"}, {"name": "Shabakaty Cinemana", "internalName": "ShabakatyCinemana"}, {"name": "StreamPlay", "internalName": "StreamPlay"}, {"name": "Top Cinema", "internalName": "Topcinema"}, {"name": "Vio-La", "internalName": "VioLa"}, {"name": "Wecima", "internalName": "Wecima"}, {"name": "Yacine TV", "internalName": "Yacintv"}, {"name": "أنمي داي", "internalName": "AnimeDay"}, {"name": "أنمي رِفت (AnimeRift)", "internalName": "AnimeRift"}, {"name": "أنمي سلاير", "internalName": "AnimeSlayer"}, {"name": "إيجي واتش", "internalName": "Egywatch"}, {"name": "ستارديما", "internalName": "StarDima"}, {"name": "عرب سيد", "internalName": "ArabSeed"}, {"name": "قرمزي", "internalName": "Krmzy"}, {"name": "قصة عشق", "internalName": "3isk"}, {"name": "كراتين", "internalName": "Carateen"}, {"name": "كرتون مدبلج", "internalName": "CartoonDub"}, {"name": "ويت أنمي (WitAnime)", "internalName": "WitAnime"}]}, {"id": "mehdigm", "name": "Mehdi GM", "url": "https://raw.githubusercontent.com/mehdigm4life/mehdigm-stream/main/Mehdi.json", "desc": "Arabic movies, series, anime and cartoons in high quality.", "tags": ["arabic"], "code": "mehdigm", "plugins": ["أنمي داي (AnimeDay)", "أنمي رِفت (AnimeRift)", "أنمي سلاير (AnimeSlayer)", "أنمي عرب (Anime3rb)", "إيجي ديد (EgyDead)", "إيجي واتش (Egywatch)", "انمي زد (Animezid)", "انمي فور اب (Anime4Up)", "تايم موفيز (TimeMovies)", "توب سينما (TopCinema)", "توك توك سينما (TukTuk)", "ستارديما (StarDima)", "سيما كلاود (CimaCloud)", "سيما ناو (CimaNow)", "سيما وبس (Cimawbas)", "شاهد فور يو (Shahid4u)", "شوف لايف (ShoofLive)", "عالم الدراما (DramaWorld)", "فاصل إعلاني (FaselHD)", "كرتوني (Cartoony)", "مسلسلات كرتون وأنمي (CartoonAnime)", "ويت أنمي (WitAnime)"], "pluginMeta": [{"name": "أنمي داي (AnimeDay)", "internalName": "AnimeDay"}, {"name": "أنمي رِفت (AnimeRift)", "internalName": "AnimeRift"}, {"name": "أنمي سلاير (AnimeSlayer)", "internalName": "AnimeSlayer"}, {"name": "أنمي عرب (Anime3rb)", "internalName": "Anime3rb"}, {"name": "إيجي ديد (EgyDead)", "internalName": "EgyDead"}, {"name": "إيجي واتش (Egywatch)", "internalName": "Egywatch"}, {"name": "انمي زد (Animezid)", "internalName": "Animezid"}, {"name": "انمي فور اب (Anime4Up)", "internalName": "Anime4Up"}, {"name": "تايم موفيز (TimeMovies)", "internalName": "TimeMovies"}, {"name": "توب سينما (TopCinema)", "internalName": "TopCinema"}, {"name": "توك توك سينما (TukTuk)", "internalName": "TukTukcima"}, {"name": "ستارديما (StarDima)", "internalName": "StarDima"}, {"name": "سيما كلاود (CimaCloud)", "internalName": "CimaCloud"}, {"name": "سيما ناو (CimaNow)", "internalName": "CimaNow"}, {"name": "سيما وبس (Cimawbas)", "internalName": "Cimawbas"}, {"name": "شاهد فور يو (Shahid4u)", "internalName": "Shahid4u"}, {"name": "شوف لايف (ShoofLive)", "internalName": "ShoofLive"}, {"name": "عالم الدراما (DramaWorld)", "internalName": "DramaWorld"}, {"name": "فاصل إعلاني (FaselHD)", "internalName": "FaselHD"}, {"name": "كرتوني (Cartoony)", "internalName": "Cartoony"}, {"name": "مسلسلات كرتون وأنمي (CartoonAnime)", "internalName": "CartoonAnime"}, {"name": "ويت أنمي (WitAnime)", "internalName": "WitAnime"}]}, {"id": "cartoony", "name": "Cartoony Repo", "url": "https://raw.githubusercontent.com/med1245/cartoonyrepo/builds/repo.json", "desc": "Arabic cartoons provider.", "tags": ["arabic"], "code": "cartoony", "plugins": ["ArabicToons", "Carateen", "Cartoony", "ConanAraby", "DriveM3UProvider", "Egibest", "FaselHDX", "PGMED", "QFilm", "Shahid4u", "StarDima", "Topcima"], "pluginMeta": [{"name": "ArabicToons", "internalName": "ArabicToons"}, {"name": "Carateen", "internalName": "Carateen"}, {"name": "Cartoony", "internalName": "Cartoony"}, {"name": "ConanAraby", "internalName": "ConanAraby"}, {"name": "DriveM3UProvider", "internalName": "DriveM3UProvider"}, {"name": "Egibest", "internalName": "Egibest"}, {"name": "FaselHDX", "internalName": "FaselHDX"}, {"name": "PGMED", "internalName": "PGMED"}, {"name": "QFilm", "internalName": "QFilm"}, {"name": "Shahid4u", "internalName": "Shahid4u"}, {"name": "StarDima", "internalName": "StarDima"}, {"name": "Topcima", "internalName": "Topcima"}]}, {"id": "bigbull", "name": "BigBullApp", "url": "https://raw.githubusercontent.com/F0Rextasy/bigbullapp-cs/refs/heads/master/repo.json", "desc": "Turkish movies, series and anime — the largest Turkish repo.", "tags": ["turkish"], "code": "bigbullapp", "plugins": ["AniArsiv", "AnimeciX", "Animeler", "AnimeTR", "Anizium", "Anizm", "AsyaAnimeleri", "AsyaDizi", "Asyadizileriizle", "AsyaFanatikleri", "AsyaFilmIzle", "AsyaMax", "AsyaWatch", "ATV", "BelgeselX", "BiCaps", "BirAsyaDizi", "BuzFilmizle3", "CanliDizi", "CanliTV", "Cizgimax", "CizgiSite", "CizgiVeDizi", "Ddizi", "DDiziBox", "DDizimag", "Deokwave", "DiziAbi", "Diziasia", "Dizibaba", "DiziBal", "DiziBol", "Dizibox", "DiziboxIzle", "DiziBoxTv", "DiziCaN", "DiziCehennemi", "DiziDad", "DiziFilmIzle", "Dizifon", "Dizigecesi", "Dizigom", "Diziizle", "Dizikorea3", "DiziKutusu", "Dizilab", "DiziLife", "Dizilla", "Dizimanya", "DiziMom", "DiziPal", "DiziPod", "Dizirella", "DiziRoll", "DiziSol", "Dizist", "DiziWatch", "DiziYou", "DMAX", "DramaDizilerim", "DramaDunyam", "DramaVakti", "FilmBurada", "FilmciBaba", "FilmDozu", "FilmEkseni", "Filmgecesi", "FilmiFullizle", "Filmizle", "FilmizleHell", "Filmizyon", "FilmKovasi", "FilmMakinesi", "Filmmirasim", "FilmModu", "FullHDFilm", "FullHDFilmizlesene", "HDFilmCehennemi", "HDFilmCehennemi2", "HDFilmDelisi", "HDFilmDiziIzle", "HDFilmizle", "HDFilmizleBest", "Hdkore", "InatTV", "Izle7", "IzleFilm", "JetFilmizle", "KanalD", "KoreanTurk", "KralFilmizle", "Kultfilmler", "LiderFilm", "LoveFilm", "MiniDiziIzle", "MinikaCocuk", "MinikaGO", "NetFilmizle", "NowTV", "Onepacetr", "OnlineDizi", "OnlineFilmizle", "P720pizle", "PuhuTV", "Rectv", "RoketDizi", "SeiCode", "SelcukFlix", "SetFilmIzle", "Sezonlukdizi", "Shortizle", "ShowTV", "SinemaCX", "SinemaIzle", "Sinemakolik", "Sinemetrik", "Sinezy", "SonAnime", "StarTV", "StreamImdb", "TLCtr", "Toruko", "TrDiziIzle", "TRT1", "TurkAnimeTV", "TurkceCizgiFilmArsivi", "TurkceDizi", "TV2", "TV8", "TvDiziler", "UltraFilmizle", "VenusFilmizle", "WebdramaTurkey2", "WebFilmizle", "Weboo", "WebteIzle", "Yabancidizi", "YerliDiziler", "YesilCamTv", "YouTubeDiziFilm", "Zdizi", "ZipFilmizle"], "pluginMeta": [{"name": "AniArsiv", "internalName": "AniArsiv"}, {"name": "AnimeciX", "internalName": "AnimeciX"}, {"name": "Animeler", "internalName": "Animeler"}, {"name": "AnimeTR", "internalName": "AnimeTR"}, {"name": "Anizium", "internalName": "Anizium"}, {"name": "Anizm", "internalName": "Anizm"}, {"name": "AsyaAnimeleri", "internalName": "AsyaAnimeleri"}, {"name": "AsyaDizi", "internalName": "AsyaDizi"}, {"name": "Asyadizileriizle", "internalName": "Asyadizileriizle"}, {"name": "AsyaFanatikleri", "internalName": "AsyaFanatikleri"}, {"name": "AsyaFilmIzle", "internalName": "AsyaFilmIzle"}, {"name": "AsyaMax", "internalName": "AsyaMax"}, {"name": "AsyaWatch", "internalName": "AsyaWatch"}, {"name": "ATV", "internalName": "ATV"}, {"name": "BelgeselX", "internalName": "BelgeselX"}, {"name": "BiCaps", "internalName": "BiCaps"}, {"name": "BirAsyaDizi", "internalName": "BirAsyaDizi"}, {"name": "BuzFilmizle3", "internalName": "BuzFilmizle3"}, {"name": "CanliDizi", "internalName": "CanliDizi"}, {"name": "CanliTV", "internalName": "CanliTV"}, {"name": "Cizgimax", "internalName": "Cizgimax"}, {"name": "CizgiSite", "internalName": "CizgiSite"}, {"name": "CizgiVeDizi", "internalName": "CizgiVeDizi"}, {"name": "Ddizi", "internalName": "Ddizi"}, {"name": "DDiziBox", "internalName": "DDiziBox"}, {"name": "DDizimag", "internalName": "DDizimag"}, {"name": "Deokwave", "internalName": "Deokwave"}, {"name": "DiziAbi", "internalName": "DiziAbi"}, {"name": "Diziasia", "internalName": "Diziasia"}, {"name": "Dizibaba", "internalName": "Dizibaba"}, {"name": "DiziBal", "internalName": "DiziBal"}, {"name": "DiziBol", "internalName": "DiziBol"}, {"name": "Dizibox", "internalName": "Dizibox"}, {"name": "DiziboxIzle", "internalName": "DiziboxIzle"}, {"name": "DiziBoxTv", "internalName": "DiziBoxTv"}, {"name": "DiziCaN", "internalName": "DiziCaN"}, {"name": "DiziCehennemi", "internalName": "DiziCehennemi"}, {"name": "DiziDad", "internalName": "DiziDad"}, {"name": "DiziFilmIzle", "internalName": "DiziFilmIzle"}, {"name": "Dizifon", "internalName": "Dizifon"}, {"name": "Dizigecesi", "internalName": "Dizigecesi"}, {"name": "Dizigom", "internalName": "Dizigom"}, {"name": "Diziizle", "internalName": "Diziizle"}, {"name": "Dizikorea3", "internalName": "Dizikorea3"}, {"name": "DiziKutusu", "internalName": "DiziKutusu"}, {"name": "Dizilab", "internalName": "Dizilab"}, {"name": "DiziLife", "internalName": "DiziLife"}, {"name": "Dizilla", "internalName": "Dizilla"}, {"name": "Dizimanya", "internalName": "Dizimanya"}, {"name": "DiziMom", "internalName": "DiziMom"}, {"name": "DiziPal", "internalName": "DiziPal"}, {"name": "DiziPod", "internalName": "DiziPod"}, {"name": "Dizirella", "internalName": "Dizirella"}, {"name": "DiziRoll", "internalName": "DiziRoll"}, {"name": "DiziSol", "internalName": "DiziSol"}, {"name": "Dizist", "internalName": "Dizist"}, {"name": "DiziWatch", "internalName": "DiziWatch"}, {"name": "DiziYou", "internalName": "DiziYou"}, {"name": "DMAX", "internalName": "DMAX"}, {"name": "DramaDizilerim", "internalName": "DramaDizilerim"}, {"name": "DramaDunyam", "internalName": "DramaDunyam"}, {"name": "DramaVakti", "internalName": "DramaVakti"}, {"name": "FilmBurada", "internalName": "FilmBurada"}, {"name": "FilmciBaba", "internalName": "FilmciBaba"}, {"name": "FilmDozu", "internalName": "FilmDozu"}, {"name": "FilmEkseni", "internalName": "FilmEkseni"}, {"name": "Filmgecesi", "internalName": "Filmgecesi"}, {"name": "FilmiFullizle", "internalName": "FilmiFullizle"}, {"name": "Filmizle", "internalName": "Filmizle"}, {"name": "FilmizleHell", "internalName": "FilmizleHell"}, {"name": "Filmizyon", "internalName": "Filmizyon"}, {"name": "FilmKovasi", "internalName": "FilmKovasi"}, {"name": "FilmMakinesi", "internalName": "FilmMakinesi"}, {"name": "Filmmirasim", "internalName": "Filmmirasim"}, {"name": "FilmModu", "internalName": "FilmModu"}, {"name": "FullHDFilm", "internalName": "FullHDFilm"}, {"name": "FullHDFilmizlesene", "internalName": "FullHDFilmizlesene"}, {"name": "HDFilmCehennemi", "internalName": "HDFilmCehennemi"}, {"name": "HDFilmCehennemi2", "internalName": "HDFilmCehennemi2"}, {"name": "HDFilmDelisi", "internalName": "HDFilmDelisi"}, {"name": "HDFilmDiziIzle", "internalName": "HDFilmDiziIzle"}, {"name": "HDFilmizle", "internalName": "HDFilmizle"}, {"name": "HDFilmizleBest", "internalName": "HDFilmizleBest"}, {"name": "Hdkore", "internalName": "Hdkore"}, {"name": "InatTV", "internalName": "InatTV"}, {"name": "Izle7", "internalName": "Izle7"}, {"name": "IzleFilm", "internalName": "IzleFilm"}, {"name": "JetFilmizle", "internalName": "JetFilmizle"}, {"name": "KanalD", "internalName": "KanalD"}, {"name": "KoreanTurk", "internalName": "KoreanTurk"}, {"name": "KralFilmizle", "internalName": "KralFilmizle"}, {"name": "Kultfilmler", "internalName": "Kultfilmler"}, {"name": "LiderFilm", "internalName": "LiderFilm"}, {"name": "LoveFilm", "internalName": "LoveFilm"}, {"name": "MiniDiziIzle", "internalName": "MiniDiziIzle"}, {"name": "MinikaCocuk", "internalName": "MinikaCocuk"}, {"name": "MinikaGO", "internalName": "MinikaGO"}, {"name": "NetFilmizle", "internalName": "NetFilmizle"}, {"name": "NowTV", "internalName": "NowTV"}, {"name": "Onepacetr", "internalName": "Onepacetr"}, {"name": "OnlineDizi", "internalName": "OnlineDizi"}, {"name": "OnlineFilmizle", "internalName": "OnlineFilmizle"}, {"name": "P720pizle", "internalName": "P720pizle"}, {"name": "PuhuTV", "internalName": "PuhuTV"}, {"name": "Rectv", "internalName": "Rectv"}, {"name": "RoketDizi", "internalName": "RoketDizi"}, {"name": "SeiCode", "internalName": "SeiCode"}, {"name": "SelcukFlix", "internalName": "SelcukFlix"}, {"name": "SetFilmIzle", "internalName": "SetFilmIzle"}, {"name": "Sezonlukdizi", "internalName": "Sezonlukdizi"}, {"name": "Shortizle", "internalName": "Shortizle"}, {"name": "ShowTV", "internalName": "ShowTV"}, {"name": "SinemaCX", "internalName": "SinemaCX"}, {"name": "SinemaIzle", "internalName": "SinemaIzle"}, {"name": "Sinemakolik", "internalName": "Sinemakolik"}, {"name": "Sinemetrik", "internalName": "Sinemetrik"}, {"name": "Sinezy", "internalName": "Sinezy"}, {"name": "SonAnime", "internalName": "SonAnime"}, {"name": "StarTV", "internalName": "StarTV"}, {"name": "StreamImdb", "internalName": "StreamImdb"}, {"name": "TLCtr", "internalName": "TLCtr"}, {"name": "Toruko", "internalName": "Toruko"}, {"name": "TrDiziIzle", "internalName": "TrDiziIzle"}, {"name": "TRT1", "internalName": "TRT1"}, {"name": "TurkAnimeTV", "internalName": "TurkAnimeTV"}, {"name": "TurkceCizgiFilmArsivi", "internalName": "TurkceCizgiFilmArsivi"}, {"name": "TurkceDizi", "internalName": "TurkceDizi"}, {"name": "TV2", "internalName": "TV2"}, {"name": "TV8", "internalName": "TV8"}, {"name": "TvDiziler", "internalName": "TvDiziler"}, {"name": "UltraFilmizle", "internalName": "UltraFilmizle"}, {"name": "VenusFilmizle", "internalName": "VenusFilmizle"}, {"name": "WebdramaTurkey2", "internalName": "WebdramaTurkey2"}, {"name": "WebFilmizle", "internalName": "WebFilmizle"}, {"name": "Weboo", "internalName": "Weboo"}, {"name": "WebteIzle", "internalName": "WebteIzle"}, {"name": "Yabancidizi", "internalName": "Yabancidizi"}, {"name": "YerliDiziler", "internalName": "YerliDiziler"}, {"name": "YesilCamTv", "internalName": "YesilCamTv"}, {"name": "YouTubeDiziFilm", "internalName": "YouTubeDiziFilm"}, {"name": "Zdizi", "internalName": "Zdizi"}, {"name": "ZipFilmizle", "internalName": "ZipFilmizle"}]}, {"id": "yorik100", "name": "Yorik100 French", "url": "https://raw.githubusercontent.com/yorik100/Cloudstream/refs/heads/builds/repo.json", "desc": "French providers — AfterDark, Flemmix, Frembed, Xalaflix.", "tags": ["french"], "code": "yorik100", "plugins": ["AfterDark", "Flemmix/Wiflix", "Frembed", "Xalaflix"], "pluginMeta": [{"name": "AfterDark", "internalName": "AfterDark"}, {"name": "Flemmix/Wiflix", "internalName": "Flemmix"}, {"name": "Frembed", "internalName": "Frembed"}, {"name": "Xalaflix", "internalName": "Xalaflix"}]}, {"id": "anicompat", "name": "Aniyomi Compat", "url": "https://raw.githubusercontent.com/CranberrySoup/AniyomiCompatExtension/master/repo.json", "desc": "Use your Aniyomi extensions here.", "tags": ["multilang", "english"], "code": "anicompat", "plugins": ["AniyomiProvider"], "pluginMeta": [{"name": "AniyomiProvider", "internalName": "AniyomiProvider"}]}, {"id": "desi", "name": "Desi Extensions", "url": "https://raw.githubusercontent.com/Faisal0786/Desi/main/repo.json", "desc": "Desi movies, anime and live TV.", "tags": ["multilang", "english", "hindi"], "code": "desi", "plugins": ["18+", "4khdHub", "AnimeDubHindi", "AnimeGG", "AnimeSky", "AnimeVilla", "AniStream", "Anizone", "AryaVidya", "Cinedoz", "Hdhub4u", "Joya9", "KmMovies", "MovieBox", "Movies4u", "MoviesDrive", "MoviesHunt", "NetMovie", "OttSource", "ReelFren", "SDmovies", "StreamHubOne", "TamilToon", "The Movie Flix", "ToonPlay", "vegamovies", "WatchDrama", "ZeeFliz", "ZeeFliz4k"], "pluginMeta": [{"name": "18+", "internalName": "18+"}, {"name": "4khdHub", "internalName": "4khdHub"}, {"name": "AnimeDubHindi", "internalName": "AnimeDubHindi"}, {"name": "AnimeGG", "internalName": "AnimeGG"}, {"name": "AnimeSky", "internalName": "AnimeSky"}, {"name": "AnimeVilla", "internalName": "AnimeVilla"}, {"name": "AniStream", "internalName": "AniStream"}, {"name": "Anizone", "internalName": "Anizone"}, {"name": "AryaVidya", "internalName": "AryaVidya"}, {"name": "Cinedoz", "internalName": "Cinedoz"}, {"name": "Hdhub4u", "internalName": "Hdhub4u"}, {"name": "Joya9", "internalName": "Joya9"}, {"name": "KmMovies", "internalName": "KmMovies"}, {"name": "MovieBox", "internalName": "MovieBox"}, {"name": "Movies4u", "internalName": "Movies4u"}, {"name": "MoviesDrive", "internalName": "MoviesDrive"}, {"name": "MoviesHunt", "internalName": "MoviesHunt"}, {"name": "NetMovie", "internalName": "NetMovie"}, {"name": "OttSource", "internalName": "OttSource"}, {"name": "ReelFren", "internalName": "ReelFren"}, {"name": "SDmovies", "internalName": "SDmovies"}, {"name": "StreamHubOne", "internalName": "StreamHubOne"}, {"name": "TamilToon", "internalName": "TamilToon"}, {"name": "The Movie Flix", "internalName": "The Movie Flix"}, {"name": "ToonPlay", "internalName": "ToonPlay"}, {"name": "vegamovies", "internalName": "vegamovies"}, {"name": "WatchDrama", "internalName": "WatchDrama"}, {"name": "ZeeFliz", "internalName": "ZeeFliz"}, {"name": "ZeeFliz4k", "internalName": "ZeeFliz4k"}]}, {"id": "csgames", "name": "Ayu Games", "url": "https://raw.githubusercontent.com/errorcode26/ayu-cloudstream-games/builds/repo.json", "desc": "Retro emulation runtimes and classic homebrew games.", "tags": ["english"], "code": "csgames", "plugins": ["AriaOfSorrow", "AvatarAirbender", "Castlevania", "Contra", "DesertStrike", "Doom", "FlappyBird", "Game2048", "JackieChan", "LittleMermaid", "MedalOfHonor", "MetalSlugAdvance", "MinishCap", "OnePiece", "Pokemon", "PrinceOfPersia", "SeriousSam", "SuperMario", "TekkenAdvance", "TombRaider", "Zelda"], "pluginMeta": [{"name": "AriaOfSorrow", "internalName": "AriaOfSorrow"}, {"name": "AvatarAirbender", "internalName": "AvatarAirbender"}, {"name": "Castlevania", "internalName": "Castlevania"}, {"name": "Contra", "internalName": "Contra"}, {"name": "DesertStrike", "internalName": "DesertStrike"}, {"name": "Doom", "internalName": "Doom"}, {"name": "FlappyBird", "internalName": "FlappyBird"}, {"name": "Game2048", "internalName": "Game2048"}, {"name": "JackieChan", "internalName": "JackieChan"}, {"name": "LittleMermaid", "internalName": "LittleMermaid"}, {"name": "MedalOfHonor", "internalName": "MedalOfHonor"}, {"name": "MetalSlugAdvance", "internalName": "MetalSlugAdvance"}, {"name": "MinishCap", "internalName": "MinishCap"}, {"name": "OnePiece", "internalName": "OnePiece"}, {"name": "Pokemon", "internalName": "Pokemon"}, {"name": "PrinceOfPersia", "internalName": "PrinceOfPersia"}, {"name": "SeriousSam", "internalName": "SeriousSam"}, {"name": "SuperMario", "internalName": "SuperMario"}, {"name": "TekkenAdvance", "internalName": "TekkenAdvance"}, {"name": "TombRaider", "internalName": "TombRaider"}, {"name": "Zelda", "internalName": "Zelda"}]}];
+      /* (v0.2.11) Target 15: NO repos by default — the baked catalogue
+         (39 repos / 915 plugins) is REMOVED. A fresh install has zero
+         repos; repos exist only after the user adds one manually by
+         shortcode / repo.json URL (repoAdd). This supersedes the 2026-11-25
+         catalogue approach and the v0.2.1/v0.2.11 catalogue work. */
+      var REPO_CATALOGUE = []; /* (v0.2.11) Target 15 — see comment above. */
       function catalogueMerged(){
-        var out = [], seenUrl = {};
-        ST.list.forEach(function(r){ out.push(r); if (r.url) seenUrl[r.url] = true; });
-        REPO_CATALOGUE.forEach(function(r){ if (!r.url || !seenUrl[r.url]) out.push(r); });
-        return out;
+        /* (v0.2.11) Target 15: installed repos only — there is no
+           catalogue to merge any more. */
+        return ST.list.slice();
       }
       var ST = { list: [], installed: {}, provOn: {}, autoOff: {}, health: {}, open: {}, upd: {}, provList: {},
                  q: { setup: '', settings: '' }, filter: 'all', round: 1, uround: 1, confirmDel: '', testMsg: {}, ptest: {},
@@ -4526,8 +4587,35 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          from here on. One-shot cleanup: an earlier install leaves a demo
          state behind — delete it once so the demo repo is gone. */
       try{ localStorage.removeItem('zayn-st'); }catch(e){}
+      /* (v0.2.11) Targets 19/20: the ONE canonical category list —
+         upstream TvType enum, in enum order (MainAPI.kt:1118), raw names
+         exactly as the bridge sends them in provider tvTypes (verified
+         live: Phisher plugins.json tvTypes are raw names — Movie,
+         TvSeries, AnimeMovie, ...). Setup, Settings and the provider
+         picker all use this list; labels are display-only. */
+      var MEDIA_RAW = ['Movie','AnimeMovie','TvSeries','Cartoon','Anime','OVA','Torrent','Documentary','AsianDrama','Live','NSFW','Others','Music','AudioBook','CustomMedia','Audio','Podcast','Video'];
+      var MEDIA_LABEL = {Movie:'Movie',AnimeMovie:'Anime Movie',TvSeries:'TV Series',Cartoon:'Cartoon',Anime:'Anime',OVA:'OVA',Torrent:'Torrent',Documentary:'Documentary',AsianDrama:'Asian Drama',Live:'Live TV',NSFW:'NSFW',Others:'Others',Music:'Music',AudioBook:'Audio Book',CustomMedia:'Custom Media',Audio:'Audio',Podcast:'Podcast',Video:'Video'};
+      function normMediaList(list){
+        /* Old stored display names ('TV Series', 'Live TV') map to raw
+           TvType names; unknown values are dropped, never invented. */
+        var map = {'TV Series':'TvSeries','Series':'TvSeries','Live TV':'Live','Livestream':'Live'};
+        var out = [];
+        (list || []).forEach(function(x){ var v = map[x] || x; if (MEDIA_RAW.indexOf(v) !== -1 && out.indexOf(v) === -1) out.push(v); });
+        return out;
+      }
       function nsfwOn(){
-        return false; /* old Settings toggle removed; its default was OFF */
+        /* (v0.2.11) Target 19: ONE preference — the media list. NSFW is
+           on iff 'NSFW' is in it. The setup NSFW row used to toggle
+           nothing persistent (nsfwOn() hardcoded false, finishSetup
+           never saved media); now it is the same list Settings edits. */
+        try{
+          var m = null;
+          if (window.ZP_MEDIA && window.ZP_MEDIA.length) m = window.ZP_MEDIA;
+          else if (window.__v31Instances && window.__v31Instances.length && window.__v31Instances[0].set && window.__v31Instances[0].set.media) m = window.__v31Instances[0].set.media;
+          if (m) return normMediaList(m).indexOf('NSFW') !== -1;
+          var picked = readSetupMedia(); if (picked && picked.length) return picked.indexOf('NSFW') !== -1;
+        }catch(e){}
+        return false;
       }
       /* Zayn Play order: pinned first, then the user's arranged order
          (ST.provOrder); a provider with no arranged position goes last,
@@ -4625,7 +4713,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         for (var i = 0; i < repos.length; i++){
           var r = repos[i];
           var provs = [];
-          try { var d = await engineRepoProviders(r.id); provs = (d && d.providers) || []; } catch (e) { provs = []; }
+          try { var d = await engineRepoProviders(r.id); provs = (d && d.providers) || []; ST.repoDead = ST.repoDead || {}; delete ST.repoDead[r.id]; } catch (e) { provs = []; ST.repoDead = ST.repoDead || {}; ST.repoDead[r.id] = true; }
           ST.provList[r.id] = provs;
           var names = [];
           provs.forEach(function(p){
@@ -4646,6 +4734,20 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           ST.list.forEach(function(o){ if (o.id === r.id) entry = o; });
           if (entry) entry.plugins = names;
         }
+        /* (v0.2.11) Target 17: prune stale ON keys — a removed repo's keys
+           (and orphan plugin-name keys) must never build a Home tab again.
+           Only prune a key when its repo is gone, or when the repo's rows
+           are known and the key is not among them (a failed bridge read
+           leaves provList empty, so it never prunes on a transient error). */
+        var installedIds = {};
+        repos.forEach(function(r){ installedIds[r.id] = true; });
+        Object.keys(ST.provOn).forEach(function(key){
+          var li = key.indexOf('|'), rid = key.slice(0, li), pn = key.slice(li + 1);
+          var rows = ST.provList[rid] || [];
+          var known = false;
+          for (var j = 0; j < rows.length; j++) if (rows[j].name === pn) known = true;
+          if (!installedIds[rid] || (rows.length && !known)){ delete ST.provOn[key]; delete ST.autoOff[key]; delete ST.health[key]; }
+        });
         /* PROVIDERS shells for ON providers; feed content fills in when a
            tab is selected (renderProvider). */
         PROVIDERS = {};
@@ -4654,6 +4756,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var li = key.indexOf('|'), rid = key.slice(0, li), pn = key.slice(li + 1);
           var list = ST.provList[rid] || [], meta = null;
           for (var j = 0; j < list.length; j++) if (list[j].name === pn) meta = list[j];
+          /* (v0.2.11) Mega (Plugin-only, noApi) has no MainAPI and must
+             never become a Home tab; NSFW-only providers stay hidden
+             while NSFW is off (upstream HomeFragment rule). */
+          if (meta && meta.noApi) return;
+          if (meta && meta.types && meta.types.length && !nsfwOn() && meta.types.every(function(t){ return t === 'NSFW'; })) return;
           var repoName = '';
           ST.list.forEach(function(o){ if (o.id === rid) repoName = o.name; });
           PROVIDERS[key] = { name: pn, parent: repoName, url: (meta && meta.mainUrl) || '', lang: (meta && meta.lang) || '',
@@ -4685,17 +4792,25 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         renderRepoUI();
         renderProvider(currentProvider);
       }
+      /* (v0.2.11) Mega: a plugin-only test (Load ✓, no video by design)
+         renders Content/Video as —, never ✗. */
+      function testStatHtml(pt){
+        if (pt.error === 'plugin_only') return '<small class="rp-ok">' + trWord('Test') + ': ' + trWord('Load') + ' ✓ • ' + trWord('Content') + ' — • ' + trWord('Video') + ' —' + testReasonText(pt.error) + '</small>';
+        return '<small class="' + ((pt.load && pt.content && pt.video) ? 'rp-ok' : 'rp-bad') + '">' + trWord('Test') + ': ' + trWord('Load') + ' ' + (pt.load ? '✓' : '✗') + ' • ' + trWord('Content') + ' ' + (pt.content ? '✓' : '✗') + ' • ' + trWord('Video') + ' ' + (pt.video ? '✓' : '✗') + ((pt.load && pt.content && pt.video) ? '' : testReasonText(pt.error) + (pt.detail ? ' — ' + esc(pt.detail) : '')) + '</small>';
+      }
       function repoCard(r){
         var inst = !!ST.installed[r.id];
         var u = updOf(r);
         var col = PALETTE[hashStr(r.id) % PALETTE.length];
+        var dlN = 0, totN = 0;
+        (ST.provList[r.id] || []).forEach(function(x){ totN++; if (!x.notLoaded || x.noApi) dlN++; });
         var h = '<div class="repo-card" data-rcard="' + r.id + '">';
         h += '<div class="repo-top"><span class="repo-ava" style="background:' + col + '">' + r.name.charAt(0).toUpperCase() + '</span>';
-        h += '<span class="repo-info"><b>' + r.name + '</b><small>' + r.desc + '</small><span class="repo-meta">' + r.tags.join(' • ') + ' • ' + repoCountTxtEn(r) + (r.code ? ' • code: ' + r.code : '') + '</span></span>';
+        h += '<span class="repo-info"><b>' + r.name + '</b><small>' + r.desc + '</small><span class="repo-meta">' + (inst ? 'Downloaded: ' + dlN + '/' + totN + ' • ' : '') + repoCountTxtEn(r) + (r.code ? ' • code: ' + r.code : '') + '</span></span>';
         if (!inst) h += '<button class="repo-act install" data-rinstall="' + r.id + '">Install</button>';
         else h += '<button class="repo-act open" data-ropen="' + r.id + '">' + (ST.open[r.id] ? 'বন্ধ করুন' : 'প্রোভাইডার') + '</button>';
         h += '</div>';
-        h += '<div class="repo-bar"><button class="repo-test" data-rtest="' + r.id + '">Test Repo</button>';
+        h += '<div class="repo-bar">'; /* (v0.2.11) Target 11: only the per-provider Test button stays. */
         if (inst) h += '<span class="repo-state">✓ ইন্সটল হয়েছে • <b>' + onCount(r) + 'টি প্রোভাইডার অন</b></span><button class="repo-del' + (ST.confirmDel === r.id ? ' warn' : '') + '" data-rdel="' + r.id + '">' + (ST.confirmDel === r.id ? 'নিশ্চিত? আবার ট্যাপ করুন' : 'Delete') + '</button>';
         h += '</div>';
         if (inst) h += '<p class="repo-upd">শেষ আপডেট: ' + u.last + ' • v' + u.ver.toFixed(1) + (u.fresh ? ' • <b>আপডেট হয়েছে ✓</b>' : '') + '</p>';
@@ -4709,11 +4824,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               var key = r.id + '|' + pn;
               var userOn = !!ST.provOn[key], auto = !!ST.autoOff[key], eff = userOn && !auto, hs = ST.health[key];
               var pt = ST.ptest[key];
+              /* (v0.2.11) Target 16: the bridge row carries the original
+                 icon, description, version and file size. */
+              var prow = null;
+              (ST.provList[r.id] || []).forEach(function(x){ if (x.name === pn) prow = x; });
               var stat = auto ? '<small class="rp-bad">' + trWord('Auto-off — not working') + '</small>'
-                       : (pt ? '<small class="' + ((pt.load && pt.content && pt.video) ? 'rp-ok' : 'rp-bad') + '">' + trWord('Test') + ': ' + trWord('Load') + ' ' + (pt.load ? '✓' : '✗') + ' • ' + trWord('Content') + ' ' + (pt.content ? '✓' : '✗') + ' • ' + trWord('Video') + ' ' + (pt.video ? '✓' : '✗') + ((pt.load && pt.content && pt.video) ? '' : testReasonText(pt.error) + (pt.detail ? ' — ' + esc(pt.detail) : '')) + '</small>'
-                       : (hs === 'ok' && userOn ? '<small class="rp-ok">' + trWord('✓ Working') + '</small>'
-                       : (hs === 'bad' && userOn ? '<small class="rp-bad">' + trWord('Not working') + '</small>' : '')));
-              h += '<div class="rp-row">' + logoHTML(pn) + '<span class="rp-name">' + pn + '<span class="rp-url">' + (provMainUrl(key) || '') + '</span>' + stat + '</span><button class="rp-test" data-ptest="' + key + '">Test</button><button class="switch" role="switch" aria-checked="' + eff + '" data-psw="' + key + '" aria-label="' + pn + ' on off"></button></div>';
+                       : (pt ? testStatHtml(pt) : '');
+              h += '<div class="rp-row">' + provRowLogo(prow, pn) + '<span class="rp-name">' + pn + '<span class="rp-url">' + provRowMeta(prow) + (provMainUrl(key) ? ' • ' + provMainUrl(key) : '') + '</span>' + (prow && prow.description ? '<span class="rp-url">' + esc(prow.description) + '</span>' : '') + stat + '</span><button class="rp-test" data-ptest="' + key + '">Test</button><button class="switch" role="switch" aria-checked="' + eff + '" data-psw="' + key + '" aria-label="' + pn + ' on off"></button></div>';
               var sites = sitesOf(ST, r, pn);
               if (sites.length > 1){
                 var baseN = 1; /* Phase B: one base site per provider (bridge mainUrl); extras are custom sites */
@@ -4723,7 +4840,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               }
             });
           } else {
-            h += '<p class="repo-none">এই রিপোতে কোনো প্রোভাইডার লিস্ট করা নেই।</p>';
+            h += '<p class="repo-none">' + (ST.repoDead && ST.repoDead[r.id] ? 'এই রিপোটি এখন খুলছে না — রিপোটি বন্ধ হয়ে গেছে।' : 'প্রোভাইডার লোড হচ্ছে… — না এলে রিপোটি আবার খুলুন।') + '</p>';
           }
           h += '</div>';
         }
@@ -4744,15 +4861,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (which === 'settings' && ST.filter !== 'all' && r.tags.indexOf(ST.filter) === -1) return false;
           return repoMatches(r, q);
         });
-        box.innerHTML = list.length ? list.map(repoCard).join('') : '<p class="repo-none">কিছু পাওয়া যায়নি — অন্য নামে খুঁজে দেখুন।</p>';
+        box.innerHTML = list.length ? list.map(repoCard).join('') : '<p class="repo-none">' + (ST.list.length ? 'কিছু পাওয়া যায়নি — অন্য নামে খুঁজে দেখুন।' : 'কোনো রিপো যোগ করা নেই — শর্টকোড বা URL দিয়ে যোগ করুন।') + '</p>';
       }
       function renderRepoChips(){
-        var wrap = document.querySelector('#phone [data-repo-chips]'); if (!wrap) return;
-        var tags = ['all'];
-        ST.list.forEach(function(r){ r.tags.forEach(function(t){ if (tags.indexOf(t) === -1) tags.push(t); }); });
-        wrap.innerHTML = tags.map(function(t){
-          return '<button data-rchip="' + t + '"' + (ST.filter === t ? ' class="on"' : '') + '>' + (t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1)) + '</button>';
-        }).join('');
+        /* (v0.2.11) Target 14: tag chips removed — with no catalogue the
+           tags are meaningless, and the page stays simple. */
+        var wrap = document.querySelector('#phone [data-repo-chips]'); if (wrap) wrap.innerHTML = '';
       }
       function renderRepoUI(){ renderRepoList('setup'); renderRepoList('settings'); renderRepoChips(); fillSiteSelects(); }
       /* Add Site (Zayn Play model): provider options listed as "Name (mainUrl)" */
@@ -4800,32 +4914,46 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       function setInstalled(r, on){
         ST.installed[r.id] = on;
         if (!on){
-          (ST.provList[r.id] || []).forEach(function(p){ var k = r.id + '|' + p.name; delete ST.provOn[k]; delete ST.autoOff[k]; delete ST.health[k]; });
+          /* (v0.2.11) Target 17: delete EVERY key of this repo by prefix —
+             the old code only deleted names in the current row list, so an
+             orphan key (e.g. 'Netmirror') survived uninstall and kept its
+             Home tab alive forever. */
+          var pre = r.id + '|';
+          Object.keys(ST.provOn).forEach(function(k){ if (k.indexOf(pre) === 0){ delete ST.provOn[k]; delete ST.autoOff[k]; delete ST.health[k]; } });
           ST.open[r.id] = false;
         }
       }
       async function installRepo(r){
         toast('ইন্সটল হচ্ছে…');
+        var repo = null;
         try {
           var d = await engineCall('repoAdd', { input: r.url || r.id });
-          var repo = d && d.repo;
-          if (!repo){ toast('ইন্সটল করা যায়নি — আবার চেষ্টা করুন'); return; }
-          toast(repo.name + ' ইন্সটল হয়েছে ✓ — ভেতরে গিয়ে প্রোভাইডার ON করুন');
-        } catch (e) { toast(engineErrText(e)); return; }
+          repo = d && d.repo;
+          if (!repo){ toast('ইন্সটল করা যায়নি — আবার চেষ্টা করুন'); return false; }
+        } catch (e) { toast(engineErrText(e)); return false; }
+        /* (v0.2.11) Target 18: providers must be loaded BEFORE the success
+           toast — the user opens the repo straight after installing, and
+           the old toast fired while the provider list was still empty. */
         await rebuildCatalog(); renderRepoUI();
+        toast(repo.name + ' ইন্সটল হয়েছে ✓ — ভেতরে গিয়ে প্রোভাইডার ON করুন');
         if (autoUpdateOn()) setTimeout(function(){ runUpdateCheck(false); }, 900);
+        return true;
       }
       async function deleteRepo(r){
-        try { await engineCall('repoRemove', { repoId: r.id }); } catch (e) { toast(engineErrText(e)); return; }
+        /* (v0.2.11) C-17: returns true only when the native remove really
+           succeeded — callers must not toast success or drop local state
+           before that. */
+        try { await engineCall('repoRemove', { repoId: r.id }); } catch (e) { toast(engineErrText(e)); return false; }
         setInstalled(r, false); ST.confirmDel = '';
         await rebuildCatalog(); renderRepoUI();
         toast(r.name + ' ডিলিট করা হয়েছে');
+        return true;
       }
             async function checkOne(key, silent){
         var beforeOn = !!(ST.provOn[key] && !ST.autoOff[key]);
         var beforeAuto = !!ST.autoOff[key];
         var res = null;
-        try { res = await engineCall('providerHealthCheck', { onlyOn: false }); } catch (e) { if (!silent) toast(engineErrText(e)); renderRepoUI(); return false; }
+        try { res = await engineCall('providerHealthCheck', { onlyOn: false }, 120000); } catch (e) { if (!silent) toast(engineErrText(e)); renderRepoUI(); return false; }
         syncHealthResults(res);
         var pn = key.slice(key.indexOf('|') + 1);
         var nowOn = !!ST.provOn[key], nowAuto = !!ST.autoOff[key];
@@ -4839,7 +4967,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       async function checkAll(manual){
         if (manual) ST.round++;
         var res = null;
-        try { res = await engineCall('providerHealthCheck', { onlyOn: false }); } catch (e) { if (manual) toast(engineErrText(e)); renderRepoUI(); return; }
+        try { res = await engineCall('providerHealthCheck', { onlyOn: false }, 120000); } catch (e) { if (manual) toast(engineErrText(e)); renderRepoUI(); return; }
         syncHealthResults(res);
         var off = ((res && res.autoOff) || []).length, back = ((res && res.autoOn) || []).length;
         var onNow = Object.keys(ST.provOn).filter(function(k){ return ST.provOn[k]; }).length;
@@ -4877,8 +5005,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         function fail(msg){ err.textContent = msg; err.hidden = false; }
         if (!v){ fail('আগে রিপোর URL বা শর্টকোড লিখুন।'); return; }
         var lv = v.toLowerCase(), found = null;
-        /* Match shortcodes/names against the catalogue, not ST.list only:
-           bridge repos alone cannot resolve a shortcode. */
+        /* (v0.2.11) Target 15: match shortcodes/names against installed
+           repos; anything else goes to the bridge (parseRepoUrl resolves
+           shortcodes via cutt.ly / py.md, like upstream). */
         catalogueMerged().forEach(function(r){ if ((r.code && r.code.toLowerCase() === lv) || r.id.toLowerCase() === lv || (r.name && r.name.toLowerCase() === lv) || (r.url && r.url === v)) found = r; });
         if (found){
           err.hidden = true; inp.value = '';
@@ -4904,11 +5033,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!e.target.closest || !e.target.closest('#phone')) return;
         var t;
         if ((t = e.target.closest('[data-go="set-ext"]'))){
-          setTimeout(function(){ if (autoUpdateOn()){ runUpdateCheck(false); checkAll(false); } }, 900);
+          setTimeout(function(){ if (autoUpdateOn()){ runUpdateCheck(false); } }, 900); /* (v0.2.11) A P5: no auto health sweep on opening Settings — the sweep took minutes and its 30 s JS kill toasted 'Engine timed out' on Home */
           return;
         }
         if ((t = e.target.closest('[data-rinstall]'))){ var r = repoById(t.getAttribute('data-rinstall')); if (r) installRepo(r); return; }
-        if ((t = e.target.closest('[data-ropen]'))){ var id = t.getAttribute('data-ropen'); ST.open[id] = !ST.open[id]; renderRepoUI(); return; }
+        if ((t = e.target.closest('[data-ropen]'))){ var id = t.getAttribute('data-ropen'); ST.open[id] = !ST.open[id]; renderRepoUI(); if (ST.open[id] && (!ST.provList[id] || !ST.provList[id].length)){ rebuildCatalog().then(function(){ renderRepoUI(); }); } return; }
         if ((t = e.target.closest('[data-rdel]'))){
           var id2 = t.getAttribute('data-rdel');
           if (ST.confirmDel === id2){ var r2 = repoById(id2); if (r2) deleteRepo(r2); }
@@ -4920,13 +5049,20 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (rr){
             var turnOn = parts[1] === 'on';
             var fails = [];
-            var jobs = rr.plugins.map(function(pn){
-              var k = rr.id + '|' + pn;
-              return engineCall('providerSetOn', { repoId: rr.id, providerName: pn, on: turnOn }, 60000).then(function(d){
-                ST.provOn[k] = !!d.on; if (d.autoOff) ST.autoOff[k] = true; else delete ST.autoOff[k];
-              }).catch(function(e){ fails.push((e && e.code) || 'network_error'); });
+            /* (v0.2.11) B F7-1: serial, not N parallel downloads — the
+               parallel flood (88 for Phisher) starved every download on a
+               slow link, so 'সব ON' left most providers OFF. */
+            var seq = Promise.resolve();
+            rr.plugins.forEach(function(pn){
+              seq = seq.then(function(){
+                var k = rr.id + '|' + pn;
+                return engineCall('providerSetOn', { repoId: rr.id, providerName: pn, on: turnOn }, 120000).then(function(d){
+                  ST.provOn[k] = !!d.on; if (d.autoOff) ST.autoOff[k] = true; else delete ST.autoOff[k];
+                }).catch(function(e){ fails.push((e && e.code) || 'network_error'); });
+              });
             });
-            Promise.all(jobs).then(function(){
+            seq.then(function(){
+
               rebuildCatalog(); renderRepoUI();
               if (fails.length){
                 /* (v0.2.3) All-ON used to fail silently — say how many failed
@@ -4937,7 +5073,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                 Object.keys(byCode).forEach(function(c){ if (byCode[c] > topN){ topN = byCode[c]; top = c; } });
                 toast(trWord(fails.length + ' providers could not be turned on') + testReasonText(top));
               }
-              if (turnOn) setTimeout(function(){ checkAll(false); }, 800);
+              /* (v0.2.11) B F7-3: no post-All-ON health sweep. */
             });
           }
           return;
@@ -4946,11 +5082,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var key = t.getAttribute('data-psw');
           var li = key.indexOf('|'), rid = key.slice(0, li), pn = key.slice(li + 1);
           var nowOn = !(ST.provOn[key] && !ST.autoOff[key]);
-          engineCall('providerSetOn', { repoId: rid, providerName: pn, on: nowOn }, 60000).then(function(d){
+          engineCall('providerSetOn', { repoId: rid, providerName: pn, on: nowOn }, 120000).then(function(d){
             ST.provOn[key] = !!d.on; if (d.autoOff) ST.autoOff[key] = true; else delete ST.autoOff[key];
             if (typeof markRecentToggle === 'function') markRecentToggle(key);
             rebuildCatalog(); renderRepoUI();
-            if (nowOn) setTimeout(function(){ checkOne(key, false); }, 700);
+            if (nowOn) setTimeout(function(){ checkOne(key, true); }, 700); /* (v0.2.11) B F7-3: post-toggle check is silent — a background sweep must not toast on Home */
           }).catch(function(e){ toast(pn + testReasonText((e && e.code) || 'network_error')); renderRepoUI(); });
           return;
         }
@@ -4974,7 +5110,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var k2 = t.getAttribute('data-ptest'), pn2 = k2.slice(k2.indexOf('|') + 1);
           var rid2 = k2.slice(0, k2.indexOf('|'));
           t.textContent = '…';
-          engineCall('providerTest', { repoId: rid2, providerName: pn2 }, 180000 /* (v0.2.10) 120s download budget + 45s content box + margin */).then(function(res0){
+          engineCall('providerTest', { repoId: rid2, providerName: pn2 }, 180000 /* (v0.2.11) 120s download budget + 45s content box + margin */).then(function(res0){
             var res = res0 || {};
             ST.ptest[k2] = res;
             ST.health[k2] = res.video ? 'ok' : 'bad';
@@ -5013,7 +5149,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* ===== provider picker: Zayn Play's provider-switch rules in Zayn Play's glass design.
          Bottom sheet, single choice, tap = instant switch, long-press = pin/unpin,
          pinned first then A-Z, media-type chips filter, logo + flag + gear per row ===== */
-      var MEDIA_TYPES = ['All', 'Movie', 'TV Series', 'Anime', 'Cartoon', 'Documentary', 'Live TV'];
+      var MEDIA_TYPES = ['All'].concat(MEDIA_RAW); /* (v0.2.11) Target 20: same full list as setup + Settings */
       var pkFilter = 'All';
       var provLP = false;
       var arrangeMode = false; /* picker arrange mode: up/down move buttons, no tap-to-switch */
@@ -5046,7 +5182,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (ab) ab.classList.toggle('on', arrangeMode);
         var chips = document.getElementById('pk-chips');
         chips.innerHTML = MEDIA_TYPES.map(function(m){
-          return '<button data-pkchip="' + m + '"' + (pkFilter === m ? ' class="on"' : '') + '>' + m + '</button>';
+          return '<button data-pkchip="' + m + '"' + (pkFilter === m ? ' class="on"' : '') + '>' + (m === 'All' ? 'All' : (MEDIA_LABEL[m] || m)) + '</button>';
         }).join('');
         var list = document.getElementById('pk-list');
         var keys = sortedProvKeys().filter(function(k){
@@ -5702,8 +5838,13 @@ var MULTI = {
   provLang: { title:'প্রোভাইডারের ভাষা', desc:'এই ভাষার প্রোভাইডারগুলোই দেখাবে — একাধিক বাছা যায়।',
     opts: [['ALL','সব ভাষা','সব ভাষার প্রোভাইডার']].concat(LANGS.map(function(l){ return [l[1], l[0], l[1]]; })) },
   media: { title:'কী ধরনের জিনিস দেখাবে', desc:'যা বাছবেন, হোমে শুধু সেগুলোই আগে আসবে।', opts:[
-    ['Movie','Movie','সিনেমা'], ['TV Series','TV Series','সিরিজ'], ['Anime','Anime','অ্যানিমে'],
-    ['Cartoon','Cartoon','কার্টুন'], ['Documentary','Documentary','তথ্যচিত্র'], ['Live TV','Live TV','লাইভ টিভি'] ] },
+    ['Movie','Movie','সিনেমা'], ['AnimeMovie','Anime Movie','অ্যানিমে সিনেমা'],
+    ['TvSeries','TV Series','সিরিজ'], ['Cartoon','Cartoon','কার্টুন'], ['Anime','Anime','অ্যানিমে'],
+    ['OVA','OVA','ওভিএ'], ['Torrent','Torrent','টরেন্ট'], ['Documentary','Documentary','তথ্যচিত্র'],
+    ['AsianDrama','Asian Drama','এশিয়ান ড্রামা'], ['Live','Live TV','লাইভ টিভি'],
+    ['NSFW','NSFW','শুধু সাপোর্টেড এক্সটেনশনে'], ['Others','Others','অন্যান্য'],
+    ['Music','Music','গান'], ['AudioBook','Audio Book','অডিও বই'], ['CustomMedia','Custom Media','কাস্টম মিডিয়া'],
+    ['Audio','Audio','অডিও'], ['Podcast','Podcast','পডকাস্ট'], ['Video','Video','ভিডিও'] ] },
   posterUI: { title:'পোস্টারে যা যা দেখাবে', desc:'হোমের পোস্টারের উপর কোন তথ্যগুলো থাকবে।', opts:[
     ['রেটিং','রেটিং','তারকা রেটিং'], ['কোয়ালিটি','কোয়ালিটি ব্যাজ','HD / 4K ব্যাজ'],
     ['সাল','সাল','তৈরির বছর'], ['ডাব/সাব','ডাব / সাব ব্যাজ','ডাব বা সাব লেখা'] ] }
@@ -5766,7 +5907,7 @@ function defaults(){
       theme:'system', layout:'phone', bottomTitles:true, hideQual:'none', confirmExit:false,
       posterUI:['রেটিং','কোয়ালিটি'], rowTrend:true, rowCW:true, rowTop10:true,
       appLang:'English', provLang:['English','Bengali','Hindi'],
-      media:['Movie','TV Series','Anime','Cartoon','Documentary','Live TV'], dubsub:'both',
+      media: readSetupMedia(), dubsub:'both',
       bioLock:false,
       updNotify:true, plugAutoUpd:true, apkInstaller:'system', backupFreq:'weekly', backupFolder:'/Zayn Play/Backup',
       dlPath:'/Download/Zayn Play', dlQuality:'Auto', wifiOnly:false, autoNextEp:false, dns:'cloudflare',
@@ -6101,7 +6242,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 0.2.10</span></div>' +
+      '<span class="v31-val">Version 0.2.11</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
@@ -6190,16 +6331,11 @@ function extHTML(inst){
     '<div data-v31-extlist>' + extListHTML(inst) + '</div>' +
     secT('আরও কিছু') +
     '<div class="v31-card">' +
-    '<button class="v31-more-btn" data-v31-extact="test">' + mi(IC.pulse, '#059669', true) + '<span class="v31-row-tx"><span class="v31-row-t">সব রিপো পরীক্ষা করুন</span><span class="v31-row-d">ইনস্টল করা রিপোগুলো ঠিকমতো লোড হচ্ছে কিনা</span></span></button>' +
-    '<button class="v31-more-btn" data-v31-extact="health">' + mi(IC.shield, '#0891b2', true) + '<span class="v31-row-tx"><span class="v31-row-t">হেলথ চেক</span><span class="v31-row-d">ON করা প্রোভাইডারগুলো কাজ করছে কিনা — না করলে নিজে থেকে বন্ধ হয়ে যাবে</span></span></button>' +
-    '<button class="v31-more-btn" data-v31-extact="upd">' + mi(IC.refresh, '#d97706', true) + '<span class="v31-row-tx"><span class="v31-row-t">আপডেট চেক করুন</span><span class="v31-row-d">রিপো আর প্লাগিনের নতুন আপডেট আছে কিনা</span></span></button>' +
-    '<button class="v31-more-btn" data-v31-extact="testall">' + mi(IC.pulse, '#2563eb', true) + '<span class="v31-row-tx"><span class="v31-row-t">সব প্রোভাইডার পরীক্ষা করুন</span><span class="v31-row-d">প্রতিটা প্রোভাইডার — লোড, কনটেন্ট, ভিডিও চলছে কিনা</span></span></button>' +
-    (e.moreMsg ? '<p class="v31-okmsg" style="padding:0 14px 12px;margin:0">' + esc(e.moreMsg) + '</p>' : '') +
+    /* (v0.2.11) Targets 11/14: one page, one job — Test All, health check,
+       update check, auto-download picks and the add-site form are OFF this
+       page (Test All is dropped entirely — see VERIFY-0.2.11.md; add-site
+       lives on its own page). Only the auto-update toggle stays. */
     rTog(inst, 'plugAutoUpd', 'প্লাগিন নিজে থেকে আপডেট', 'রিপো খুললেই প্লাগিন নিজে নিজে হালনাগাদ হয়', IC.refresh, '#d97706') +
-    '<button class="v31-row" data-v31-multi="plugRepos">' + mi(IC.down, '#d97706', true) +
-    '<span class="v31-row-tx"><span class="v31-row-t">কোন রিপো থেকে নিজে থেকে নামবে</span><span class="v31-row-d">বাছাই করা রিপোর প্লাগিন নিজে থেকে নেমে যাবে</span></span>' +
-    '<span class="v31-val">' + bnNum((inst.set.plugRepos || []).length) + 'টি' + CHEV + '</span></button>' +
-    rAct('updPlugins', 'প্লাগিন এখনই আপডেট করুন', 'সব প্লাগিন হাতে করে এখনই হালনাগাদ করুন', IC.puzzle, '#d97706') +
     '</div>' +
     '<div class="v31-card"><div class="v31-form">' +
     '<label>নতুন রিপো যোগ করুন</label>' +
@@ -6207,8 +6343,7 @@ function extHTML(inst){
     '<button class="v31-btn" data-v31-addrepo-btn>যোগ করুন</button>' +
     (e.repoErr ? '<p class="v31-err">' + esc(e.repoErr) + '</p>' : '') +
     (e.repoOk ? '<p class="v31-okmsg">' + esc(e.repoOk) + '</p>' : '') +
-    '</div></div>' +
-    siteFormHTML(inst);
+    '</div></div>'; /* (v0.2.11) add-site form moved off this page (rAddSite). */
   return h;
 }
 function siteFormHTML(inst){
@@ -6246,9 +6381,13 @@ function siteFormHTML(inst){
 function repoCard(inst, r, inAdd){
   var n = repoProvNames(inst, r, r.id).length;
   var instd = !!inst.installed[r.id];
+  /* (v0.2.11) Screenshot 1: 'Downloaded: 12/28' on the repo card. */
+  var _dl = 0;
+  try{ var _pl2 = (typeof ST !== 'undefined' && ST && ST.provList && ST.provList[r.id]) || []; _pl2.forEach(function(_x){ if (!_x.notLoaded || _x.noApi) _dl++; }); }catch(e){}
   var h = '<div class="v31-repo"><div class="v31-repo-top"><span class="v31-repo-ic">' + esc(r.name.charAt(0)) + '</span>' +
     '<div style="flex:1;min-width:0"><b>' + esc(r.name) + '</b><p>' + esc(BN_DESC[r.id] || r.desc || '') + '</p></div></div>' +
     '<div class="v31-repo-meta"><span class="cnt">' + provCountTxt2(n, repoPlugCount(r)) + '</span>' +
+    (instd ? '<span>• Downloaded: ' + _dl + '/' + n + '</span>' : '') +
     (inst.updAt[r.id] ? '<span>• শেষ আপডেট: ' + esc(inst.updAt[r.id]) + '</span>' : '') + '</div>';
   if (inst.ext.confirmDel === r.id){
     h += '<div class="v31-repo-btns" style="align-items:center"><span class="v31-confirm">সত্যিই বাদ দেবেন?</span>' +
@@ -6271,22 +6410,28 @@ function extListHTML(inst){
   if (e.tab === 'installed'){
     var list = allRepos(inst).filter(function(r){ return inst.installed[r.id]; });
     if (!list.length) return '<p class="v31-nores">কোনো রিপো যোগ করা নেই — “নতুন যোগ করুন” ট্যাব থেকে যোগ করুন।</p>';
-    return list.map(function(r){ return repoCard(inst, r, false); }).join('');
+    /* (v0.2.11) Screenshot 1: bottom summary — Downloaded / Disabled /
+       Not downloaded, with a progress bar, in his UI. */
+    var _dl2 = 0, _off2 = 0, _tot2 = 0;
+    try{
+      list.forEach(function(_r){
+        var _rows = (typeof ST !== 'undefined' && ST && ST.provList && ST.provList[_r.id]) || [];
+        _rows.forEach(function(_x){
+          _tot2++;
+          if (!_x.notLoaded || _x.noApi){ _dl2++; if (!ST.provOn[_r.id + '|' + _x.name]) _off2++; }
+        });
+      });
+    }catch(e){}
+    var _not2 = _tot2 - _dl2;
+    var _pct2 = _tot2 ? Math.round(_dl2 * 100 / _tot2) : 0;
+    return list.map(function(r){ return repoCard(inst, r, false); }).join('') +
+      '<div class="v31-card" style="margin-top:12px;padding:12px 14px"><b>Extensions</b>' +
+      '<div style="height:8px;border-radius:4px;background:rgba(128,128,128,.25);margin:8px 0;overflow:hidden"><div style="height:100%;width:' + _pct2 + '%;background:#059669;border-radius:4px"></div></div>' +
+      '<p style="margin:0;font-size:13px">Downloaded: ' + _dl2 + ' • Disabled: ' + _off2 + ' • Not downloaded: ' + _not2 + '</p></div>';
   }
-  var chips = chipsFor(inst).map(function(t){
-    return '<button data-v31-chip="' + t + '" class="' + (e.chip === t ? 'on' : '') + '">' + esc(CHIP_LABEL[t]) + '</button>';
-  }).join('');
-  var q = (e.q || '').toLowerCase();
-  var list = allRepos(inst).filter(function(r){
-    if (e.chip !== 'all' && (r.tags || []).indexOf(e.chip) < 0) return false;
-    if (!q) return true;
-    var hay = (r.name + ' ' + (r.desc || '') + ' ' + (r.code || '') + ' ' + (r.tags || []).join(' ') + ' ' + (r.plugins || []).join(' ')).toLowerCase();
-    return hay.indexOf(q) >= 0;
-  });
-  var cards = list.length ? list.map(function(r){ return repoCard(inst, r, true); }).join('')
-    : '<p class="v31-nores">কিছু পাওয়া যায়নি — অন্য নামে খুঁজে দেখুন।</p>';
-  return '<div class="v31-search" style="margin-top:0">' + IC.search + '<input type="search" data-v31-extq placeholder="রিপো খুঁজুন… নাম, ভাষা বা প্রোভাইডার" value="' + esc(e.q || '') + '" autocomplete="off" /></div>' +
-    '<div class="v31-chips">' + chips + '</div>' + cards;
+  /* (v0.2.11) Targets 11/14/15: no catalogue to browse, search or filter —
+     the Add tab is just the add-repo form below (shortcode / repo.json URL). */
+  return '<p class="v31-nores">নিচে শর্টকোড বা repo.json URL লিখে রিপো যোগ করুন — শুধু আপনি যা যোগ করবেন, তাই থাকবে।</p>';
 }
 function repoProvNames(inst, r, id){
   /* Bridge first: after a notLoaded plugin loads, rebuildCatalog returns
@@ -6308,15 +6453,26 @@ function v31Chip(label, val){
 function rRepo(inst, id){
   var r = repoById(inst, id);
   if (!r) return head('রিপো') + '<p class="v31-nores">রিপোটি পাওয়া যায়নি।</p>';
+  var ftype = inst.ext.repoType || 'all';
   var provs = repoProvNames(inst, r, id).map(function(p){
+    var row = null;
+    try{ var _pl = (typeof ST !== 'undefined' && ST && ST.provList && ST.provList[id]) || []; for (var _pi = 0; _pi < _pl.length; _pi++) if (_pl[_pi].name === p) row = _pl[_pi]; }catch(e){}
+    if (ftype !== 'all'){
+      var _tys = (row && row.types) || [];
+      var _want = (ftype === 'Series') ? 'TvSeries' : ftype;
+      if (_tys.indexOf(_want) < 0 && _tys.indexOf(ftype) < 0) return '';
+    }
     var on = !!(inst.provOn[id] && inst.provOn[id][p]);
     var off = !!inst.autoOff[id + ':' + p];
     var tres = null;
     if (inst.ext.repoTest && inst.ext.repoTest[id]){ for (var ti = 0; ti < inst.ext.repoTest[id].length; ti++) if (inst.ext.repoTest[id][ti].n === p) tres = inst.ext.repoTest[id][ti]; }
-    var allPass = tres && tres.load && tres.content && ((typeof tres.video === 'boolean') ? tres.video : tres.ok); var chips = tres ? '<span class="v31-chipst">' + v31Chip('লোড', tres.load) + v31Chip('কনটেন্ট', tres.content) + v31Chip('ভিডিও', (typeof tres.video === 'boolean') ? tres.video : tres.ok) + (allPass ? '' : '<span class="bad">' + testReasonText(tres.error) + (tres.detail ? ' — ' + esc(tres.detail) : '') + '</span>') + '</span>' : '';
-    return '<div class="v31-prov">' + (typeof logoHTML === 'function' ? logoHTML(p) : '') +
+    var allPass = tres && tres.load && tres.content && ((typeof tres.video === 'boolean') ? tres.video : tres.ok); var chips = tres ? (tres.error === 'plugin_only' ? '<span class="v31-chipst">' + v31Chip('লোড', true) + v31Chip('কনটেন্ট', undefined) + v31Chip('ভিডিও', undefined) + '<span>' + testReasonText(tres.error) + '</span></span>' : '<span class="v31-chipst">' + v31Chip('লোড', tres.load) + v31Chip('কনটেন্ট', tres.content) + v31Chip('ভিডিও', (typeof tres.video === 'boolean') ? tres.video : tres.ok) + (allPass ? '' : '<span class="bad">' + testReasonText(tres.error) + (tres.detail ? ' — ' + esc(tres.detail) : '') + '</span>') + '</span>') : '';
+    var meta = provRowMeta(row);
+    var desc = row && row.description ? '<span class="v31-prov-desc">' + esc(row.description) + '</span>' : '';
+    return '<div class="v31-prov">' + provRowLogo(row, p) +
       '<span class="v31-prov-tx"><b>' + esc(p) + (off ? '<span class="v31-off-badge">অটো-অফ</span>' : '') + '</b>' +
-      '<span>' + (on ? 'ON — হোমের ট্যাবে দেখা যাবে' : 'OFF — হোমে দেখা যাবে না') + '</span>' + chips + '</span>' +
+      (meta ? '<span>' + esc(meta) + '</span>' : '') + desc +
+      '<span>' + ((row && row.noApi) ? (on ? 'ON — সব রিপো যোগ করে' : 'OFF — রিপো যোগ করবে না') : (on ? 'ON — হোমের ট্যাবে দেখা যাবে' : 'OFF — হোমে দেখা যাবে না')) + '</span>' + chips + '</span>' +
       '<button class="v31-test-btn" data-v31-provtest="' + esc(p) + '" data-v31-repo="' + id + '">পরীক্ষা</button>' +
       '<button class="v31-sw' + (on ? ' on' : '') + '" role="switch" aria-checked="' + on + '" data-v31-provtog="' + esc(p) + '" data-v31-repo="' + id + '" aria-label="' + esc(p) + '"></button></div>';
   }).join('');
@@ -6329,14 +6485,18 @@ function rRepo(inst, id){
       '<span class="v31-prov-tx"><b>' + esc(s.name) + ' <span class="v31-srv-badge fast">নিজের সাইট</span></b><span>' + esc(s.url) + ' • ' + esc(s.lang) + '</span></span>' +
       '<button class="v31-test-btn" data-v31-sitedel="' + inst.sites.indexOf(s) + '">বাদ দিন</button></div>';
   }).join('');
+  /* (v0.2.11) Screenshot 2: type chips from the rows' own tvTypes. */
+  var _rtypes = [];
+  try{ var _rl = (typeof ST !== 'undefined' && ST && ST.provList && ST.provList[id]) || []; _rl.forEach(function(_r){ (_r.types || []).forEach(function(_t){ var _lbl = (typeof MEDIA_LABEL !== 'undefined' && MEDIA_LABEL[_t]) || _t; if (_rtypes.indexOf(_lbl) < 0) _rtypes.push(_lbl); }); }); }catch(e){}
+  var _chips = (_rtypes.length > 1) ? '<div class="v31-chips" style="margin:0 4px 10px">' + ['all'].concat(_rtypes).map(function(_t){ return '<button data-v31-rtype="' + esc(_t) + '" class="' + ((inst.ext.repoType || 'all') === _t ? 'on' : '') + '">' + esc(_t === 'all' ? 'All' : _t) + '</button>'; }).join('') + '</div>' : '';
+  var _emptyTxt = inst.installed[id] ? 'প্রোভাইডার লোড হচ্ছে… — না এলে রিপোটি আবার খুলুন।' : 'এই রিপোর ভেতরে কোনো প্রোভাইডার নেই।';
   return head(r.name, BN_DESC[id] || r.desc || '') +
     '<div class="v31-repo-meta" style="margin:2px 4px 10px"><span class="cnt">' + provCountTxt2(repoProvNames(inst, r, id).length, repoPlugCount(r)) + '</span>' +
     (r.code ? '<span>• শর্টকোড: ' + esc(r.code) + '</span>' : '') +
     (inst.updAt[id] ? '<span>• শেষ আপডেট: ' + esc(inst.updAt[id]) + '</span>' : '') + '</div>' +
-    (provs ? '<div class="v31-card">' + provs + '</div>' : '<p class="v31-nores">এই রিপোর ভেতরে কোনো প্রোভাইডার নেই।</p>') +
+    _chips + (provs ? '<div class="v31-card">' + provs + '</div>' : '<p class="v31-nores">' + _emptyTxt + '</p>') +
     (sites ? secT('নিজের যোগ করা সাইট') + '<div class="v31-card">' + sites + '</div>' : '') +
-    '<div class="v31-repo-btns" style="margin-top:14px"><button class="v31-btn" data-v31-repotest="' + id + '">সব প্রোভাইডার পরীক্ষা করুন</button>' +
-    '<button class="v31-btn danger" data-v31-repo-del="' + id + '">রিপো বাদ দিন</button></div>' +
+    '<div class="v31-repo-btns" style="margin-top:14px"><button class="v31-btn danger" data-v31-repo-del="' + id + '">রিপো বাদ দিন</button></div>' + /* (v0.2.11) Test All dropped — only the per-provider Test button stays. */
     (inst.ext.confirmDel === id ? '<div class="v31-repo-btns" style="align-items:center"><span class="v31-confirm">সত্যিই বাদ দেবেন?</span><button class="v31-btn danger" data-v31-repo-del="' + id + '">হ্যাঁ, বাদ দিন</button><button class="v31-btn ghost" data-v31-repo-cancel>না</button></div>' : '');
 }
 function repoOfProv(inst, provName, repoId){
@@ -6446,8 +6606,12 @@ function v31RunTestAll(inst, done){
           if (res.load && res.content && res.video) inst.ext.testAll.pass++;
         }catch(e){}
         inst.ext.testAll.done = i;
-        var cur2 = inst.stack[inst.stack.length - 1];
-        if (cur2 && cur2.p === 'testall') render(inst, true);
+        /* (v0.2.11) C-18: a render() throw here used to kill the chain and
+           strand running=true forever, so every later tap did nothing. */
+        try{
+          var cur2 = inst.stack[inst.stack.length - 1];
+          if (cur2 && cur2.p === 'testall') render(inst, true);
+        }catch(e){ inst.ext.testAll.running = false; }
         next();
       });
     })();
@@ -6858,7 +7022,9 @@ function bindInstance(inst){
         }
       }
       if (mk === 'provLang') mirrorPlangToSetup(inst);
+      if (mk === 'media') mirrorMediaToSetup(inst);
       enginePersistSetting(mk, inst.set[mk]);
+      if (mk === 'media'){ try{ window.ZP_MEDIA = normMediaList(inst.set.media); if (typeof rebuildCatalog === 'function') rebuildCatalog(); }catch(e){} }
       render(inst, true);
       return;
     }
@@ -6886,13 +7052,32 @@ function bindInstance(inst){
       if (wrap){ wrap.innerHTML = extListHTML(inst); v31ApplyLang(inst); }
       return;
     }
-    if ((el = ev.target.closest('[data-v31-repo-open]'))){ nav(inst, 'repo', el.getAttribute('data-v31-repo-open')); return; }
+    if ((el = ev.target.closest('[data-v31-rtype]'))){ inst.ext.repoType = el.getAttribute('data-v31-rtype'); render(inst, true); return; }
+    if ((el = ev.target.closest('[data-v31-repo-open]'))){
+      var roid = el.getAttribute('data-v31-repo-open');
+      nav(inst, 'repo', roid);
+      /* (v0.2.11) Target 18: if the provider list has not loaded yet,
+         load it now and re-render — the page must not sit empty. */
+      try{
+        if (typeof ST !== 'undefined' && ST && (!ST.provList[roid] || !ST.provList[roid].length) && typeof rebuildCatalog === 'function'){
+          rebuildCatalog().then(function(){ try{ syncProvFromST(inst); }catch(e2){} render(inst, true); });
+        }
+      }catch(e){}
+      return;
+    }
     if ((el = ev.target.closest('[data-v31-repo-install]'))){
+      /* (v0.2.11) Target 18: installRepo already toasts on real success,
+         after rebuildCatalog has loaded the providers — do not toast or
+         mark installed before it finishes. */
       var rid = el.getAttribute('data-v31-repo-install');
-      inst.installed[rid] = true; inst.provOn[rid] = inst.provOn[rid] || {};
-      try{ var _rr2 = repoById(inst, rid); if (_rr2 && typeof installRepo === 'function') installRepo(_rr2); }catch(e){}
-      var rr = repoById(inst, rid);
-      toast(inst, '“' + (rr ? rr.name : 'রিপো') + '” যোগ হয়েছে ✓ — খুলে প্রোভাইডার ON করুন');
+      var rr0 = repoById(inst, rid);
+      toast(inst, 'ইন্সটল হচ্ছে…');
+      if (rr0 && typeof installRepo === 'function'){
+        installRepo(rr0).then(function(ok){
+          if (ok){ inst.installed[rid] = true; inst.provOn[rid] = inst.provOn[rid] || {}; try{ syncProvFromST(inst); }catch(e2){} }
+          render(inst, true);
+        });
+      }
       render(inst, true);
       return;
     }
@@ -6901,12 +7086,19 @@ function bindInstance(inst){
       var did = el.getAttribute('data-v31-repo-del');
       if (inst.ext.confirmDel !== did){ inst.ext.confirmDel = did; render(inst, true); return; }
       var dr = repoById(inst, did);
-      delete inst.installed[did]; delete inst.provOn[did];
-      try{ if (typeof deleteRepo === 'function' && dr) deleteRepo(dr); }catch(e){}
       inst.ext.confirmDel = null;
-      toast(inst, '“' + (dr ? dr.name : 'রিপো') + '” বাদ দেওয়া হয়েছে');
-      var cur = inst.stack[inst.stack.length - 1];
-      if (cur.p === 'repo' && cur.k === did){ goBack(inst); } else { render(inst, true); }
+      /* (v0.2.11) C-17: deleteRepo toasts success itself, only after the
+         native remove succeeds — the local installed flag is dropped only
+         then, so a failed delete can no longer 'come back' on rebuild. */
+      if (typeof deleteRepo === 'function' && dr){
+        deleteRepo(dr).then(function(ok){
+          if (!ok){ render(inst, true); return; }
+          delete inst.installed[did]; delete inst.provOn[did];
+          try{ syncProvFromST(inst); }catch(e2){}
+          var cur = inst.stack[inst.stack.length - 1];
+          if (cur.p === 'repo' && cur.k === did){ goBack(inst); } else { render(inst, true); }
+        });
+      } else { render(inst, true); }
       return;
     }
     if ((el = ev.target.closest('[data-v31-provtog]'))){
@@ -6925,7 +7117,7 @@ function bindInstance(inst){
       toast(inst, 'পরীক্ষা চলছে…');
       engineCall('providerTest', { repoId: tr, providerName: tn }, 180000).then(function(_pt0){
         var _pt = _pt0 || {};
-        var ok = !!_pt.video;
+        var ok = !!_pt.video || _pt.error === 'plugin_only';
         try{ if (typeof ST !== 'undefined' && ST){ ST.ptest[key] = _pt; ST.health[key] = ok ? 'ok' : 'bad'; } }catch(e){}
         inst.ext.repoTest = inst.ext.repoTest || {};
         var rtl = inst.ext.repoTest[tr] = inst.ext.repoTest[tr] || [];
@@ -6936,10 +7128,10 @@ function bindInstance(inst){
            merely because video failed — upstream has no auto-off, and the
            failure reason (with detail) is shown instead. The provider
            stays ON; the user turns it off if they want. */
-        toast(inst, ok ? '✓ ' + tn + ' ঠিকমতো চলছে' : '✗ ' + tn + ' — ভিডিও চলছে না' + testReasonText(_pt.error) + (_pt.detail ? ' — ' + esc(_pt.detail) : ''));
+        toast(inst, _pt.error === 'plugin_only' ? '✓ ' + tn + ' — লোড হয়েছে, সব রিপো যোগ করে' : (ok ? '✓ ' + tn + ' ঠিকমতো চলছে' : '✗ ' + tn + ' — ভিডিও চলছে না' + testReasonText(_pt.error) + (_pt.detail ? ' — ' + esc(_pt.detail) : '')));
         render(inst, true);
       }).catch(function(e){
-        /* (v0.2.10) A rejected test used to leave NO reason anywhere — now the
+        /* (v0.2.11) A rejected test used to leave NO reason anywhere — now the
            row shows ✗✗✗ + the reason, like a failed test (setup :4952-4962). */
         var code = (e && e.code) || 'network_error';
         try{ if (typeof ST !== 'undefined' && ST){ ST.ptest[key] = { load: false, content: false, video: false, error: code }; ST.health[key] = 'bad'; } }catch(e2){}
@@ -7116,6 +7308,36 @@ function bindInstance(inst){
     }catch(e){}
     return out;
   }
+  function readSetupMedia(){
+    /* (v0.2.11) Targets 19/20: the setup Preferred Media rows, read as
+       raw TvType names (data-media). Default (panel missing / nothing
+       picked): every type except NSFW — upstream's setup default. */
+    var def = MEDIA_RAW.filter(function(t){ return t !== 'NSFW'; });
+    try{
+      var panel = document.querySelector('[data-media-panel]');
+      if (!panel) return def;
+      var picked = [];
+      panel.querySelectorAll('[data-opt]').forEach(function(r){
+        if (!r.classList || !r.classList.contains('on')) return;
+        var v = r.getAttribute('data-media');
+        if (v && MEDIA_RAW.indexOf(v) !== -1) picked.push(v);
+      });
+      if (picked.length) return picked;
+    }catch(e){}
+    return def;
+  }
+  function mirrorMediaToSetup(inst){
+    try{
+      var panel = document.querySelector('[data-media-panel]');
+      if (!panel) return;
+      var wanted = normMediaList(inst.set.media || []);
+      panel.querySelectorAll('[data-opt]').forEach(function(r){
+        var v = r.getAttribute('data-media');
+        if (!v) return;
+        r.classList.toggle('on', wanted.indexOf(v) !== -1);
+      });
+    }catch(e){}
+  }
   function mirrorPlangToSetup(inst){
     try{
       var panel = document.querySelector('[data-plang-panel]');
@@ -7191,7 +7413,7 @@ function bindInstance(inst){
           render(inst, true);
           if (nowOn && typeof checkOne === 'function'){
             setTimeout(function(){
-              try{ checkOne(key, false); syncProvFromST(inst); var cur = instances[0]; if (cur && cur.stack && cur.stack[cur.stack.length - 1].p === 'repo') render(cur, true); }catch(e){}
+              try{ checkOne(key, true); syncProvFromST(inst); var cur = instances[0]; if (cur && cur.stack && cur.stack[cur.stack.length - 1].p === 'repo') render(cur, true); }catch(e){}
             }, 700);
           }
         }catch(e){}
