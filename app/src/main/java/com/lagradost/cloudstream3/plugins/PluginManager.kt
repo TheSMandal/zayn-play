@@ -56,6 +56,7 @@ import dalvik.system.PathClassLoader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -112,6 +113,30 @@ const val PLUGIN_VERSION_ALWAYS_UPDATE = -1
 object PluginManager {
     // Prevent multiple writes at once
     val lock = Mutex()
+
+    // (v0.2.7) One lock per plugin file, covering BOTH the download
+    // and the load of that file. PROVEN cause of the v0.2.6 empty
+    // DexPathList: a concurrent load of the same .cs3 could delete
+    // the file (purgeFailedPlugin / manifest-failure deletes) between
+    // another load's manifest read and its PathClassLoader
+    // construction, leaving the loader with zero dex elements. The
+    // per-file download mutex (RepositoryManager.downloadLocks) only
+    // serialised the download and was released before loadPlugin ran.
+    // With this lock, two loads of the same file can never overlap,
+    // and a load can never overlap a download of the same file.
+    // Different files still load in parallel (the boot scan's amap
+    // takes a different lock per record). Callers must hold this
+    // lock around loadPlugin — loadPlugin itself does NOT take it,
+    // because downloadPluginDetailed holds it across download+load
+    // and Mutex is not re-entrant. Lock order everywhere:
+    // pluginFileLocks[file] -> downloadLocks[file] -> lock; nothing
+    // acquired under `lock` ever takes pluginFileLocks, so no cycle.
+    private val pluginFileLocks = ConcurrentHashMap<String, Mutex>()
+
+    private suspend fun <T> withPluginFileLock(file: File, block: suspend () -> T): T {
+        val fileLock = pluginFileLocks.getOrPut(file.absolutePath) { Mutex() }
+        return fileLock.withLock { block() }
+    }
 
     // (v0.2.2) Last download / load failure, as a stable code the bridge
     // reports to the UI instead of a generic "network_error". Codes:
@@ -238,11 +263,13 @@ object PluginManager {
     private suspend fun maybeLoadPlugin(context: Context, file: File) {
         val name = file.name
         if (file.extension == "zip" || file.extension == "cs3") {
-            loadPlugin(
-                context,
-                file,
-                PluginData(name, null, false, file.absolutePath, PLUGIN_VERSION_NOT_SET)
-            )
+            withPluginFileLock(file) {
+                loadPlugin(
+                    context,
+                    file,
+                    PluginData(name, null, false, file.absolutePath, PLUGIN_VERSION_NOT_SET)
+                )
+            }
         } else {
             Log.i(TAG, "Skipping invalid plugin file: $file")
         }
@@ -278,11 +305,13 @@ object PluginManager {
                 it.internalName.replace("provider", "", ignoreCase = true) == apiName
             })?.let { savedData ->
             // OnlinePluginData(savedData, onlineData)
-            loadPlugin(
-                context,
-                File(savedData.filePath),
-                savedData
-            )
+            withPluginFileLock(File(savedData.filePath)) {
+                loadPlugin(
+                    context,
+                    File(savedData.filePath),
+                    savedData
+                ).first
+            }
         } ?: false
     }
 
@@ -307,11 +336,13 @@ object PluginManager {
 
         // Load all plugins as fast as possible!
         (getPluginsOnline()).toList().amap { pluginData ->
-            loadPlugin(
-                context,
-                File(pluginData.filePath),
-                pluginData
-            )
+            withPluginFileLock(File(pluginData.filePath)) {
+                loadPlugin(
+                    context,
+                    File(pluginData.filePath),
+                    pluginData
+                )
+            }
         }
     }
 
@@ -444,9 +475,12 @@ object PluginManager {
     // Returns null (and sets lastLoadError/lastError + logs forensics:
     // size, SHA-256, magic bytes, zip entries) when the file is missing,
     // is not a zip, has no manifest.json, or the manifest JSON does not
-    // parse. A file that fails here can never load, so it is deleted to
-    // keep it from poisoning the startup scan (the next test
-    // re-downloads it fresh).
+    // parse. (v0.2.7) The file is LEFT in place on failure — it is
+    // never deleted here. The v0.2.5/v0.2.6 deletes were the proven
+    // cause of the empty DexPathList: a concurrent load could delete
+    // the file between another load's manifest read and its
+    // PathClassLoader construction (upstream deletes nothing on load
+    // failure). The next test re-downloads fresh anyway.
     private fun readPluginManifest(file: File, fileName: String): BasePlugin.Manifest? {
         if (!file.exists()) {
             lastLoadError = "file_missing"
@@ -467,7 +501,6 @@ object PluginManager {
                 "bad zip ${file.name}: size=${file.length()} sha=$fileSha magic=$magic (${e.message})"
             )
             Log.e(TAG, "Failed to load plugin $fileName: not a zip (magic=$magic)", e)
-            try { file.delete() } catch (_: Throwable) {}
             return null
         } catch (e: IOException) {
             val magic = fileMagicHex(file)
@@ -478,7 +511,6 @@ object PluginManager {
                 "bad zip ${file.name}: size=${file.length()} sha=$fileSha magic=$magic (${e.javaClass.simpleName} ${e.message})"
             )
             Log.e(TAG, "Failed to load plugin $fileName: cannot open zip (magic=$magic)", e)
-            try { file.delete() } catch (_: Throwable) {}
             return null
         }
         return zip.use { z ->
@@ -492,7 +524,6 @@ object PluginManager {
                     "no manifest in ${file.name}: size=${file.length()} sha=$fileSha entries=[$entries]"
                 )
                 Log.e(TAG, "Failed to load plugin $fileName: No manifest found (entries: $entries)")
-                try { file.delete() } catch (_: Throwable) {}
                 null
             } else {
                 try {
@@ -506,42 +537,32 @@ object PluginManager {
                     lastError = "Failed to load plugin $fileName"
                     EngineLogger.log("load", "bad manifest in ${file.name}: ${e.javaClass.simpleName} ${e.message}")
                     Log.e(TAG, "Failed to load plugin $fileName: bad manifest", e)
-                    // (v0.2.6) A manifest that does not parse can never
-                    // load: drop the file here; loadPlugin drops the
-                    // stored PluginData record + oat files on the
-                    // early return below, so the next test re-downloads.
-                    try { file.delete() } catch (_: Throwable) {}
+                    // (v0.2.7) A manifest that does not parse can never
+                    // load — but the file is NOT deleted here (see the
+                    // header comment): deleting it raced concurrent
+                    // loads of the same file.
                     null
                 }
             }
         }
     }
 
-    // (v0.2.6) Repair path for a plugin that can never load: drop
-    // the file AND its stored PluginData record AND any stale ART
-    // oat files, so a bad file cannot poison the startup scan
-    // forever — the next test/toggle re-downloads it fresh
-    // (hash-verified). Only called for unrecoverable codes
-    // (load_class_missing, bad_manifest, bad_zip, file_missing,
-    // load_no_manifest); a transient failure (dex_writable,
-    // load_failed) keeps the file + record.
-    private suspend fun purgeFailedPlugin(context: Context, file: File, data: PluginData) {
-        try {
-            file.delete()
-        } catch (_: Throwable) {
-        }
-        try {
-            deletePluginData(data)
-        } catch (_: Throwable) {
-        }
-        try {
-            deleteAllOatFiles(context)
-        } catch (_: Throwable) {
-        }
-    }
-
-    internal suspend fun loadPlugin(context: Context, file: File, data: PluginData): Boolean {
+    // (v0.2.7) Returns (ok, code, detail): the load result together
+    // with the exact failure code and forensic detail, threaded
+    // through the return value instead of the process-wide
+    // lastLoadError/lastLoadDetail slots — those slots are shared by
+    // every concurrent load, so a different plugin's load could
+    // overwrite them between loadPlugin returning and the caller
+    // reading them. Callers MUST hold withPluginFileLock(file) around
+    // this call (see the lock above); loadPlugin does not take it
+    // itself. The slots are still written (forensics/logging) but no
+    // caller reads them for a result any more.
+    internal suspend fun loadPlugin(context: Context, file: File, data: PluginData): Triple<Boolean, String?, String?> {
         val fileName = file.nameWithoutExtension
+        // A stale detail from an earlier load must never leak into
+        // this call's result (manifest failures below set a code but
+        // no detail of their own).
+        lastLoadDetail = null
         val filePath = file.absolutePath
         currentlyLoading = fileName
         Log.i(TAG, "Loading plugin: $data")
@@ -576,22 +597,39 @@ object PluginManager {
                 EngineLogger.log("load", "dex still writable, refusing load: ${file.name}")
                 Log.e(TAG, "Refusing to load writable dex file: ${file.name}")
                 currentlyLoading = null
-                return false
+                return Triple(false, "dex_writable", null)
             }
 
             // (v0.2.5) The manifest is read directly from the zip (see
             // readPluginManifest); the PathClassLoader below only loads
             // the plugin class.
             val manifest = readPluginManifest(file, fileName) ?: run {
-                // (v0.2.6) A file that fails the manifest read can
-                // never load: purge it (file + stored record + oat)
-                // so the next test re-downloads fresh instead of
-                // retrying the same dead file at every startup.
-                purgeFailedPlugin(context, file, data)
+                // (v0.2.7) A file that fails the manifest read can
+                // never load — but it is NOT deleted (see
+                // readPluginManifest): deleting it here raced
+                // concurrent loads of the same file and produced the
+                // empty DexPathList. The next test re-downloads
+                // fresh; the startup scan just fails this record.
                 currentlyLoading = null
-                return false
+                return Triple(false, lastLoadError, null)
             }
             pluginClassName = manifest.pluginClassName
+
+            // (v0.2.7) The file was verified by readPluginManifest
+            // above, but another actor (a repo removal, an explicit
+            // uninstall) could have removed it since. Never build a
+            // loader on a missing path: PathClassLoader silently
+            // yields an empty DexPathList and loadClass then throws
+            // a misleading ClassNotFoundException. Fail here with
+            // the true code instead.
+            if (!file.exists() || file.length() == 0L) {
+                lastLoadError = "file_missing"
+                lastError = "Failed to load plugin $fileName"
+                EngineLogger.log("load", "file vanished before loader: ${file.name}")
+                Log.e(TAG, "Failed to load plugin $fileName: file vanished before loader")
+                currentlyLoading = null
+                return Triple(false, "file_missing", null)
+            }
 
             val loader = PathClassLoader(filePath, context.classLoader)
 
@@ -670,7 +708,7 @@ object PluginManager {
             lastLoadError = null
             lastLoadDetail = null
             currentlyLoading = null
-            true
+            Triple(true, null, null)
         } catch (e: Throwable) {
             // (v0.2.2) Map the failure to a stable code so the UI can say
             // WHY the plugin did not load, instead of a silent false.
@@ -705,15 +743,12 @@ object PluginManager {
             )
             Log.e(TAG, "Failed to load $file: ${Log.getStackTraceString(e)}")
             lastError = "Failed to load plugin $fileName"
-            // (v0.2.6) A load_class_missing file can never load: the
-            // missing host class will not appear. Purge it (file +
-            // stored record + oat) so it cannot poison the startup
-            // scan; the next test re-downloads fresh.
-            if (lastLoadError == "load_class_missing") {
-                purgeFailedPlugin(context, file, data)
-            }
+            // (v0.2.7) The file is NOT deleted on failure any more
+            // (see readPluginManifest): deleting it raced concurrent
+            // loads of the same file and produced the empty
+            // DexPathList. The next test re-downloads fresh.
             currentlyLoading = null
-            false
+            Triple(false, lastLoadError, lastLoadDetail)
         }
     }
 
@@ -851,6 +886,24 @@ object PluginManager {
         loadPlugin: Boolean,
         expectedFileSize: Long? = null,
     ): Triple<Boolean, String?, String?> {
+        // (v0.2.7) Hold the per-file lock across the whole
+        // download+load: no other load of this file (boot scan,
+        // health probe, another test) can interleave, and no load
+        // can delete the file out from under another load.
+        return withPluginFileLock(file) {
+            downloadPluginDetailedLocked(activity, pluginUrl, pluginHash, internalName, file, loadPlugin, expectedFileSize)
+        }
+    }
+
+    private suspend fun downloadPluginDetailedLocked(
+        activity: Activity,
+        pluginUrl: String,
+        pluginHash: String?,
+        internalName: String,
+        file: File,
+        loadPlugin: Boolean,
+        expectedFileSize: Long? = null,
+    ): Triple<Boolean, String?, String?> {
         try {
             Log.d(TAG, "Downloading plugin: $pluginUrl to ${file.absolutePath}")
             // The plugin file needs to be salted with the repository url hash as to allow multiple repositories with the same internal plugin names
@@ -866,13 +919,12 @@ object PluginManager {
                 }
             }
             lastDownloadError = null
-            // (v0.2.6) The file on disk was just REPLACED: drop any
-            // stale ART oat files for it, so an oat compiled from
-            // the previous dex can never shadow the fresh one.
-            try {
-                deleteAllOatFiles(activity)
-            } catch (_: Throwable) {
-            }
+            // (v0.2.7) deleteAllOatFiles used to run here, between
+            // the download and the load — an extra filesystem
+            // mutation on the plugin tree inside the window, which
+            // upstream never does (it only runs on app-version
+            // change). ART already invalidates a stale oat when the
+            // dex changes, so the call is removed from this path.
 
             val data = PluginData(
                 internalName,
@@ -886,17 +938,16 @@ object PluginManager {
                 // (v0.2.1-k) Do NOT unload the old version here: loadPlugin
                 // unloads it itself, only after the new plugin has been
                 // constructed from the new file (see loadPlugin).
-                val ok = loadPlugin(
+                // (v0.2.7) loadPlugin returns its own (ok, code,
+                // detail) — the process-wide slots are no longer
+                // read for a result (a concurrent load of another
+                // plugin could overwrite them).
+                val (ok, loadCode, loadDetail) = loadPlugin(
                     activity,
                     newFile,
                     data
                 )
-                // (v0.2.4) Read the load code here, in this same call
-                // chain, instead of leaving the caller to read the
-                // process-wide slot after later awaits.
-                // (v0.2.6) Thread the forensic detail with it, so the
-                // caller can name the missing class.
-                Triple(ok, if (ok) null else (lastLoadError ?: "load_failed"), if (ok) null else lastLoadDetail)
+                Triple(ok, if (ok) null else (loadCode ?: "load_failed"), if (ok) null else loadDetail)
             } else {
                 setPluginData(data)
                 Triple(true, null, null)
