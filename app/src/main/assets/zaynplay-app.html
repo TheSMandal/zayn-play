@@ -1872,7 +1872,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v0.2.7</p>
+                  <p class="splash-ver">Zayn Play v0.2.8</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -4972,7 +4972,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var k2 = t.getAttribute('data-ptest'), pn2 = k2.slice(k2.indexOf('|') + 1);
           var rid2 = k2.slice(0, k2.indexOf('|'));
           t.textContent = '…';
-          engineCall('providerTest', { repoId: rid2, providerName: pn2 }, 180000 /* (v0.2.7) 120s download budget + 45s content box + margin */).then(function(res0){
+          engineCall('providerTest', { repoId: rid2, providerName: pn2 }, 180000 /* (v0.2.8) 120s download budget + 45s content box + margin */).then(function(res0){
             var res = res0 || {};
             ST.ptest[k2] = res;
             ST.health[k2] = res.video ? 'ok' : 'bad';
@@ -6099,7 +6099,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 0.2.7</span></div>' +
+      '<span class="v31-val">Version 0.2.8</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
@@ -6924,7 +6924,7 @@ function bindInstance(inst){
         }
         render(inst, true);
       }).catch(function(e){
-        /* (v0.2.7) A rejected test used to leave NO reason anywhere — now the
+        /* (v0.2.8) A rejected test used to leave NO reason anywhere — now the
            row shows ✗✗✗ + the reason, like a failed test (setup :4952-4962). */
         var code = (e && e.code) || 'network_error';
         try{ if (typeof ST !== 'undefined' && ST){ ST.ptest[key] = { load: false, content: false, video: false, error: code }; ST.health[key] = 'bad'; } }catch(e2){}
