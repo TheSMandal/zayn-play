@@ -34,6 +34,7 @@ import app.netlify.zaynplay.engine.EngineStore
 import app.netlify.zaynplay.engine.ZaynDownloads
 import app.netlify.zaynplay.engine.ZaynEngine
 import app.netlify.zaynplay.engine.ZaynPlayer
+import app.netlify.zaynplay.engine.ZaynMpvPlayer
 import com.lagradost.api.setContext
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.app
@@ -89,6 +90,14 @@ class MainActivity : AppCompatActivity() {
     // background is set transparent for the same window.
     private lateinit var playerSurface: TextureView
     private lateinit var zaynPlayer: ZaynPlayer
+    // (v1.0.10) The libmpv player: same TextureView, same event callback,
+    // same bridge. Only the engine the user picked ever plays.
+    private lateinit var zaynMpvPlayer: ZaynMpvPlayer
+    // (v1.0.10 L1) Frame-arrival probe state: see startFrameProbe().
+    private var frameProbeRunning = false
+    private var lastFrameTs = 0L
+    private var frameCount = 0
+    private var probedTexId = 0
     private lateinit var zaynDownloads: ZaynDownloads
     private var lastStageRect: JSONObject? = null
     // (v1.0.5 A1/A4) Last KNOWN-GOOD stage rect (visible=true, non-degenerate):
@@ -333,13 +342,31 @@ class MainActivity : AppCompatActivity() {
         // (v1.0.5 A3) Re-assert the video hole on every playerState event
         // while the player is open, so one visible=false report — or a
         // missed report — cannot leave the surface GONE for the session.
-        zaynPlayer = ZaynPlayer(this) { type, data ->
-            if (type == "playerState") reassertVideoHole()
-            pushEngineEvent(type, data)
+        // (v1.0.10 L3) playerFirstFrame is NOT a page event: it tells the
+        // activity to re-report the stage rect NOW, so the page-hole state
+        // is captured AT the first frame. It is intercepted here and never
+        // pushed into the page's __zaynEvent handler.
+        val playerEventCallback: (String, JSONObject) -> Unit = { type, data ->
+            if (type == "playerFirstFrame") {
+                runOnUiThread {
+                    if (::webView.isInitialized) {
+                        webView.evaluateJavascript(
+                            "window.__zaynReportStage && window.__zaynReportStage()",
+                            null,
+                        )
+                    }
+                }
+            } else {
+                if (type == "playerState") reassertVideoHole()
+                pushEngineEvent(type, data)
+            }
         }
+        zaynPlayer = ZaynPlayer(this, playerEventCallback)
         zaynPlayer.setTextureView(playerSurface)
+        zaynMpvPlayer = ZaynMpvPlayer(this, playerEventCallback)
+        zaynMpvPlayer.setTextureView(playerSurface)
         zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
-        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }) { rect ->
+        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynMpvPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }) { rect ->
             onPlayerStageRect(rect)
         }
         engineScope.launch {
@@ -457,6 +484,9 @@ class MainActivity : AppCompatActivity() {
         // Phase C: pause playback too (audio must not keep playing when
         // the user leaves the app).
         if (::zaynPlayer.isInitialized) zaynPlayer.pauseForBackground()
+        // (v1.0.10) Pause the mpv engine too when it is the active one;
+        // its pauseForBackground is a no-op before its instance exists.
+        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.pauseForBackground()
     }
 
     override fun onResume() {
@@ -484,6 +514,8 @@ class MainActivity : AppCompatActivity() {
         engineScope.cancel()
         // Phase C: release the player + stop downloads.
         if (::zaynPlayer.isInitialized) zaynPlayer.release()
+        // (v1.0.10) Release the mpv instance too (destroy + surface detach).
+        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.release()
         if (::zaynDownloads.isInitialized) zaynDownloads.shutdown()
         super.onDestroy()
     }
@@ -553,6 +585,8 @@ class MainActivity : AppCompatActivity() {
                 EngineLogger.log(
                     "playerStage",
                     "visible=false x=$x y=$y w=$w h=$h vw=$vw vh=$vh " +
+                        "fsOn=${rect.optBoolean("fsOn", false)} stg=${rect.optBoolean("stg", false)} " +
+                        "scrId=${rect.optString("scrId", "")} nativeVideo=${rect.optBoolean("nativeVideo", false)} " +
                         "surface=GONE webViewBg=#%08X".format(lastWebViewBgColor),
                 )
                 return@runOnUiThread
@@ -568,6 +602,9 @@ class MainActivity : AppCompatActivity() {
             // (a 0-size rect used to leave it GONE while the page showed
             // the player as open). Positioning follows on the next report.
             playerSurface.visibility = View.VISIBLE
+            // (v1.0.10 L1) Start the frame-arrival probe now that the stage
+            // is open (it stops itself when the surface goes GONE).
+            startFrameProbe()
             // (v1.0.8) Post-stage-open surface-state check (see postSurfaceCheck).
             postSurfaceCheck()
             // (v1.0.5 A4) A degenerate rect must NOT leave the surface at
@@ -584,6 +621,8 @@ class MainActivity : AppCompatActivity() {
                 EngineLogger.log(
                     "playerStage",
                     "visible=true DEGENERATE x=$x y=$y w=$w h=$h vw=$vw vh=$vh " +
+                        "fsOn=${rect.optBoolean("fsOn", false)} stg=${rect.optBoolean("stg", false)} " +
+                        "scrId=${rect.optString("scrId", "")} nativeVideo=${rect.optBoolean("nativeVideo", false)} " +
                         "fell back to lastGoodRect=${good != null} " +
                         "surface=${surfaceState()} webViewBg=#%08X".format(lastWebViewBgColor),
                 )
@@ -594,6 +633,8 @@ class MainActivity : AppCompatActivity() {
             EngineLogger.log(
                 "playerStage",
                 "visible=true x=$x y=$y w=$w h=$h vw=$vw vh=$vh " +
+                    "fsOn=${rect.optBoolean("fsOn", false)} stg=${rect.optBoolean("stg", false)} " +
+                    "scrId=${rect.optString("scrId", "")} nativeVideo=${rect.optBoolean("nativeVideo", false)} " +
                     "surface=${surfaceState()} webViewBg=#%08X".format(lastWebViewBgColor),
             )
         }
@@ -647,10 +688,67 @@ class MainActivity : AppCompatActivity() {
             EngineLogger.log(
                 "playerStage",
                 "surface check surfaceTexture=${playerSurface.surfaceTexture != null} " +
+                    "texId=${System.identityHashCode(playerSurface.surfaceTexture)} " +
                     "surfaceSize=${if (::zaynPlayer.isInitialized) zaynPlayer.surfaceSizeText() else "n/a"} " +
                     "textureView=${playerSurface.width}x${playerSurface.height} visibility=$vis",
             )
         }, 200)
+    }
+
+    /**
+     * (v1.0.10 L1) Frame-arrival probe — POLLING, not a listener, on
+     * purpose. The brief's literal OnFrameAvailableListener would REPLACE
+     * TextureView's own internal mUpdateListener (AOSP TextureView.java:
+     * mSurface.setOnFrameAvailableListener(mUpdateListener); that listener
+     * is what calls updateLayer()+invalidate() on every frame), so the view
+     * would stop drawing and the probe itself would CAUSE a black screen.
+     * Polling SurfaceTexture.getTimestamp() instead: the timestamp changes
+     * only when a new frame is queued to the texture, which is exactly the
+     * proof L1 needs, with zero behaviour change. First 5 frames, then
+     * every 100th (same throttle as briefed). Runs only while the surface
+     * is VISIBLE; stops itself when it goes GONE.
+     */
+    private fun startFrameProbe() {
+        if (frameProbeRunning) return
+        frameProbeRunning = true
+        val probe = object : Runnable {
+            override fun run() {
+                if (!frameProbeRunning) return
+                if (!::playerSurface.isInitialized ||
+                    playerSurface.visibility != View.VISIBLE
+                ) {
+                    frameProbeRunning = false
+                    return
+                }
+                val st = playerSurface.surfaceTexture
+                if (st != null) {
+                    val texId = System.identityHashCode(st)
+                    if (texId != probedTexId) {
+                        probedTexId = texId
+                        frameCount = 0
+                        lastFrameTs = 0L
+                        EngineLogger.log(
+                            "player",
+                            "player texture frame probe attached tex=$texId",
+                        )
+                    }
+                    val ts = st.timestamp
+                    if (ts != 0L && ts != lastFrameTs) {
+                        lastFrameTs = ts
+                        frameCount++
+                        if (frameCount <= 5 || frameCount % 100 == 0) {
+                            EngineLogger.log(
+                                "player",
+                                "texture frame available #$frameCount tex=$texId " +
+                                    "${playerSurface.width}x${playerSurface.height}",
+                            )
+                        }
+                    }
+                }
+                playerSurface.postDelayed(this, 250)
+            }
+        }
+        playerSurface.post(probe)
     }
 
     /**
