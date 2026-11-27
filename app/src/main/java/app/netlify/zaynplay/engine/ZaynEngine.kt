@@ -45,6 +45,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -349,18 +350,46 @@ class ZaynEngine(
      */
     private fun providerEntries(repo: RepositoryData, wrappers: List<PluginWrapper>): JSONArray {
         val arr = JSONArray()
+        // (v0.2.9) Fix G: enforce the provLang setting on ROWS only (see
+        // provLangCodes/langRowWanted). Loading, health and providerTest
+        // are never gated by language.
+        val wantedCodes = provLangCodes()
         for (w in wrappers) {
             val p = w.plugin
             val apis = apisForPlugin(repo, p)
             if (apis.isEmpty()) {
-                arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true))
+                if (langRowWanted(p.language, wantedCodes)) {
+                    arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true))
+                }
             } else {
                 for (api in apis) {
-                    arr.put(providerRowJson(repo, p, name = api.name, api = api, notLoaded = false))
+                    if (langRowWanted(api.lang, wantedCodes)) {
+                        arr.put(providerRowJson(repo, p, name = api.name, api = api, notLoaded = false))
+                    }
                 }
             }
         }
         return arr
+    }
+
+    /**
+     * (v0.2.9) Fix G: the provLang setting (full language names, e.g.
+     * "English") was never enforced — every provider row was shown. Maps
+     * the names to BCP 47 codes with the same table as the UI's LCODE.
+     * Returns null when the list is empty, which is the UI's ALL state:
+     * no filtering. A row with no language metadata is always shown.
+     */
+    private fun provLangCodes(): Set<String>? {
+        val names = store.getSettingStringList("provLang", listOf("English", "Bengali", "Hindi"))
+        if (names.isEmpty()) return null
+        return names.map { PROV_LANG_CODES[it] ?: it.trim().lowercase() }.toSet()
+    }
+
+    private fun langRowWanted(lang: String?, wantedCodes: Set<String>?): Boolean {
+        if (wantedCodes == null) return true
+        if (lang.isNullOrBlank()) return true
+        val primary = lang.trim().split('-', '_').first().lowercase()
+        return primary in wantedCodes
     }
 
     private fun providerRowJson(
@@ -570,6 +599,10 @@ class ZaynEngine(
         // call (missing class name for load_class_missing); null
         // unless the load step failed. Surfaced verbatim in the row.
         var loadDetail: String? = null
+        // (v0.2.9) Fix C: detail from the CONTENT/VIDEO stage (the
+        // Failure errorString / loadLinks cause). The row shows
+        // (detail ?: loadDetail); the two stages never both fail.
+        var detail: String? = null
         // (v0.2.4) The download runs OUTSIDE the 45 s box: on a slow
         // network the .cs3 download gets its full 120 s HTTP budget
         // (with resume + retry in downloadPluginToFile), and only the
@@ -614,16 +647,40 @@ class ZaynEngine(
                 withTimeout(45_000) {
                     load = true
                     error = null
-                    val (firstItem, transportFailed) = firstContentItem(apiForCheck)
+                    detail = null
+                    // (v0.2.9) Fix C: every false outcome below now carries
+                    // a non-null error code AND a detail string. Before,
+                    // content/video could be false with error == null (a
+                    // site answering with no usable content, a page with no
+                    // links, a loadLinks exception swallowed to `false`),
+                    // which the row rendered as "unknown reason".
+                    val (firstItem, transportFailed, contentDetail) = firstContentItem(apiForCheck)
                     content = firstItem != null
-                    if (transportFailed) error = "network_error"
+                    if (transportFailed) {
+                        error = "network_error"
+                        detail = contentDetail
+                    } else if (firstItem == null) {
+                        error = "no_content"
+                        detail = contentDetail
+                    }
                     if (firstItem != null) {
                         val loaded = APIRepository(apiForCheck).load(firstItem.url)
+                        if (loaded is Resource.Failure) {
+                            error = if (loaded.isNetworkError) "network_error" else "load_failed"
+                            detail = loaded.errorString
+                        }
                         val data = (loaded as? Resource.Success)?.value?.let(::loadDataOf)
                         if (data != null) {
                             var gotLink = false
-                            val linksOk = APIRepository(apiForCheck).loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
-                            video = linksOk && gotLink
+                            val links = APIRepository(apiForCheck).loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
+                            video = links.ok && gotLink
+                            if (!video) {
+                                if (error == null) error = "no_links"
+                                if (detail == null) detail = links.error
+                            }
+                        } else if (loaded !is Resource.Failure && error == null) {
+                            // Page loaded but carried no playable data.
+                            error = "no_links"
                         }
                     }
                 }
@@ -647,7 +704,9 @@ class ZaynEngine(
                 // load_class_missing); the row appends it after the
                 // translated reason so the screenshot names WHAT is
                 // missing. Null unless the load step failed.
-                .put("detail", loadDetail ?: JSONObject.NULL)
+                // (v0.2.9) Fix C: content/video-stage detail rides here
+                // too — the row no longer drops forensics by construction.
+                .put("detail", (detail ?: loadDetail) ?: JSONObject.NULL)
         )
     }
 
@@ -664,35 +723,94 @@ class ZaynEngine(
      * answering with no usable content. Callers must NOT treat a
      * transport failure as "the provider is broken" — that is what
      * auto-offed every provider on a dead network.
+     *
+     * (v0.2.9) Fix C/D/E: now a Triple — the third value is the Failure
+     * errorString, threaded through so the row can name the cause instead
+     * of "unknown reason". Cancellation (including the withTimeout kill)
+     * is rethrown, never converted to a transport failure (Fix D). The
+     * search probe word is a TITLE word, never a genre word (Fix E):
+     * homepage-derived title words first, then "over" / "iron" / "guy".
+     * AniKoto's search is a title-keyword filter: keyword=movie returns
+     * nothing while a title word returns real links.
      */
-    private suspend fun firstContentItem(api: MainAPI): Pair<SearchResponse?, Boolean> {
+    private suspend fun firstContentItem(api: MainAPI): Triple<SearchResponse?, Boolean, String?> {
         var transportFailed = false
+        var failureDetail: String? = null
+        var probeWord: String? = null
         if (api.hasMainPage) {
             val feed = try {
                 APIRepository(api).getMainPage(1)
+            } catch (e: CancellationException) {
+                // (v0.2.9) Fix D: never launder a cancellation (incl. the
+                // withTimeout kill) into a transport failure.
+                throw e
             } catch (e: Exception) {
                 transportFailed = true
                 null
             }
-            if (feed is Resource.Failure && feed.isNetworkError) transportFailed = true
+            if (feed is Resource.Failure) {
+                if (feed.isNetworkError) transportFailed = true
+                failureDetail = feed.errorString
+            }
             val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
+            probeWord = probeWordFromSections(sections)
             val first = sections
                 ?.flatMap { it?.items ?: emptyList() }
                 ?.firstOrNull { it.list.isNotEmpty() }
                 ?.list?.firstOrNull()
-            if (first != null) return first to false
+            if (first != null) return Triple(first, false, null)
             // Home page exists but came back empty: fall through to the
             // search check instead of failing a working provider.
         }
-        val res = try {
-            APIRepository(api).search("movie", 1)
-        } catch (e: Exception) {
-            transportFailed = true
-            null
+        // (v0.2.9) Fix E: try title words in order; a site that answers
+        // but matches nothing for one word gets the next word. A transport
+        // failure stops the loop — retrying another word against an
+        // unreachable site is pointless.
+        val words = (listOfNotNull(probeWord) + listOf("over", "iron", "guy")).distinct()
+        for (word in words) {
+            val res = try {
+                APIRepository(api).search(word, 1)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                transportFailed = true
+                failureDetail = "${e.javaClass.simpleName}: ${e.message ?: "no message"}".take(200)
+                break
+            }
+            if (res is Resource.Failure) {
+                if (res.isNetworkError) transportFailed = true
+                failureDetail = res.errorString
+                break
+            }
+            val item = (res as? Resource.Success<SearchResponseList>)?.value?.items?.firstOrNull()
+            if (item != null) return Triple(item, false, null)
         }
-        if (res is Resource.Failure && res.isNetworkError) transportFailed = true
-        val item = (res as? Resource.Success<SearchResponseList>)?.value?.items?.firstOrNull()
-        return item to (item == null && transportFailed)
+        return Triple(null, transportFailed, failureDetail)
+    }
+
+    /**
+     * (v0.2.9) Fix E: first usable title word from home-page list names
+     * (and item titles, when present). Genre/section words are excluded:
+     * they are not title keywords and a title-keyword search for them
+     * returns nothing on providers like AniKoto.
+     */
+    private fun probeWordFromSections(sections: List<HomePageResponse?>?): String? {
+        val stop = setOf(
+            "movie", "movies", "tv", "series", "anime", "cartoon", "cartoons",
+            "documentary", "live", "home", "popular", "trending", "latest",
+            "top", "new", "featured", "recommended", "all", "list", "watch",
+            "free", "hd", "dubbed", "subbed"
+        )
+        val words = ArrayList<String>()
+        sections?.forEach { section ->
+            section?.items?.forEach { list ->
+                words += list.name.split(Regex("[^A-Za-z]+")).filter { it.length >= 3 }
+                list.list.forEach { item ->
+                    words += item.name.split(Regex("[^A-Za-z]+")).filter { it.length >= 3 }
+                }
+            }
+        }
+        return words.map { it.lowercase() }.firstOrNull { it !in stop }
     }
 
     private suspend fun providerHealthCheck(onlyOn: Boolean): JSONObject {
@@ -823,10 +941,19 @@ class ZaynEngine(
         var transportFailed = false
         try {
             withTimeout(probeTimeoutMs) {
-                val (item, transport) = firstContentItem(api)
+                val (item, transport, _) = firstContentItem(api)
                 healthy = item != null
                 transportFailed = transport
             }
+        } catch (e: CancellationException) {
+            // (v0.2.9) Fix D: a cancelled probe propagates; only a probe
+            // TIMEOUT (not an external cancellation) counts as a transport
+            // failure with no state change. withTimeout throws
+            // TimeoutCancellationException, a CancellationException — so
+            // rethrow when the parent scope itself is cancelled.
+            if (!currentCoroutineContext().isActive) throw e
+            healthy = false
+            transportFailed = true
         } catch (e: Exception) {
             healthy = false
             transportFailed = true
@@ -840,14 +967,17 @@ class ZaynEngine(
         }
         store.setProviderHealth(t.repoId, name, if (healthy) "ok" else "fail")
         var change = ""
+        // (v0.2.9) Fix F: AUTO-OFF IS REMOVED. Upstream has no auto-off at
+        // all, and this probe turned a provider OFF whenever
+        // firstContentItem() returned nothing — without ever consulting
+        // Load. An unhealthy probe now only stamps health="fail"; the
+        // provider stays ON, and the user turns it off if they want. The
+        // recovery branch is KEPT: a provider auto-offed by v0.2.8 turns
+        // back ON the next time it probes healthy (self-heal).
         if (healthy && wasAutoOff) {
             store.setProviderOn(t.repoId, name, true)
             store.setProviderAutoOff(t.repoId, name, false)
             change = "on"
-        } else if (!healthy && wasOn) {
-            store.setProviderOn(t.repoId, name, false)
-            store.setProviderAutoOff(t.repoId, name, true)
-            change = "off"
         }
         return probeJson(
             t.repoId, name,
@@ -1124,8 +1254,12 @@ class ZaynEngine(
         var partial = false
         try {
             withTimeout(timeoutSec * 1000L) {
-                val okLinks = APIRepository(api).loadLinks(data, false, { s -> foundSubs += s }) { l -> foundLinks += l }
-                if (!okLinks) partial = foundLinks.isEmpty()
+                // (v0.2.9) Fix C: loadLinks now returns its cause.
+                val linksResult = APIRepository(api).loadLinks(data, false, { s -> foundSubs += s }) { l -> foundLinks += l }
+                if (!linksResult.ok) {
+                    partial = foundLinks.isEmpty()
+                    linksResult.error?.let { EngineLogger.log("bridge", "resolveLinks loadLinks failed: $it") }
+                }
             }
         } catch (e: TimeoutCancellationException) {
             partial = true
@@ -1882,6 +2016,15 @@ class ZaynEngine(
     }
 
     companion object {
+        // (v0.2.9) Fix G: provLang setting names → BCP 47 codes, same
+        // table as the UI's LCODE (zaynplay-app.html).
+        private val PROV_LANG_CODES = mapOf(
+            "English" to "en", "Bengali" to "bn", "Hindi" to "hi",
+            "Marathi" to "mr", "Telugu" to "te", "Tamil" to "ta",
+            "Gujarati" to "gu", "Urdu" to "ur", "Kannada" to "kn",
+            "Odia" to "or", "Malayalam" to "ml"
+        )
+
         fun repoId(url: String): String {
             val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray(Charsets.UTF_8))
             val hex = digest.joinToString("") { "%02x".format(it) }
