@@ -136,7 +136,10 @@ class ZaynEngine(
         var index: Int,
         var attempts: Int,
         val session: Int,
-        val safeStartSec: Int,
+        // (v1.0.14 G8) Mutable: a retry resumes from the position the
+        // failure actually happened at (captured in onPlaybackError),
+        // not from the original resume point.
+        var safeStartSec: Int,
         val subtitleText: String?,
         val subtitleLang: String?,
         val providerSubUrl: String?,
@@ -171,6 +174,13 @@ class ZaynEngine(
     @Volatile
     private var playbackFailed: Boolean = false
 
+    // (v1.0.14 CAUSE-2) Last probe skip reason (validator verdict, e.g.
+    // "media playlist has no segments"), set by probePlayable() and
+    // cleared at the start of each playInternal(). Surfaced in the play
+    // rejection's detail slot so the user sees WHY, not just "No playable
+    // links found" — and so the log names the failing link's verdict.
+    private var lastProbeSkipReason: String? = null
+
     // (v1.0.13 P2-B) One-shot engine override for the MALFORMED retry
     // (retryOtherEngine): set just before the retry's playActive call and
     // cleared right after it returns. Only that one play is affected.
@@ -183,6 +193,20 @@ class ZaynEngine(
     private val playMutex = Mutex()
     private var lastPlayRequestId: String? = null
     private var lastPlayResult: JSONObject? = null
+    // (v1.0.14 P4 rank 4) Play dedup is BOUNDED: a params hash (the same
+    // id with different params is a different play), a 60 s TTL, and
+    // ONE-USE — the cached reply is consumed once, then cleared, so a
+    // third identical delivery replays for real. The old cache lived
+    // forever and ignored the params.
+    private var lastPlayParamsHash: Int = 0
+    private var lastPlayAtMs: Long = 0L
+    // (v1.0.14 P4 rank 4) Bounded generic dedup for idempotent READS
+    // only (homeFeed/search/details/repos/library/progressAll/downloads):
+    // 64 entries, 60 s TTL, keyed (method, requestId, params hash).
+    // NEVER dedup writes — a retried repoAdd/providerSetOn/settingsSet
+    // must run again. Only ok replies are cached.
+    private val readDedup = LinkedHashMap<String, Pair<Long, JSONObject>>()
+    private val readDedupMethods = setOf("homeFeed", "homeFeedSection", "homeFeedSections", "search", "details", "repos", "library", "progressAll", "downloads")
     // (v1.0.12 §6 step 2) The engine of the last playActive — MainActivity
     // uses it to decide whether a stage-open/close may touch mpv's surface.
     private var lastActiveEngine: String = "exoplayer"
@@ -214,6 +238,20 @@ class ZaynEngine(
             // DRM_ERROR / OTHER (UNKNOWN) -> fail fast, no blind retry;
             // MANIFEST_HTTP / NETWORK / NETWORK_TIMEOUT /
             // PLAYBACK_INTERRUPTED / STALLED -> existing retry below.
+            // (v1.0.14 G8) Retries resume from HERE, not from the
+            // original resume point: capture the current position (cached
+            // fields only — never touch the player off the main thread)
+            // and clamp it: within 30 s of the end restarts at 0, same
+            // rule as the play-time safeStartSec guard.
+            if (ap != null) {
+                val posMs = if (isMpv()) mpvPlayer.getPositionMs() else player.positionMs()
+                val durMs = if (isMpv()) mpvPlayer.getDurationMs() else player.durationMs()
+                val posSec = (posMs / 1000).toInt()
+                if (posSec > 0) {
+                    ap.safeStartSec = if (durMs > 0 && posSec >= durMs / 1000 - 30) 0 else posSec
+                    EngineLogger.log("player", "retry resume position posSec=${ap.safeStartSec} session=${ap.session}")
+                }
+            }
             val errorClass = player.classifyPlaybackError(error)
             // (v1.0.13 P2-B) Log the failure in full: message + cause chain +
             // failing URI, token-redacted — the V1.0.12 log recorded only the
@@ -348,6 +386,24 @@ class ZaynEngine(
                 bridgeScope.launch { reresolveAndRetry(ap) }
                 true
             }
+        }
+
+        // (v1.0.14 G7) libmpv fatal errors used to bypass the engine
+        // entirely (MP posted playerError straight to JS: no
+        // classification, no bounded retry, and E.playbackFailed was never
+        // set). Route them here: mpv failures map to OTHER and fail fast —
+        // MP has already posted the playerError event that latches JS, so
+        // failPlaySession must NOT re-fire it. A retry here would fight
+        // the JS banner (a retry does not clear the latch), so the engine
+        // side only latches + logs; the user retries from the banner.
+        mpvPlayer.setOnFatalError { reason ->
+            playbackFailed = true
+            val ap = activePlay
+            EngineLogger.log(
+                "player",
+                "mpv fatal error reason=$reason errorClass=OTHER action=fail attempts=${ap?.attempts ?: 0} session=${ap?.session ?: 0}",
+            )
+            if (ap != null) activePlay = null
         }
     }
 
@@ -605,7 +661,32 @@ class ZaynEngine(
 
     // ---- entry point (called from MainActivity's IO scope) ----
 
+    // (v1.0.14 P4 rank 5) Bridge version: JS stamps _bv on every call
+    // (H BRIDGE_VERSION); a mismatched version is rejected rather than
+    // silently misread. Absent _bv is allowed (legacy/internal calls).
+    private val bridgeVersion = 1
+
     suspend fun call(method: String, params: JSONObject, requestId: String? = null): JSONObject {
+        if (params.has("_bv") && !params.isNull("_bv") && params.optInt("_bv", 1) != bridgeVersion) {
+            EngineLogger.log("bridge", "$method bridge_version_mismatch js=${params.optInt("_bv", -1)} native=$bridgeVersion")
+            return err("bridge_version_mismatch", "Bridge version mismatch — update the app")
+        }
+        // (v1.0.14 P4 rank 4) Bounded generic dedup for idempotent reads
+        // (see field comment): same method + requestId + params within
+        // 60 s returns the cached ok reply. Writes are never cached.
+        val dedupKey = if (method in readDedupMethods && requestId != null) {
+            "$method|$requestId|${params.toString().hashCode()}"
+        } else null
+        if (dedupKey != null) {
+            synchronized(readDedup) {
+                val cached = readDedup[dedupKey]
+                if (cached != null && System.currentTimeMillis() - cached.first <= 60_000) {
+                    EngineLogger.log("bridge", "$method dedup request=$requestId — returning cached reply")
+                    return cached.second
+                }
+                if (cached != null) readDedup.remove(dedupKey)
+            }
+        }
         return try {
             when (method) {
                 "engineStatus" -> ok(engineStatus())
@@ -627,6 +708,13 @@ class ZaynEngine(
                     params.optString("providerName", ""),
                     params.optInt("page", 1),
                 )
+                // (v1.0.14 P7 F5) Per-section feed: one section per call.
+                "homeFeedSection" -> homeFeedSection(
+                    params.optString("providerName", ""),
+                    params.optInt("page", 1),
+                    params.optInt("sectionIndex", 0),
+                )
+                "homeFeedSections" -> ok(homeFeedSections(params.optString("providerName", "")))
                 "search" -> search(
                     params.optString("query", ""),
                     if (params.has("providerName") && !params.isNull("providerName")) params.optString("providerName") else null,
@@ -642,7 +730,7 @@ class ZaynEngine(
                 // ---- Phase C: player (E12–E16) ----
                 "links" -> links(params)
                 "play" -> play(params, requestId)
-                "playerControl" -> playerControl(params)
+                "playerControl" -> playerControl(params, requestId)
                 "playerState" -> ok(activeStateSnapshot())
                 "externalPlay" -> externalPlay(params)
                 "playerStage" -> playerStage(params)
@@ -652,12 +740,22 @@ class ZaynEngine(
                 // ---- Phase C: library / progress (E19–E21) ----
                 "library" -> ok(library.library())
                 "librarySet" -> librarySet(params)
-                "progressGet" -> ok(library.progressGet(params.optString("title", "")))
+                "progressGet" -> ok(
+                    library.progressGet(
+                        params.optString("title", ""),
+                        params.optString("url", ""),
+                        params.optString("providerName", ""),
+                        params.optString("ep", ""),
+                    ),
+                )
                 "progressSet" -> ok(
                     library.progressSet(
                         params.optString("title", ""),
                         params.optInt("posSec", 0),
                         params.optInt("durSec", 0),
+                        params.optString("url", ""),
+                        params.optString("providerName", ""),
+                        params.optString("ep", ""),
                     ),
                 )
                 "progressAll" -> ok(library.progressAll())
@@ -705,21 +803,39 @@ class ZaynEngine(
                     EngineLogger.log("bridge", "$method -> unknown_method")
                     err("unknown_method", "Unknown method: $method")
                 }
+            }.also { result ->
+                if (dedupKey != null && result.optBoolean("ok", false)) {
+                    synchronized(readDedup) {
+                        while (readDedup.size >= 64) readDedup.remove(readDedup.keys.first())
+                        readDedup[dedupKey] = System.currentTimeMillis() to result
+                    }
+                }
             }
         } catch (e: CancellationException) {
             // (v0.2.1-i) A cancelled bridge call must stay cancelled: the
             // old catch-all swallowed it and replied "unknown" instead.
             throw e
         } catch (e: Exception) {
-            EngineLogger.log("bridge", "$method threw ${e.javaClass.simpleName}: ${e.message}")
-            err("unknown", "Engine error")
+            // (v1.0.14 SEEK-TRACE §4a.1) Never swallow the cause again: the
+            // V1.0.13 seek toast ("Engine error") hid the real exception.
+            // code is now the specific internal_error (was the generic
+            // "unknown"); detail carries "method: Class: message" verbatim
+            // (existing err() detail slot, v1.0.2); Log.e survives the
+            // 200-line EngineLogger ring buffer so device logcat names it.
+            // Message stays the generic "Engine error" — no invented
+            // friendly wording; the code does not know the cause until the
+            // log names it. Latch behaviour unchanged.
+            val cause = "${e.javaClass.simpleName}: ${e.message}"
+            EngineLogger.log("bridge", "$method threw $cause")
+            android.util.Log.e("ZaynPlay", "bridge $method threw $cause", e)
+            err("internal_error", "Engine error", "$method: $cause")
         }
     }
 
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "0.2.4")
+        .put("version", "1.0.14")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -1632,8 +1748,17 @@ class ZaynEngine(
     // ---- E9 / E10 / E11 ----
 
     private suspend fun homeFeed(providerName: String, page: Int): JSONObject {
+        // (v1.0.14 P5 F4) Feed-lifecycle logging: start + EVERY return
+        // path with elapsed ms + counts, so a slow/empty feed is visible
+        // in the log without guessing which provider stalled.
+        val hfT0 = System.currentTimeMillis()
+        fun hfMs() = System.currentTimeMillis() - hfT0
+        EngineLogger.log("bridge", "homeFeed start provider=$providerName page=$page")
         val api = resolveApi(providerName, null)
-            ?: return err("provider_not_found", "Provider not found")
+            ?: run {
+                EngineLogger.log("bridge", "homeFeed provider_not_found provider=$providerName ms=${hfMs()}")
+                return err("provider_not_found", "Provider not found")
+            }
         val feed = try {
             APIRepository(api).getMainPage(page.coerceAtLeast(1))
         } catch (e: CancellationException) {
@@ -1641,11 +1766,14 @@ class ZaynEngine(
             // error — rethrow like providerTest/firstContentItem do.
             throw e
         } catch (e: Exception) {
-            EngineLogger.log("bridge", "homeFeed threw ${e.javaClass.simpleName}: ${e.message}")
+            EngineLogger.log("bridge", "homeFeed network_error provider=$providerName ms=${hfMs()} ${e.javaClass.simpleName}: ${e.message}")
             return err("network_error", "Could not load the home feed")
         }
         val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
-            ?: return err("network_error", "Could not load the home feed")
+            ?: run {
+                EngineLogger.log("bridge", "homeFeed network_error provider=$providerName ms=${hfMs()} (not Success)")
+                return err("network_error", "Could not load the home feed")
+            }
         val arr = JSONArray()
         var hasNext = false
         var totalItems = 0
@@ -1667,13 +1795,102 @@ class ZaynEngine(
         // funnel for every provider: a Cloudflare challenge page parses
         // to zero selectors, so the provider still returns Success with
         // empty lists, and the old code rendered nothing with no error.
-        if (totalItems == 0) return err("no_content", "No homepage responses")
+        if (totalItems == 0) {
+            EngineLogger.log("bridge", "homeFeed no_content provider=$providerName ms=${hfMs()} sections=${arr.length()}")
+            return err("no_content", "No homepage responses")
+        }
+        EngineLogger.log("bridge", "homeFeed ok provider=$providerName ms=${hfMs()} sections=${arr.length()} items=$totalItems hasNext=$hasNext")
         return ok(
             JSONObject()
                 .put("provider", JSONObject().put("name", api.name).put("mainUrl", api.mainUrl).put("lang", api.lang))
                 .put("sections", arr)
                 .put("hasNext", hasNext)
         )
+    }
+
+    // (v1.0.14 P7 F5) Per-section feed (option (b)): fetch exactly ONE
+    // section via APIRepository.getMainPage(page, nameIndex). Same
+    // response shape as homeFeed (provider, sections with ONE entry,
+    // hasNext) plus sectionIndex + sectionCount so JS can place the
+    // rail and know when the feed is complete. Same error contract and
+    // same F4 start/end logging per section. An out-of-range index is
+    // invalid_input — getMainPage would otherwise silently fall back to
+    // fetching ALL sections (AR:154-165), which must never happen here.
+    private suspend fun homeFeedSection(providerName: String, page: Int, sectionIndex: Int): JSONObject {
+        val hfT0 = System.currentTimeMillis()
+        fun hfMs() = System.currentTimeMillis() - hfT0
+        EngineLogger.log("bridge", "homeFeedSection start provider=$providerName page=$page sectionIndex=$sectionIndex")
+        val api = resolveApi(providerName, null)
+            ?: run {
+                EngineLogger.log("bridge", "homeFeedSection provider_not_found provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex")
+                return err("provider_not_found", "Provider not found")
+            }
+        if (sectionIndex !in api.mainPage.indices) {
+            EngineLogger.log("bridge", "homeFeedSection invalid_input provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex sectionCount=${api.mainPage.size}")
+            return err("invalid_input", "No such section")
+        }
+        val sectionCount = api.mainPage.size
+        val feed = try {
+            APIRepository(api).getMainPage(page.coerceAtLeast(1), sectionIndex)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            EngineLogger.log("bridge", "homeFeedSection network_error provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex ${e.javaClass.simpleName}: ${e.message}")
+            return err("network_error", "Could not load the home feed")
+        }
+        val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
+            ?: run {
+                EngineLogger.log("bridge", "homeFeedSection network_error provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex (not Success)")
+                return err("network_error", "Could not load the home feed")
+            }
+        val arr = JSONArray()
+        var hasNext = false
+        var totalItems = 0
+        for (resp in sections) {
+            if (resp == null) continue
+            hasNext = hasNext || resp.hasNext
+            for (list in resp.items) {
+                val items = JSONArray()
+                for (item in list.list) {
+                    items.put(searchItemJson(item))
+                    totalItems++
+                }
+                arr.put(JSONObject().put("name", list.name).put("items", items))
+            }
+        }
+        if (totalItems == 0) {
+            EngineLogger.log("bridge", "homeFeedSection no_content provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex sections=${arr.length()}")
+            return err("no_content", "No homepage responses")
+        }
+        EngineLogger.log("bridge", "homeFeedSection ok provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex sections=${arr.length()} items=$totalItems hasNext=$hasNext")
+        return ok(
+            JSONObject()
+                .put("provider", JSONObject().put("name", api.name).put("mainUrl", api.mainUrl).put("lang", api.lang))
+                .put("sections", arr)
+                .put("hasNext", hasNext)
+                .put("sectionIndex", sectionIndex)
+                .put("sectionCount", sectionCount)
+        )
+    }
+
+    // (v1.0.14 P7 F5) Section list: the canonical section order + the
+    // sequential flag, so JS can create placeholder rails in the right
+    // order and honour a sequential provider's contract BEFORE firing
+    // any per-section call. sectionCount <= 1 means "use the whole-feed
+    // path" (Disney rule) — JS never routes a single-section provider
+    // through homeFeedSection.
+    private fun homeFeedSections(providerName: String): JSONObject {
+        val api = resolveApi(providerName, null)
+            ?: return err("provider_not_found", "Provider not found")
+        val arr = JSONArray()
+        api.mainPage.forEachIndexed { index, data ->
+            arr.put(JSONObject().put("index", index).put("name", data.name).put("data", data.data))
+        }
+        return JSONObject()
+            .put("sections", arr)
+            .put("sectionCount", api.mainPage.size)
+            .put("sequential", api.sequentialMainPage)
+            .put("sequentialDelayMs", api.sequentialMainPageDelay)
     }
 
     private suspend fun search(query: String, providerName: String?, page: Int): JSONObject {
@@ -1711,6 +1928,9 @@ class ZaynEngine(
         val failures = JSONArray()
         var partial = false
         var hasNext = false
+        // (v1.0.14 P4 G2.3) Chunks completed before the 60 s cap — the
+        // in-flight chunk was attempted; later chunks were never started.
+        var chunksDone = 0
         try {
             withTimeout(60_000) {
                 for (chunk in ordered.chunked(8)) {
@@ -1744,11 +1964,20 @@ class ZaynEngine(
                         perProvider.put(JSONObject().put("provider", name).put("count", list.items.size))
                         for (item in list.items) results.put(searchItemJson(item))
                     }
+                    chunksDone++
                 }
             }
         } catch (e: TimeoutCancellationException) {
             partial = true
-            EngineLogger.log("bridge", "search fan-out timed out")
+            // (v1.0.14 P4 G2.3) Providers in chunks after the in-flight
+            // one were never attempted — record them as not_attempted so
+            // the UI can say "not tried" instead of silently dropping
+            // them (the v1.0.3 D2 defect: never attempted, never listed).
+            val unattempted = ordered.drop((chunksDone + 1) * 8)
+            for ((_, name) in unattempted) {
+                failures.put(JSONObject().put("provider", name).put("reason", "not_attempted"))
+            }
+            EngineLogger.log("bridge", "search fan-out timed out chunksDone=$chunksDone unattempted=${unattempted.size}")
         }
         return ok(
             JSONObject()
@@ -1764,8 +1993,15 @@ class ZaynEngine(
         if (url.isBlank()) return err("invalid_input", "Missing details link")
         val api = resolveApi(providerName, null)
             ?: return err("provider_not_found", "Provider not found")
+        // (v1.0.14 P4 rank 8) Native 25 s timeout: without it a hung
+        // load() holds the bridge until the JS 30 s timer fires, and the
+        // native job then finishes into a deleted pending entry.
+        // CancellationException is rethrown so MainActivity's cancel path
+        // still replies (the M.call timeout reply path).
         val loaded = try {
-            APIRepository(api).load(url)
+            withTimeout(25_000) { APIRepository(api).load(url) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             EngineLogger.log("bridge", "details threw ${e.javaClass.simpleName}: ${e.message}")
             return err("network_error", "Could not load details")
@@ -1921,6 +2157,10 @@ class ZaynEngine(
         var timedOut = false
         var linksError: String? = null
         var loadLinksOk = false
+        // (v1.0.14 C11) How many loadLinks attempts actually ran (0/1/2):
+        // P4 logs it so "loadLinks never ran" is visible without
+        // inferring it from absent lines.
+        var loadLinksAttempts = 0
         // (v1.0.13 P2-A) Universal data adapter: normalize Id JSON to
         // LoadData JSON BEFORE loadLinks (see normalizeLoadData) — the
         // Id-parse runs before any fresh load, so a fresh load returning
@@ -1945,6 +2185,7 @@ class ZaynEngine(
             withTimeout(timeoutSec * 1000L) {
                 // (v0.2.9) Fix C: loadLinks now returns its cause.
                 if (!skipDirectLoadLinks) {
+                    loadLinksAttempts++
                     val linksResult = APIRepository(api).loadLinks(dataForLinks, false, { s -> foundSubs += s }) { l -> foundLinks += l }
                     if (linksResult.ok) {
                         loadLinksOk = true
@@ -1995,6 +2236,7 @@ class ZaynEngine(
                     val retrySubs = mutableListOf<SubtitleFile>()
                     try {
                         withTimeout(timeoutSec * 1000L) {
+                            loadLinksAttempts++
                             val retryResult = APIRepository(api).loadLinks(freshData, false, { s -> retrySubs += s }) { l -> retryLinks += l }
                             if (retryResult.ok) {
                                 foundLinks.clear()
@@ -2016,6 +2258,34 @@ class ZaynEngine(
                 }
             }
         }
+        // (v1.0.14 C11) MovieBox shape: the direct attempt was skipped
+        // for non-JSON data and the fresh-load fallback could not produce
+        // different data (same dataUrl), so NO loadLinks attempt has run
+        // at all — zero attempts by construction, hence links=0. Attempt
+        // ONCE with the raw dataUrl itself (the V1.0.12 behaviour): the
+        // provider's loadLinks decides whether a raw URL works. The raw
+        // URL is passed as the loadLinks INPUT, never fabricated into
+        // LoadData JSON (the v1.0.5 E1 rule is kept). If the provider also
+        // returns nothing for it, the log then shows the failure and the
+        // provider owns it.
+        if (skipDirectLoadLinks && !loadLinksOk && foundLinks.isEmpty() && !timedOut) {
+            EngineLogger.log("bridge", "resolveLinks raw-dataUrl attempt — fresh load produced no new data, trying loadLinks(dataUrl)")
+            try {
+                withTimeout(timeoutSec * 1000L) {
+                    loadLinksAttempts++
+                    val rawResult = APIRepository(api).loadLinks(dataForLinks, false, { s -> foundSubs += s }) { l -> foundLinks += l }
+                    if (rawResult.ok) {
+                        loadLinksOk = true
+                    } else {
+                        linksError = rawResult.error
+                        rawResult.error?.let { EngineLogger.log("bridge", "resolveLinks raw loadLinks failed: $it") }
+                    }
+                }
+            } catch (e: TimeoutCancellationException) {
+                partial = true
+                timedOut = true
+            }
+        }
         // (v1.0.13 P2-C P3) LoadLinks Completed — only when a loadLinks call
         // actually returned ok (direct or fallback).
         if (loadLinksOk) {
@@ -2023,7 +2293,7 @@ class ZaynEngine(
         }
         // (v1.0.13 P2-C P4) Extractor Completed — the extraction result as
         // assembled (links + subtitles), whatever the outcome.
-        providerDiag("P4", "Extractor Completed", "links=${foundLinks.size} subs=${foundSubs.size}")
+        providerDiag("P4", "Extractor Completed", "links=${foundLinks.size} subs=${foundSubs.size} loadLinksAttempts=$loadLinksAttempts")
         return ResolvedLinks(api, foundLinks, foundSubs, partial, timedOut) to null
     }
 
@@ -2423,6 +2693,7 @@ class ZaynEngine(
                 return true
             }
             if (!validated.ok) {
+                lastProbeSkipReason = validated.reason
                 EngineLogger.log("player", "probe skipped ${link.source} url=${redactUrlForLog(link.url)} (${validated.reason})")
                 return false
             }
@@ -2469,6 +2740,7 @@ class ZaynEngine(
                         else -> null
                     }
                     if (reason != null) {
+                        lastProbeSkipReason = reason
                         EngineLogger.log("player", "probe skipped ${link.source} url=${redactUrlForLog(link.url)} ($reason)")
                         false
                     } else {
@@ -2554,14 +2826,19 @@ class ZaynEngine(
             return ManifestValidation(false, typeName, false, 0, "manifest HTTP ${fetch.status} contentType=${fetch.contentType}")
         }
         val head = fetch.body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
-        // (v1.0.13 P3-A) HTML error pages must NEVER reach the player:
-        // a text/html body (or an HTML document body) is a validation
-        // failure, logged with status + content type.
-        if (fetch.contentType.startsWith("text/html") ||
+        // (v1.0.13 P3-A, v1.0.14 C6) HTML error pages must NEVER reach the
+        // player — but prefer the BODY over the header: a CDN serving a
+        // genuine manifest as text/html (misconfigured origin) must not
+        // be rejected on the header alone when the body starts #EXTM3U
+        // (or contains <MPD). The head pre-filter below still rejects a
+        // body that is actually HTML, so this cannot let an error page
+        // through. Both the content-type and the body head are logged.
+        val bodyLooksManifest = if (link.type == ExtractorLinkType.DASH) fetch.body.contains("<MPD") else head.startsWith("#EXTM3U")
+        if ((fetch.contentType.startsWith("text/html") && !bodyLooksManifest) ||
             head.startsWith("<html", ignoreCase = true) ||
             head.startsWith("<!doctype html", ignoreCase = true)
         ) {
-            return ManifestValidation(false, typeName, false, 0, "HTML error page status=${fetch.status} contentType=${fetch.contentType}")
+            return ManifestValidation(false, typeName, false, 0, "HTML error page status=${fetch.status} contentType=${fetch.contentType} head=${redactUrlForLog(head.take(120))}")
         }
         // The 2KB head check survives ONLY as a cheap pre-filter: a body
         // that fails it is rejected before the real parser runs; a body
@@ -2619,15 +2896,23 @@ class ZaynEngine(
         }
     }
 
-    // (v1.0.13 P7 fix-forward D-1) EXTINF duration shape: digits with an
-    // optional decimal part, followed by a comma.
-    private val extinfLineRegex = Regex("^#EXTINF:\\d+(\\.\\d+)?,")
+    // (v1.0.13 P7 fix-forward D-1, v1.0.14 C4) EXTINF duration shape.
+    // Media3's own vendored parser accepts a missing comma and whitespace
+    // before the comma (HlsPlaylistParser.kt:108 REGEX_MEDIA_DURATION =
+    // "#EXTINF:([\\d\\.]+)\\b" — no comma required), so D-1 must not
+    // reject those shapes: "#EXTINF:10" and "#EXTINF:10 ," are valid.
+    // Still rejected: non-numeric durations ("#EXTINF:abc," — the shape
+    // D-1 was built for), negative durations, a space after the colon,
+    // and multi-dot numbers — none of which the Media3 regex accepts.
+    private val extinfLineRegex = Regex("^#EXTINF:\\d+(\\.\\d+)?\\s*(,|$)")
 
     /**
-     * (v1.0.13 P7 fix-forward D-1) MINIMAL media-playlist structural
-     * check: every `#EXTINF:` line must be `#EXTINF:<number>,` — integer
-     * and float durations are both valid (`#EXTINF:10,` and
-     * `#EXTINF:10.0,` pass; `#EXTINF:abc,` fails). No other structural
+     * (v1.0.13 P7 fix-forward D-1, v1.0.14 C4) MINIMAL media-playlist
+     * structural check: every `#EXTINF:` line must be
+     * `#EXTINF:<number>` with an optional comma — integer and float
+     * durations are both valid (`#EXTINF:10,`, `#EXTINF:10.0,`,
+     * `#EXTINF:10` and `#EXTINF:10 ,` pass per Media3's own
+     * REGEX_MEDIA_DURATION; `#EXTINF:abc,` fails). No other structural
      * rule is checked here — no segment count, no ENDLIST, no
      * duration-range check. HlsPlaylistParser.parse returns null for
      * non-multivariant input (there is no media-playlist parse entry
@@ -2660,11 +2945,38 @@ class ZaynEngine(
         headers: Map<String, String>,
     ): ManifestValidation {
         val text = body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+        // (v1.0.14 CAUSE-2/C1) Trim each line before matching, exactly as
+        // the D-2 child check already does: a master playlist whose
+        // #EXT-X-STREAM-INF lines carry leading whitespace was
+        // misclassified here as a segment-less MEDIA playlist and falsely
+        // rejected with "media playlist has no segments" — while the same
+        // body passed the child check. Classification must agree.
+        // (v1.0.14 C5) I-frame-only is NOT multivariant here: the parser
+        // gate (HlsPlaylistParser.parse, HP:1719-1725) only enters the
+        // multivariant branch on TAG_STREAM_INF ("#EXT-X-STREAM-INF"),
+        // so an I-frame-only master was called multivariant by this
+        // check and non-multivariant by the parser. It now falls to the
+        // media branch and fails the segment check honestly (no segments,
+        // no playable variants).
         val isMultivariant = text.lines().any {
-            it.startsWith("#EXT-X-STREAM-INF") || it.startsWith("#EXT-X-I-FRAME-STREAM-INF")
+            it.trim().startsWith("#EXT-X-STREAM-INF")
         }
         if (!isMultivariant) {
             if (!text.contains("#EXTINF") && !text.contains("#EXT-X-TARGETDURATION")) {
+                // (v1.0.14 CAUSE-2/C1) Manifest fingerprint: the 04:10 log
+                // proved the verdict but not what the CDN actually returned
+                // (#EXTM3U head passed, yet no segments). Byte length,
+                // line count, first tag lines, and the three presence
+                // booleans decide TRUE-empty vs misclassified-master
+                // without re-fetching an expired token. The validator is
+                // RIGHT to reject a segment-less body (RFC 8216 media
+                // playlists must carry #EXTINF); this line proves which
+                // shape it was.
+                val tagLines = text.lines().filter { it.trim().startsWith("#") }.take(10)
+                EngineLogger.log(
+                    "player",
+                    "validateHls no segments source=${link.source} bytes=${text.length} lines=${text.lines().size} streamInf=${text.lines().any { it.contains("#EXT-X-STREAM-INF") }} extinf=${text.contains("#EXTINF")} targetDuration=${text.contains("#EXT-X-TARGETDURATION")} tags=[${redactUrlForLog(tagLines.joinToString(" | "))}]",
+                )
                 return ManifestValidation(false, "HLS", false, 0, "media playlist has no segments")
             }
             // (v1.0.13 P7 fix-forward D-1) The presence check above cannot
@@ -2772,6 +3084,15 @@ class ZaynEngine(
             async {
                 try {
                     val fetch = fetchManifestText(link, childUrl, headers, timeoutMs = 5000)
+                    // (v1.0.14 C3) A child that is itself a multivariant
+                    // master declares STREAM-INF — it must reach the D-2
+                    // parser branch below, not die on the segment-presence
+                    // check first (masters have no segments by nature).
+                    // The no-segments arm is skipped for such children.
+                    val childDeclaresVariants = fetch.body.lines().any {
+                        it.trim().startsWith("#EXT-X-STREAM-INF") ||
+                            it.trim().startsWith("#EXT-X-I-FRAME-STREAM-INF")
+                    }
                     val basicFailure = when {
                         fetch.status != 200 ->
                             "child ${redactUrlForLog(childUrl)} HTTP ${fetch.status} contentType=${fetch.contentType}"
@@ -2779,8 +3100,19 @@ class ZaynEngine(
                             "child ${redactUrlForLog(childUrl)} HTML error page status=${fetch.status}"
                         !fetch.body.trimStart('\uFEFF', ' ', '\t', '\r', '\n').startsWith("#EXTM3U") ->
                             "child ${redactUrlForLog(childUrl)} not an M3U8 manifest"
-                        !fetch.body.contains("#EXTINF") && !fetch.body.contains("#EXT-X-TARGETDURATION") ->
-                            "child ${redactUrlForLog(childUrl)} media playlist has no segments"
+                        !childDeclaresVariants && !fetch.body.contains("#EXTINF") && !fetch.body.contains("#EXT-X-TARGETDURATION") ->
+                            run {
+                                // (v1.0.14 CAUSE-2/C1) Manifest fingerprint,
+                                // same shape as the top level (see
+                                // validateHls note): length, line count,
+                                // first tag lines, presence booleans.
+                                val tagLines = fetch.body.lines().filter { it.trim().startsWith("#") }.take(10)
+                                EngineLogger.log(
+                                    "player",
+                                    "child no segments source=${link.source} child=${redactUrlForLog(childUrl)} bytes=${fetch.body.length} lines=${fetch.body.lines().size} streamInf=${fetch.body.lines().any { it.contains("#EXT-X-STREAM-INF") }} extinf=${fetch.body.contains("#EXTINF")} targetDuration=${fetch.body.contains("#EXT-X-TARGETDURATION")} tags=[${redactUrlForLog(tagLines.joinToString(" | "))}]",
+                                )
+                                "child ${redactUrlForLog(childUrl)} media playlist has no segments"
+                            }
                         else -> null
                     }
                     if (basicFailure != null) return@async basicFailure
@@ -2812,7 +3144,24 @@ class ZaynEngine(
                         }
                     }
                 } catch (e: Exception) {
-                    "child ${redactUrlForLog(childUrl)} fetch failed: ${redactUrlForLog(e.message)}"
+                    // (v1.0.14 C2) Fail-OPEN on transient child failures:
+                    // a 5 s timeout / transport error on one child (often
+                    // an unselected rendition) must not kill a playable
+                    // link — ExoPlayer only fetches the variant it plays.
+                    // Verdict failures (HTTP/HTML/parser/D-1 above) stay
+                    // fail-closed. A real cancellation is never swallowed.
+                    when {
+                        e is TimeoutCancellationException -> {
+                            EngineLogger.log("player", "child unchecked transient (timeout) source=${link.source} child=${redactUrlForLog(childUrl)}")
+                            null
+                        }
+                        e is kotlinx.coroutines.CancellationException -> throw e
+                        e is java.io.IOException -> {
+                            EngineLogger.log("player", "child unchecked transient (transport) source=${link.source} child=${redactUrlForLog(childUrl)} reason=${redactUrlForLog(e.message)}")
+                            null
+                        }
+                        else -> "child ${redactUrlForLog(childUrl)} fetch failed: ${redactUrlForLog(e.message)}"
+                    }
                 }
             }
         }.awaitAll()
@@ -2881,19 +3230,34 @@ class ZaynEngine(
     // threaded through call() from MainActivity; nextEp calls play() with a
     // null id (no bridge id exists for an internal re-play).
     private suspend fun play(params: JSONObject, requestId: String? = null): JSONObject {
+        // (v1.0.14 P4 rank 4) Bounded one-use dedup (see field comment):
+        // same id + same params within 60 s returns the cached reply
+        // ONCE; the cache is then cleared.
+        if (requestId != null && requestId == lastPlayRequestId && lastPlayResult != null &&
+            System.currentTimeMillis() - lastPlayAtMs <= 60_000 &&
+            params.toString().hashCode() == lastPlayParamsHash
+        ) {
+            val cached = lastPlayResult!!
+            lastPlayRequestId = null
+            lastPlayResult = null
+            EngineLogger.log("player", "play dedup request=$requestId — returning cached reply (one-use, consumed)")
+            return cached
+        }
         val result = playMutex.withLock { playInternal(params, requestId) }
         if (requestId != null) {
             lastPlayRequestId = requestId
             lastPlayResult = result
+            lastPlayParamsHash = params.toString().hashCode()
+            lastPlayAtMs = System.currentTimeMillis()
         }
         return result
     }
 
     // (v1.0.12 §7) One log line on every early return, so the next log can
     // classify a play that died before playActive (the c31–c36 residue).
-    private fun reject(code: String, message: String, requestId: String?): JSONObject {
-        EngineLogger.log("player", "play rejected $code request=${requestId ?: "?"}")
-        return err(code, message)
+    private fun reject(code: String, message: String, requestId: String?, detail: String? = null): JSONObject {
+        EngineLogger.log("player", "play rejected $code request=${requestId ?: "?"}${if (detail != null) " detail=$detail" else ""}")
+        return err(code, message, detail)
     }
 
     private suspend fun playInternal(params: JSONObject, requestId: String? = null): JSONObject {
@@ -2901,10 +3265,7 @@ class ZaynEngine(
         // persisted engine=libmpv is valid. Routing happens in playActive()
         // below; link resolution, probe, ranking and auto-retry above it are
         // engine-independent and untouched.
-        if (requestId != null && requestId == lastPlayRequestId && lastPlayResult != null) {
-            EngineLogger.log("player", "play dedup request=$requestId — returning cached reply")
-            return lastPlayResult!!
-        }
+        lastProbeSkipReason = null
         val mode = params.optString("mode", store.getSettingString("mode", "auto"))
         val titleForLog = params.optString("title", "")
         val linkIndexForLog = if (params.has("linkIndex") && !params.isNull("linkIndex")) params.optInt("linkIndex", -1) else -1
@@ -2944,7 +3305,15 @@ class ZaynEngine(
                 EngineLogger.log("player", "play skipped unplayable pick ${c.link.source} ${redactUrlForLog(c.link.url)}")
             }
             if (pickedIdx < 0) {
-                return reject("playback_error", "No playable link found — the best links look like web pages, not video", requestId)
+                // (v1.0.14 CAUSE-2) Say WHY: the validator's verdict (e.g.
+                // "media playlist has no segments") rides in detail, so
+                // the toast names the cause instead of the generic line.
+                // engineErrText appends detail verbatim (SEEK-TRACE §4b).
+                return if (lastProbeSkipReason != null) {
+                    reject("playback_error", "No playable links found", requestId, lastProbeSkipReason)
+                } else {
+                    reject("playback_error", "No playable link found — the best links look like web pages, not video", requestId)
+                }
             }
         }
         val picked = ranked[pickedIdx]
@@ -2988,16 +3357,31 @@ class ZaynEngine(
                 ) reused = true
             }
         }
+        // (v1.0.14 G1c) An explicit startAtSec (even 0) from the UI is
+        // authoritative — JS always sends it now, so a "start at 0"
+        // decision can no longer fall through to a stored position. The
+        // fallback below only fires for callers that omit the key, and it
+        // is content-keyed too (url + provider + episode), never bare-title.
         val startAtSec = when {
             params.has("startAtSec") -> params.optInt("startAtSec", 0)
             store.getSettingBoolean("resume", true) && title.isNotBlank() ->
-                library.progressGet(title).optInt("posSec", 0)
+                library.progressGet(
+                    title,
+                    params.optString("url", ""),
+                    params.optString("providerName", ""),
+                    params.optString("ep", ""),
+                ).optInt("posSec", 0)
             else -> 0
         }
         // (v1.0.4) Never seek past the saved end of THIS title: a stale
         // resume (e.g. another title's 23 min) used to seek past the end,
         // which ended playback at once ("starts at 23 min then cuts").
-        val savedDurSec = library.progressGet(title).optInt("durSec", 0)
+        val savedDurSec = library.progressGet(
+            title,
+            params.optString("url", ""),
+            params.optString("providerName", ""),
+            params.optString("ep", ""),
+        ).optInt("durSec", 0)
         val safeStartSec = if (startAtSec > 0 && savedDurSec > 0 && startAtSec >= savedDurSec - 30) 0 else startAtSec
         val subLangCode = audioCodeOf(store.getSettingString("subLang", "বাংলা")) ?: "bn"
         val providerSub = resolved.subtitles.firstOrNull { it.langTag == subLangCode || it.lang == subLangCode }
@@ -3099,12 +3483,14 @@ class ZaynEngine(
         return audioCodeOf(store.getSettingString("audio1", "English"))
     }
 
-    private suspend fun playerControl(params: JSONObject): JSONObject {
+    private suspend fun playerControl(params: JSONObject, requestId: String? = null): JSONObject {
         val action = params.optString("action", "")
         // (v1.0.7) Log the action on every call: the V1.0.6 log recorded
         // playerControl ids only, so whether the 4x "first frame rendered"
         // re-fires were seeks or surface re-attachment was unknowable.
-        EngineLogger.log("player", "playerControl $action")
+        // (v1.0.14 SEEK-TRACE §4a.2) Log the seek value so the log can
+        // correlate a thrown seek with its target.
+        EngineLogger.log("player", "playerControl $action" + if (action == "seek") " value=${params.optDouble("value")}" else "")
         // (v1.0.13 P6-C) Dead-session latch (INVESTIGATION-4 §7.3): after a
         // fatal error the session is over — seek/resume/toggle/rate would
         // silently no-op on the dead player, so refuse them with
@@ -3127,11 +3513,15 @@ class ZaynEngine(
             }
             "nextEp", "prevEp" -> {
                 // Episode switch is driven by play with the episode's data.
+                // (v1.0.14 P4 rank 10) The outer bridge id is passed in as
+                // a derived id ("<id>/nextEp") so the internal re-play is
+                // logged + deduped against the outer call, not as an
+                // unrelated anonymous play.
                 val epData = params.optString("episodeData", "")
                 if (epData.isBlank()) return err("invalid_input", "No next episode")
                 val playParams = JSONObject(params.toString())
                 playParams.put("data", epData)
-                play(playParams)
+                play(playParams, if (requestId != null) "$requestId/$action" else null)
             }
             else -> err("invalid_input", "Unknown player action")
         }
