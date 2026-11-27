@@ -1,24 +1,31 @@
 package com.lagradost.api
 
-import app.netlify.zaynplay.engine.EngineApp
+import android.content.Context
+import java.lang.ref.WeakReference
 
 /**
- * (v0.2.10) Minimal restore of upstream's multiplatform ContextHelper
- * (library module, com.lagradost.api). The file name is deliberate:
- * top-level functions in ContextHelper_jvmKt.kt compile to the class
- * `ContextHelper_jvmKt`, which is exactly what StreamCenter's
- * Cloudflare session helper calls (getContext()).
+ * (v0.2.10) Upstream's multiplatform ContextHelper (library module,
+ * com.lagradost.api), restored in this file. The file name is
+ * deliberate: top-level functions in ContextHelper_jvmKt.kt compile
+ * to the class `ContextHelper_jvmKt`, which is exactly what
+ * StreamCenter's Cloudflare session helper calls (getContext()).
  *
- * Upstream holds the context in a WeakReference set by setContext()
- * at app start. This host never calls setContext(), so getContext()
- * returns the EngineApp application context directly — it IS the app
- * context, and it is always available after EngineApp.init. The
- * plugin uses it to build a WebView for Cloudflare solving; an
- * application context works for that, though activity-themed UI
- * would need an Activity.
+ * The implementation is upstream's real one: a WeakReference set by
+ * setContext() — MainActivity sets it to the application context at
+ * startup — and getContext() returns it. This file REPLACES the
+ * host's old ContextHelper.kt (same package, same functions, same
+ * behaviour); the old file was deleted because two top-level
+ * getContext()/setContext() in one package are a compile error, and
+ * only this file's name produces the class the plugins call.
  */
-fun getContext(): Any? = EngineApp.context
+private var contextRef: WeakReference<Context>? = null
+
+/**
+ * Helper function for Android specific context. Not usable in JVM.
+ * Do not use this unless absolutely necessary.
+ */
+fun getContext(): Any? = contextRef?.get()
 
 fun setContext(context: Any?) {
-    // No-op: EngineApp.context is the source of truth (see above).
+    contextRef = (context as? Context)?.let { WeakReference(it) }
 }
