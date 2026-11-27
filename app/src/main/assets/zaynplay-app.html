@@ -1936,7 +1936,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.13</p>
+                  <p class="splash-ver">Zayn Play v1.0.14</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2838,7 +2838,44 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         fillGrid(g, keys);
         if (n) n.style.display = keys.length ? 'none' : 'block';
       }
+      /* (v1.0.14 P5 F3) Persist the last good feed per provider so the
+         Home tab can paint instantly on the next cold start even before
+         the network answers. 24 h staleness cap + corrupt-entry guard;
+         a save that exceeds the localStorage quota is skipped silently. */
+      var FEED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+      function feedCacheKey(k){ return 'zayn-feed-cache:' + k; }
+      function saveFeedCache(k, feed){
+        try{ localStorage.setItem(feedCacheKey(k), JSON.stringify({ at: Date.now(), feed: feed })); }catch(e){}
+      }
+      function loadFeedCache(k){
+        var raw = null;
+        try{ raw = localStorage.getItem(feedCacheKey(k)); }catch(e){ return null; }
+        if (!raw) return null;
+        var parsed = null;
+        try{ parsed = JSON.parse(raw); }catch(e){
+          /* Corrupt entry: drop it so it never retries forever. */
+          console.log('[feed] persisted feed discarded provider=' + k + ' reason=corrupt');
+          try{ localStorage.removeItem(feedCacheKey(k)); }catch(e2){}
+          return null;
+        }
+        if (!parsed || !parsed.feed || !parsed.feed.sections || !parsed.at){
+          console.log('[feed] persisted feed discarded provider=' + k + ' reason=bad-shape');
+          try{ localStorage.removeItem(feedCacheKey(k)); }catch(e2){}
+          return null;
+        }
+        var ageH = Math.round((Date.now() - parsed.at) / 3600000);
+        if (Date.now() - parsed.at > FEED_CACHE_TTL_MS){
+          console.log('[feed] persisted feed discarded provider=' + k + ' reason=stale ageH=' + ageH);
+          try{ localStorage.removeItem(feedCacheKey(k)); }catch(e2){}
+          return null;
+        }
+        console.log('[feed] persisted feed restored provider=' + k + ' ageH=' + ageH);
+        return parsed.feed;
+      }
       async function renderProvider(key){
+        /* (v1.0.14 P5 F4) Feed-lifecycle logging: entry + whether an
+           in-memory or persisted feed painted instantly. */
+        console.log('[feed] renderProvider entry provider=' + key + ' cached=' + !!(PROVIDERS[key] && PROVIDERS[key].cachedFeed));
         var p = PROVIDERS[key]; if (!p){ showHomeEmpty(); return; }
         currentProvider = key;
         /* (v1.0.4) F4: persist the selection — the single choke point for every selection change. */
@@ -2856,7 +2893,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            engineHomeFeed was ever called (INVESTIGATION-3). */
         try {
           if (p.cachedFeed && p.cachedFeed.sections) renderFeedInto(p, p.cachedFeed);
-          else skeletonRails();
+          else {
+            /* (v1.0.14 P5 F3) No in-memory feed: restore the persisted
+               last-good feed (24 h cap, corrupt-guarded) for the instant
+               paint; the fresh feed below still replaces it. */
+            var _pf = loadFeedCache(key);
+            if (_pf){ p.cachedFeed = _pf; renderFeedInto(p, _pf); }
+            else skeletonRails();
+          }
           renderPSearch();
         } catch (e) { /* UI paint failed; the feed below still starts. */ }
         var tok = ++feedToken;
@@ -2902,7 +2946,226 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         }
         p._coldRetried = false;
         renderFeedInto(p, feed);
+        /* (v1.0.14 P5 F3) A fresh good feed is the new last-good feed. */
+        saveFeedCache(key, feed);
         scheduleBootPluginCheck();
+      }
+      /* (v1.0.14 P7 F5) Progressive section rendering — option (b).
+         One bridge call per section; each section renders into its own
+         pre-created placeholder rail as it arrives, so a slow section no
+         longer blocks the whole Home feed. Rules (AUDIT-P5-P6-P7 §3.3):
+         - sectionCount <= 1 → the EXISTING whole-feed path, unchanged
+           (Disney rule: Disney has one section and stays on the proven
+           path; a section-list failure also falls back to it).
+         - Sequential providers (sequential=true) fire one section at a
+           time with sequentialDelayMs between them; parallel providers
+           fire at most 4 concurrently (R1).
+         - Hero is pinned to the first OK section and never replaced (R2);
+           per-section hasNext is stored on p.homeSections for P8 (R3).
+         - One feedToken per invocation, shared by all its sections (R4);
+           a provider_not_found on any section retries the whole provider
+           once, never section-by-section.
+         - F3 choice: the persisted cache stores the assembled feed of OK
+           sections only when ALL sections have settled (a failed section
+           simply leaves its rail out of the cache; it re-fires on the
+           next load). */
+      function progDynList(list){
+        var out = [];
+        (list.sections || []).forEach(function(sec, i){
+          var nm = (sec && sec.name) ? String(sec.name).trim() : '';
+          if (isEroticSection(nm) && !nsfwOn()) return;
+          out.push({ sectionIndex: (sec && typeof sec.index === 'number') ? sec.index : i, name: nm, dynIdx: out.length });
+        });
+        return out;
+      }
+      function ensureProgRails(p){
+        if (p._progRails) return;
+        /* First fresh outcome (ok or failed) transitions away from any
+           instant-painted cached feed: reset the accumulators exactly as
+           renderFeedInto replaces them, then build placeholder rails in
+           canonical order so arrival order never reorders the page. */
+        p.series = []; p.movies = []; p.trending = []; p.hero = null; heroList = [];
+        p.homeSections = [];
+        var dyn = p._prog.dynList;
+        setHomeShells(dyn.length > 0);
+        var wrap = document.getElementById('h-sections');
+        wrap.innerHTML = '';
+        var rails = [], heads = [];
+        dyn.forEach(function(d){
+          var head = document.createElement('div'); head.className = 'row-head';
+          var h = document.createElement('h3'); h.textContent = d.name || 'Section'; head.appendChild(h);
+          var rail = document.createElement('div'); rail.className = 'rail';
+          rail.innerHTML = skelCards(5);
+          wrap.appendChild(head); wrap.appendChild(rail);
+          heads.push(head); rails.push(rail);
+        });
+        /* The fixed rails are cleared too, as in renderFeedInto — a
+           provider switch must never leave stale cards behind. */
+        fillRail(document.getElementById('h-trending'), [], 'rank');
+        fillRail(document.getElementById('h-series'), [], 'series');
+        fillRail(document.getElementById('h-movies'), [], 'movie');
+        p._progRails = rails; p._progHeads = heads;
+      }
+      function renderSectionInto(p, sec, sectionIndex, hasNext){
+        var mainUrl = (sec && sec.provider && sec.provider.mainUrl) || p.url;
+        var keys = [];
+        ((sec && sec.items) || []).forEach(function(it){
+          var t = engineItemToTitle(it, p.name, mainUrl);
+          TITLES[it.id] = t; keys.push(it.id);
+          if (t.type === 'series'){ if (p.series.indexOf(it.id) < 0) p.series.push(it.id); }
+          else if (p.movies.indexOf(it.id) < 0) p.movies.push(it.id);
+        });
+        /* Hero pinned to the first OK section; a later section never
+           replaces it, so the hero never jumps. */
+        if (!p.hero && keys.length){
+          p.hero = keys[0]; p.trending = keys.slice(0, 5);
+          heroList = (p.hero ? [p.hero] : []).concat(p.trending).filter(function(k, i, arr){ return arr.indexOf(k) === i; });
+          var dotsEl = document.getElementById('h-dots');
+          dotsEl.innerHTML = '';
+          heroList.forEach(function(k, i){
+            var b = document.createElement('button');
+            b.setAttribute('data-hero-dot', i);
+            b.setAttribute('aria-label', 'Show ' + TITLES[k].title);
+            dotsEl.appendChild(b);
+          });
+          showHero(0); startHeroTimer();
+        }
+        var dyn = p._prog.dynList, di = -1;
+        for (var j = 0; j < dyn.length; j++) if (dyn[j].sectionIndex === sectionIndex) di = dyn[j].dynIdx;
+        if (di >= 0){
+          /* Per-section hasNext stored for P8 (R3). */
+          p.homeSections[di] = { name: sec.name || '', keys: keys, hasNext: !!hasNext };
+          var head = p._progHeads && p._progHeads[di];
+          if (head && !head.querySelector('[data-list]')){
+            var b = document.createElement('button'); b.textContent = 'See All';
+            b.setAttribute('data-list', String(di)); head.appendChild(b);
+          }
+          var rail = p._progRails && p._progRails[di];
+          if (rail) fillRail(rail, keys, 'movie');
+        }
+        renderPSearch();
+      }
+      function renderSectionError(p, sectionIndex, err){
+        var dyn = p._prog.dynList, di = -1;
+        for (var j = 0; j < dyn.length; j++) if (dyn[j].sectionIndex === sectionIndex) di = dyn[j].dynIdx;
+        if (di < 0) return;
+        var rail = p._progRails && p._progRails[di];
+        if (!rail) return;
+        var msg = (err && err.code === 'no_content') ? 'কনটেন্ট পাওয়া যায়নি' : (err ? engineErrText(err) : 'কনটেন্ট লোড হয়নি');
+        rail.innerHTML = '<div class="home-err"><p>' + esc(msg) + '</p><button class="btn-play" onclick="retryFeedSection(\'' + String(p._prog.key).replace(/'/g, "\\'") + '\',' + sectionIndex + ')">আবার চেষ্টা করুন</button></div>';
+      }
+      function progComplete(p, key){
+        /* All sections settled: cache the assembled OK-sections feed
+           (F3 — whole-feed-only-when-complete) and run the boot check. */
+        var st = p._prog;
+        if (st.okCount > 0){
+          var secs = [];
+          st.okSections.forEach(function(s){ if (s) secs.push(s); });
+          var assembled = { provider: { mainUrl: p.url }, sections: secs };
+          p.cachedFeed = assembled;
+          saveFeedCache(key, assembled);
+        }
+        scheduleBootPluginCheck();
+      }
+      function progSettled(p, key){
+        var st = p._prog;
+        st.settled++;
+        if (st.settled >= st.total) progComplete(p, key);
+      }
+      async function fireFeedSection(key, sectionIndex, tok){
+        var p = PROVIDERS[key]; if (!p || !p._prog) return;
+        var st = p._prog;
+        var f = null, ferr = null;
+        try { f = await engineHomeFeedSection(p.name, 1, sectionIndex); } catch (e) { ferr = e; }
+        if (tok !== feedToken || currentProvider !== key || !p._prog || p._prog.tok !== tok) return;
+        if (!f || !f.sections || !f.sections.length){ ferr = ferr || { code: 'no_content' }; }
+        if (ferr){
+          console.log('[feed] section failed provider=' + key + ' section=' + sectionIndex + ' err=' + (ferr && ferr.code));
+          if (ferr.code === 'provider_not_found' && !p._coldRetried){
+            p._coldRetried = true;
+            setTimeout(function(){ if (currentProvider === key) renderProviderProgressive(key); }, 3000);
+          }
+          /* With a cached feed on screen the stale rails stay and the
+             failure is only toasted once (whole-feed philosophy); without
+             one, placeholders are built and the rail shows the error. */
+          if (p.cachedFeed && p.cachedFeed.sections){
+            if (!st.failedToasted){ st.failedToasted = true; toast(engineErrText(ferr)); }
+          } else {
+            ensureProgRails(p);
+            renderSectionError(p, sectionIndex, ferr);
+          }
+          progSettled(p, key);
+          return;
+        }
+        console.log('[feed] section ok provider=' + key + ' section=' + sectionIndex + ' items=' + (((f.sections[0] || {}).items || []).length));
+        p._coldRetried = false;
+        st.okCount++;
+        var sec = f.sections[0];
+        st.okSections[sectionIndex] = { name: sec.name || '', items: sec.items || [] };
+        ensureProgRails(p);
+        renderSectionInto(p, { name: sec.name, items: sec.items, provider: f.provider }, sectionIndex, f.hasNext);
+        progSettled(p, key);
+      }
+      /* Per-section Retry (rail button): re-fires just that section. */
+      function retryFeedSection(key, sectionIndex){
+        var p = PROVIDERS[key];
+        if (!p || !p._prog || currentProvider !== key) return;
+        fireFeedSection(key, sectionIndex, p._prog.tok);
+      }
+      async function renderProviderProgressive(key){
+        var p = PROVIDERS[key]; if (!p){ showHomeEmpty(); return; }
+        cancelFeedSections();
+        var tok = ++feedToken;
+        var list = null, listErr = null;
+        try { list = await engineHomeFeedSections(p.name); } catch (e) { listErr = e; }
+        if (tok !== feedToken) return;
+        /* Single-section (Disney) or list failure → the existing
+           whole-feed path, unchanged. Same single engineHomeFeed call,
+           same single GET, same error surface. */
+        if (!list || typeof list.sectionCount !== 'number' || list.sectionCount <= 1){
+          if (listErr) console.log('[feed] section-list failed, whole-feed fallback provider=' + key + ' err=' + (listErr && listErr.code));
+          return renderProvider(key);
+        }
+        currentProvider = key;
+        try{ localStorage.setItem('zayn-provider', key); }catch(e){}
+        document.getElementById('home-empty').hidden = true;
+        document.getElementById('home-feed').style.display = '';
+        var chips = document.querySelectorAll('#prov-row button');
+        for (var i = 0; i < chips.length; i++) chips[i].classList.toggle('on', chips[i].getAttribute('data-provider') === key);
+        console.log('[feed] renderProviderProgressive entry provider=' + key + ' sections=' + list.sectionCount + ' sequential=' + !!list.sequential);
+        /* F3 instant paint from the in-memory or persisted last-good feed;
+           the first fresh outcome replaces it via ensureProgRails. */
+        try {
+          if (p.cachedFeed && p.cachedFeed.sections) renderFeedInto(p, p.cachedFeed);
+          else {
+            var _pf = loadFeedCache(key);
+            if (_pf){ p.cachedFeed = _pf; renderFeedInto(p, _pf); }
+            else skeletonRails();
+          }
+          renderPSearch();
+        } catch (e) { /* UI paint failed; the sections below still start. */ }
+        p._prog = { key: key, tok: tok, total: list.sectionCount, settled: 0, okCount: 0,
+          okSections: [], failedToasted: false, dynList: progDynList(list), rails: null, heads: null,
+          sequential: !!list.sequential, sequentialDelayMs: list.sequentialDelayMs || 0 };
+        /* No cached paint: placeholders show immediately. With a cached
+           paint they are built on the first fresh outcome instead. */
+        if (!p.cachedFeed || !p.cachedFeed.sections) ensureProgRails(p);
+        var idxs = [];
+        for (var s = 0; s < list.sectionCount; s++) idxs.push(s);
+        if (list.sequential){
+          for (var a = 0; a < idxs.length; a++){
+            if (tok !== feedToken || currentProvider !== key) return;
+            await fireFeedSection(key, idxs[a], tok);
+            if (a < idxs.length - 1 && p._prog && p._prog.sequentialDelayMs > 0)
+              await new Promise(function(r){ setTimeout(r, p._prog.sequentialDelayMs); });
+          }
+        } else {
+          /* Parallel providers: at most 4 sections in flight (R1). */
+          for (var c = 0; c < idxs.length; c += 4){
+            if (tok !== feedToken || currentProvider !== key) return;
+            await Promise.all(idxs.slice(c, c + 4).map(function(ix){ return fireFeedSection(key, ix, tok); }));
+          }
+        }
       }
       function isEroticSection(name){ return /erotic/i.test(String(name || '')); }
       function setHomeShells(dynamic){
@@ -3145,6 +3408,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             var b = document.createElement('button'); b.className = 'ep';
             b.setAttribute('data-ep-play', t.title);
             b.setAttribute('data-ep-id', (id && TITLES[id]) ? id : keyByTitle(title));
+            b.setAttribute('data-ep-n', ep.n); /* (v1.0.14 G1) per-episode resume key */
             b.setAttribute('data-ep-label', 'S1 ' + ep.n + ' • ' + ep.t);
             b.innerHTML = '<img src="' + t.poster + '" alt="" /><span><span class="ep-t">' + ep.n + ' • ' + ep.t + '</span><br /><small>' + ep.d + '</small></span><span class="ep-play"><svg viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12z"/></svg></span>';
             epList.appendChild(b);
@@ -3176,7 +3440,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         /* (v1.0.4) Fresh resume state for THIS title only — a stale
            resumeSeek from an abandoned Manual/external play must never
            leak into the next title. */
-        resumeSeek = -1; resumeSeekFor = '';
+        resumeSeek = -1; resumeSeekFor = ''; curEpKey = '';
         if (startAt > 0){ resumeSeek = startAt; resumeSeekFor = progKey(title, id); }
         /* (v1.0.4) Beautiful "Server Loading" animation FIRST — the player
            screen opens only once the server is ready (enterPlayerNow,
@@ -3243,34 +3507,63 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          preview), calls reject locally with the same visible failure. ===== */
       var resumeSeek = -1; /* Resume: seconds to seek to on this play, -1 = play from start */
       var resumeSeekFor = ''; /* progKey() of the title resumeSeek belongs to — never reuse it for another title */
+      var curEpKey = ''; /* (v1.0.14 G1) Episode key of the playing episode ("E1"…) — '' = movie / whole title. Episodes share the series title+URL, so without this they would share one resume position. Set by the episode click handler / nextEp, cleared by openPlayer. */
       var curRate = 1; /* current playback rate (Speed menu); hold-to-2x restores it */
       var engineMuted = false; /* mute state tracked here now the <video> element is gone */
+      /* (v1.0.14 P4 rank 5) Bridge version: JS stamps it on every call
+         (params._bv); native rejects a mismatched version with
+         bridge_version_mismatch. Bump with any breaking bridge change. */
+      var BRIDGE_VERSION = 1;
+      /* (v1.0.14 P4 rank 6) Per-method cancel allow-list — the v1.0.2 rule
+         as DATA, not a comment: only pure reads may ever be cancelled.
+         Writes (repoAdd, providerSetOn, settingsSet, librarySet,
+         progressSet, downloadStart, appUpdateDownload, backupImport,
+         account*, playerControl) are absent by construction — a blanket
+         timeout→cancel once killed a repo install mid-save. */
+      var CANCELLABLE_METHODS = { search: 1, homeFeed: 1, homeFeedSection: 1, homeFeedSections: 1, links: 1, details: 1, providerHealthCheck: 1 };
       window.ZaynEngine = {
-        _seq: 0, _pending: {},
+        _seq: 0, _pending: {}, _lastByMethod: {},
         call: function(method, params, timeoutMs){
           var self = window.ZaynEngine;
           return new Promise(function(resolve, reject){
             var id = 'c' + (++self._seq);
+            self._lastByMethod[method] = id;
             self._pending[id] = { resolve: resolve, reject: reject,
               timer: setTimeout(function(){ delete self._pending[id];
-                /* (v1.0.2) Do NOT cancel the native job on JS timeout: the
-                   cancel used to kill a repo install mid-save (and a slow
-                   download mid-flight). The native job finishes on its
-                   own; its late reply is ignored here (pending already
-                   deleted) and the next rebuildCatalog surfaces the
-                   result. */
+                /* (v1.0.2, v1.0.14 rank 6) Do NOT cancel the native job on
+                   JS timeout — EXCEPT allow-listed pure reads: the cancel
+                   used to kill a repo install mid-save (and a slow
+                   download mid-flight). A cancelled read's late reply is
+                   ignored here (pending already deleted). */
+                if (CANCELLABLE_METHODS[method]){ try{ if (window.ZaynEngineNative && window.ZaynEngineNative.cancel) window.ZaynEngineNative.cancel(id); }catch(e){} }
                 reject({ ok: false, code: 'timeout', message: 'Engine timed out — try again' }); }, timeoutMs || 30000) };
             try{
               if (!window.ZaynEngineNative || !window.ZaynEngineNative.call) throw new Error('no native bridge');
-              window.ZaynEngineNative.call(id, method, JSON.stringify(params || {}));
+              var _p = params || {}; _p._bv = BRIDGE_VERSION;
+              window.ZaynEngineNative.call(id, method, JSON.stringify(_p));
             }catch(e){
               clearTimeout(self._pending[id].timer); delete self._pending[id];
               reject({ ok: false, code: 'engine_not_ready', message: 'Engine not ready — try again' });
             }
           });
         },
-        cancel: function(id){ try{ if (window.ZaynEngineNative && window.ZaynEngineNative.cancel) window.ZaynEngineNative.cancel(id); }catch(e){} }
+        /* (v1.0.14 P4 rank 1 / G3.1) Cancel cleans up the JS side too:
+           clear the timer, drop the pending entry, and reject with
+           {code:'cancelled'} — NOT 'timeout'. Before this, cancel was a
+           native-only hint and the caller waited for the JS timer. */
+        cancel: function(id){
+          var self = window.ZaynEngine;
+          var p = self._pending[id];
+          if (p){ clearTimeout(p.timer); delete self._pending[id]; p.reject({ ok: false, code: 'cancelled', message: 'Cancelled' }); }
+          try{ if (window.ZaynEngineNative && window.ZaynEngineNative.cancel) window.ZaynEngineNative.cancel(id); }catch(e){}
+        }
       };
+      /* (v1.0.14 P4 rank 1) Cancel the superseded call of one method
+         (search/homeFeed) before starting a new one — pure reads only. */
+      function cancelLastCall(method){
+        var m = window.ZaynEngine && window.ZaynEngine._lastByMethod;
+        if (m && m[method]) window.ZaynEngine.cancel(m[method]);
+      }
       window.__zaynReply = function(id, res){
         var p = window.ZaynEngine._pending[id]; if (!p) return;
         clearTimeout(p.timer); delete window.ZaynEngine._pending[id];
@@ -3287,12 +3580,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (name === 'playerError'){ onEnginePlayerError(data); return; }
           if (name === 'playerEnded'){ onEnginePlayerEnded(data); return; }
           if (name === 'downloadProgress' || name === 'downloadDone' || name === 'downloadFailed'){ onEngineDownload(name, data); return; }
-          if (name === 'providerAutoOff'){
-            toast((data && data.name ? data.name : 'প্রোভাইডার') + ' কাজ করছে না — নিজে থেকে বন্ধ হয়েছে');
-            rebuildCatalog(); return;
-          }
           if (name === 'updateDownloadProgress'){ setUpdProgress(data && data.pct, data && data.downloadedBytes, data && data.totalBytes); return; }
-          if (name === 'updateAvailable'){ if (data && data.version) saveAppUpdate({ version: data.version, url: data.url || '', changelog: data.changelog || '', at: Date.now() }); toast('নতুন আপডেট এসেছে — v' + (data && data.version ? data.version : '')); return; }
           if (name === 'authRedirect'){
             if (data && data.provider) engineCall('accountLoginComplete', { provider: data.provider, redirectUrl: data.redirectUrl || '' }).catch(function(e){ toast(engineErrText(e)); });
             return;
@@ -3324,6 +3612,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         }
       }
       function onEnginePlayerError(e){
+        /* (v1.0.14 P4 rank 7 / G3.4) Idempotent on the latch: libmpv can
+           post playerError from two sites for one failure — the second
+           delivery must not re-toast or re-latch. */
+        if (playerFailed) return;
         hideBuffer();
         setPlaying(false);
         /* (v1.0.13 P6-C) Latch the dead session: the transient toast alone
@@ -3363,7 +3655,18 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (name === 'downloadDone' || name === 'downloadFailed') buildDownloads();
       }
       function engineErrText(e){
-        if (e && e.message) return e.message;
+        /* (v1.0.14 SEEK-TRACE §4b) Append e.detail verbatim when present
+           (the pattern the native err() detail slot already describes for
+           the toggle toast / Test row, but engineErrText never implemented):
+           a bridge-throw seek now toasts e.g. "Engine error —
+           playerControl: JSONException: …" — the real class + message,
+           untranslated (details are never passed through tr()/trFrag()).
+           No detail → toast unchanged. No invented friendly wording: the
+           code cannot know the seek failed (the seek runs async). */
+        if (e && e.message){
+          var d = (e.detail != null && e.detail !== '') ? ' — ' + e.detail : '';
+          return e.message + d;
+        }
         if (e && e.code) return 'Engine error: ' + e.code;
         return 'Engine not ready — try again';
       }
@@ -3500,13 +3803,42 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       function engineRepos(){ return engineCall('repos', {}); }
       function engineRepoProviders(repoId){ return engineCall('repoProviders', { repoId: repoId }); }
-      function engineHomeFeed(providerName, page){ return engineCall('homeFeed', { providerName: providerName, page: page || 1 }, 150000 /* (v0.2.11) A P1: native getMainPage gets 120 s — the JS wait must not kill it at 30 s */); }
+      function engineHomeFeed(providerName, page){ cancelLastCall('homeFeed'); return engineCall('homeFeed', { providerName: providerName, page: page || 1 }, 150000 /* (v0.2.11) A P1: native getMainPage gets 120 s — the JS wait must not kill it at 30 s */); }
+      /* (v1.0.14 P7 F5) Per-section feed calls. Section calls are NOT
+         cancelled by cancelLastCall (several run concurrently — cancelling
+         the previous one would kill a sibling); instead their bridge ids
+         are tracked in feedSectionIds and cancelled together on a
+         provider switch (cancelFeedSections). Both are pure reads, so
+         both are in CANCELLABLE_METHODS. */
+      var feedSectionIds = [];
+      function cancelFeedSections(){
+        if (window.ZaynEngine) feedSectionIds.forEach(function(id){ window.ZaynEngine.cancel(id); });
+        feedSectionIds = [];
+      }
+      function engineHomeFeedSection(providerName, page, sectionIndex){
+        var pr = engineCall('homeFeedSection', { providerName: providerName, page: page || 1, sectionIndex: sectionIndex }, 150000);
+        var m = window.ZaynEngine && window.ZaynEngine._lastByMethod;
+        if (m && m['homeFeedSection']) feedSectionIds.push(m['homeFeedSection']);
+        return pr;
+      }
+      function engineHomeFeedSections(providerName){
+        cancelLastCall('homeFeedSections');
+        return engineCall('homeFeedSections', { providerName: providerName }, 30000);
+      }
       function engineSearch(query, providerName, page){
+        /* (v1.0.14 P4 rank 1 / G2.1) Cancel the superseded fan-out: typing
+           used to leave every debounced search running to the 60 s cap. */
+        cancelLastCall('search');
         var p = { query: query, page: page || 1 };
         if (providerName) p.providerName = providerName;
         /* (v0.2.11) C-10: single-provider search 150 s, all-provider
            fan-out 90 s (native cap is 60 s) — never the 30 s default. */
-        return engineCall('search', p, providerName ? 150000 : 90000);
+        var _sp = engineCall('search', p, providerName ? 150000 : 90000);
+        /* A superseded search rejects 'cancelled'; swallow it here so a
+           stale fan-out never surfaces as an unhandled rejection while
+           the caller still awaits its own (live) promise. */
+        _sp.catch(function(){});
+        return _sp;
       }
       function engineDetails(url, providerName){ return engineCall('details', { url: url, providerName: providerName }); }
       /* Sync ST provider state from a providerHealthCheck result (the
@@ -3596,19 +3928,58 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (id) return 'lib:' + id;
         return title;
       }
+      /* (v1.0.14 G1) Episode-scoped in-memory key: base progKey + '#ep:<n>'.
+         Episodes of a series share the series title, so the episode suffix
+         is what keeps E1's position out of E2. ep defaults to curEpKey. */
+      function progKeyEp(title, id, ep){
+        var e = (ep == null) ? curEpKey : ep;
+        var k = progKey(title, id);
+        return e ? k + '#ep:' + e : k;
+      }
+      /* (v1.0.14 G1) Native content key, computed exactly as
+         ZaynLibrary.bookmarkId does: strip the provider main URL and all
+         '/' from the page URL, then JVM String.hashCode (31*h+c, 32-bit).
+         Used to find boot-loaded native entries (PROGRESS is keyed by
+         content key after a restart, by progKey within a session).
+         Returns null when the entry has no URL/main-URL (library items). */
+      function javaHash(str){
+        var h = 0;
+        for (var i = 0; i < str.length; i++) h = ((31 * h + str.charCodeAt(i)) | 0);
+        return h;
+      }
+      function contentKeyFor(title, id, ep){
+        var t = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null;
+        if (!t || !t.url || !t.siteUrl) return null;
+        var stripped = t.url.split(t.siteUrl).join('').split('/').join('');
+        var e = (ep == null) ? curEpKey : ep;
+        return String(javaHash(stripped)) + (e ? '#ep:' + e : '');
+      }
       var PROGRESS = {};
       var lastProgSave = 0;
       function saveProgress(title, pos, dur, id){
         if (!title) return;
-        var k = progKey(title, id);
+        /* (v1.0.14 G1) In-memory key is episode-scoped; the durable write
+           carries the content identity (url + provider + episode) so the
+           native store keys by content, never by bare title. */
+        var k = progKeyEp(title, id);
         var keep = pos > 10 && (!isFinite(dur) || dur <= 0 || pos < dur - 30);
         if (keep) PROGRESS[k] = { t: Math.round(pos), d: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 };
         else delete PROGRESS[k];
-        engineCall('progressSet', { title: title, posSec: keep ? Math.round(pos) : 0, durSec: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 }).catch(function(){});
+        var _t = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null;
+        engineCall('progressSet', { title: title, posSec: keep ? Math.round(pos) : 0, durSec: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0, url: (_t && _t.url) || '', providerName: (_t && _t.prov) || '', ep: curEpKey || '' }).catch(function(){});
       }
-      function clearProgress(title, id){ if (!title) return; delete PROGRESS[progKey(title, id)]; engineCall('progressSet', { title: title, posSec: 0, durSec: 0 }).catch(function(){}); }
-      function resumePos(title, id){
-        var p = PROGRESS[progKey(title, id)]; if (!p) return 0;
+      function clearProgress(title, id){ if (!title) return; delete PROGRESS[progKey(title, id)]; delete PROGRESS[progKeyEp(title, id)]; var _t2 = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null; engineCall('progressSet', { title: title, posSec: 0, durSec: 0, url: (_t2 && _t2.url) || '', providerName: (_t2 && _t2.prov) || '', ep: curEpKey || '' }).catch(function(){}); }
+      function resumePos(title, id, ep){
+        /* (v1.0.14 G1) In-session entry first (progKey, episode-scoped),
+           then a boot-loaded native entry (content key via javaHash).
+           Library items have no main URL, so contentKeyFor returns null
+           and only the in-session key applies for them. */
+        var p = PROGRESS[progKeyEp(title, id, ep)];
+        if (!p){
+          var ck = contentKeyFor(title, id, ep);
+          if (ck) p = PROGRESS[ck];
+        }
+        if (!p) return 0;
         if (p.t <= 10) return 0;
         if (p.d > 0 && p.t >= p.d - 30) return 0;
         return p.t;
@@ -3948,7 +4319,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (provLP){ provLP = false; return; }
           var pkey = pk.getAttribute('data-pick');
           closeProvSheet();
-          renderProvider(pkey);
+          renderProviderProgressive(pkey);
           toast('Provider: ' + PROVIDERS[pkey].name + ' — পুরো ফিড বদলে গেছে');
           return;
         }
@@ -3957,7 +4328,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (arrangeMode) return;
           if (provLP){ provLP = false; return; }
           var key = pv.getAttribute('data-provider');
-          renderProvider(key);
+          renderProviderProgressive(key);
           toast('Provider: ' + PROVIDERS[key].name + ' — পুরো ফিড বদলে গেছে');
           return;
         }
@@ -3972,6 +4343,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var epp = e.target.closest('[data-ep-play]');
         if (epp){
           curBaseSub = epp.getAttribute('data-ep-label');
+          curEpKey = epp.getAttribute('data-ep-n') || '';
           cur = 0; renderTime();
           document.getElementById('scr-player').scrollTop = 0;
           startStream(epp.getAttribute('data-ep-play'), epp.getAttribute('data-ep-id'));
@@ -5117,9 +5489,17 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            at once — "starts at 23 min then cuts"). */
         var rp = (typeof resumeSeek === 'number' && resumeSeek >= 0 && resumeSeekFor === progKey(curTitle, curTitleId)) ? resumeSeek : resumePos(curTitle, curTitleId);
         resumeSeek = -1; resumeSeekFor = '';
-        var _pk = PROGRESS[progKey(curTitle, curTitleId)];
+        var _pk = PROGRESS[progKeyEp(curTitle, curTitleId)] || PROGRESS[contentKeyFor(curTitle, curTitleId) || ''];
         if (rp > 0 && _pk && _pk.d > 0 && rp >= _pk.d - 30) rp = 0;
-        if (rp > 0) params.startAtSec = rp;
+        /* (v1.0.14 G1c) Always send startAtSec (including 0) when the
+           title identity is known (feed title: url + main URL present) —
+           an explicit 0 is authoritative in E.play and can no longer fall
+           through to a stored position. Library items have no main URL,
+           so contentKeyFor is null there: keep the old omit-when-0 shape
+           and let the native CONTENT-keyed fallback decide (it keys by
+           url + provider, never by bare title). */
+        params.ep = curEpKey || '';
+        if (rp > 0 || contentKeyFor(curTitle, curTitleId) !== null) params.startAtSec = rp;
         showServerLoading();
         try {
           var d = await engineCall('play', params, 90000);
@@ -5305,7 +5685,28 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           list.appendChild(d);
         });
       }
+      /* (v1.0.14 P5 F1) Single-flight rebuildCatalog: concurrent callers
+         (boot, pluginsChanged, toggles) share ONE in-flight run instead of
+         racing duplicate repo/provider reads. ORDERING: a caller that
+         arrives mid-run does NOT freeze the first result — it marks the
+         run dirty, and a second run starts when the first finishes, so
+         the guarded run sees the freshly loaded plugin set. A naive
+         same-promise guard would have frozen an empty first result and
+         REGRESSED the current self-healing double run. */
+      var rebuildCatalogPromise = null, rebuildCatalogDirty = false;
       async function rebuildCatalog(){
+        if (rebuildCatalogPromise){ rebuildCatalogDirty = true; return rebuildCatalogPromise; }
+        var _t0 = Date.now();
+        console.log('[catalog] rebuildCatalog entry');
+        rebuildCatalogPromise = rebuildCatalogInner();
+        try { await rebuildCatalogPromise; } finally {
+          var _ms = Date.now() - _t0;
+          rebuildCatalogPromise = null;
+          console.log('[catalog] rebuildCatalog exit ms=' + _ms + ' providers=' + Object.keys(PROVIDERS).length + (rebuildCatalogDirty ? ' dirty — re-running' : ''));
+          if (rebuildCatalogDirty){ rebuildCatalogDirty = false; rebuildCatalog(); }
+        }
+      }
+      async function rebuildCatalogInner(){
         var data = null;
         try { data = await engineRepos(); } catch (e) { data = { repos: [] }; }
         var repos = (data && data.repos) || [];
@@ -5409,7 +5810,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           currentProvider = (_savedProv && PROVIDERS[_savedProv]) ? _savedProv : Object.keys(PROVIDERS)[0];
         }
         renderRepoUI();
-        renderProvider(currentProvider);
+        renderProviderProgressive(currentProvider);
         if (typeof renderUpdBanner === 'function') renderUpdBanner();
       }
       /* (v0.2.11) Mega: a plugin-only test (Load ✓, no video by design)
@@ -6073,7 +6474,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!next){ toast('আর কোনো পর্ব নেই'); return; }
         clearProgress(curTitle, curTitleId);
         FEAT.ep++; cur = 0; renderTime(); setPlaying(true);
+        curEpKey = 'E' + FEAT.ep;
         var params = playParamsFor(curTitle, t);
+        params.startAtSec = 0; params.ep = curEpKey;
         params.episodeData = next.data;
         params.episodeUrl = '';
         engineCall('play', params, 90000).then(function(d){
@@ -6205,6 +6608,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          at boot — the UI's defaults() are only the fallback. */
       engineCall('settingsGet', {}).then(function(d){ var set = (d && d.settings) || null; if (set) applyEngineSettings(set); }).catch(function(){});
       engineCall('progressAll', {}).then(function(d){
+        /* (v1.0.14 G1b) Native keys are CONTENT keys now (bookmarkId, +#ep),
+           not titles: store them verbatim under the native key. resumePos
+           finds them after a restart via contentKeyFor() (same JVM hash),
+           so a saved 23 min still resumes after the app restarts. Legacy
+           title-keyed entries (no url) keep their title key and are read
+           the same way as before. */
         Object.keys(d || {}).forEach(function(t){ var p = d[t]; if (p) PROGRESS[t] = { t: p.posSec || 0, d: p.durSec || 0 }; });
         if (typeof buildCW === 'function') buildCW();
       }).catch(function(){});
@@ -7032,7 +7441,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.13</span></div>' +
+      '<span class="v31-val">Version 1.0.14</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
