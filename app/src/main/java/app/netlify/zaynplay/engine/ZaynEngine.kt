@@ -115,6 +115,112 @@ class ZaynEngine(
     var engineReady: Boolean = false
         private set
 
+    // (v1.0.5 B2) Auto-retry state: the ranked list of the CURRENT play
+    // session, so an ExoPlayer error can advance to the next link without
+    // a new bridge call. A new play() replaces the session; the session id
+    // guards against a late error from an old session retrying.
+    private data class ActivePlay(
+        val ranked: List<RankedLink>,
+        var index: Int,
+        var attempts: Int,
+        val session: Int,
+        val safeStartSec: Int,
+        val subtitleText: String?,
+        val subtitleLang: String?,
+        val providerSubUrl: String?,
+        val title: String,
+    )
+
+    private var activePlay: ActivePlay? = null
+    private var playSessionCounter = 0
+    private val maxPlayAttempts = 3
+
+    init {
+        // (v1.0.5 B2) ZaynPlayer offers every ExoPlayer error here first.
+        // Start a retry when this session has a next ranked link and an
+        // attempt left (3 attempts total per session); otherwise return
+        // false and the player fires the usual playerError toast.
+        player.onPlaybackError = { error ->
+            val ap = activePlay
+            if (ap == null || ap.attempts >= maxPlayAttempts || ap.index + 1 >= ap.ranked.size) {
+                EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (attempts=${ap?.attempts ?: 0})")
+                false
+            } else {
+                bridgeScope.launch { retryNextLink(ap) }
+                true
+            }
+        }
+    }
+
+    /**
+     * (v1.0.5 B2) Advance the CURRENT session to the next ranked link
+     * after an ExoPlayer error. Probing skips unplayable candidates
+     * without spending a play attempt; DRM links are skipped too. When
+     * no candidate is left, the withheld playerError event is finally
+     * fired so the user sees the failure instead of silence.
+     */
+    private suspend fun retryNextLink(ap: ActivePlay) {
+        // A newer play() replaces the session — a late error must not
+        // restart an old title.
+        if (activePlay !== ap) return
+        var next = ap.index + 1
+        var candidate: RankedLink? = null
+        while (next < ap.ranked.size) {
+            val c = ap.ranked[next]
+            if (c.link is DrmExtractorLink) {
+                next++
+                continue
+            }
+            if (!probePlayable(c.link)) {
+                next++
+                continue
+            }
+            candidate = c
+            break
+        }
+        if (candidate == null) {
+            EngineLogger.log("player", "retry exhausted — no playable link left in session ${ap.session}")
+            activePlay = null
+            onEvent(
+                "playerError",
+                JSONObject()
+                    .put("code", "playback_error")
+                    .put("message", "Video could not be played")
+                    .put("retryable", true),
+            )
+            return
+        }
+        val link = candidate.link
+        ap.index = next
+        ap.attempts++
+        EngineLogger.log("player", "retry attempt ${ap.attempts}/$maxPlayAttempts: play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url}")
+        if (ap.title.isNotBlank()) {
+            store.putMapEntry(
+                EngineStore.KEY_LAST_LINK,
+                ap.title,
+                JSONObject().put("linkIndex", next).put("atMs", System.currentTimeMillis()),
+            )
+        }
+        player.play(
+            ZaynPlayer.PlayLink(
+                url = link.url,
+                source = link.source,
+                qualityLabel = qualityLabel(link.quality),
+                audio = candidate.audio,
+                referer = link.referer,
+                headers = link.getAllHeaders(),
+                type = link.type,
+            ),
+            ap.safeStartSec * 1000L,
+            ap.subtitleText,
+            ap.subtitleLang,
+            ap.providerSubUrl,
+            cacheSizeBytes(),
+            bufferLevel(),
+            preferredAudioLang(candidate.audio),
+        )
+    }
+
     fun markReady() {
         engineReady = true
     }
@@ -376,10 +482,12 @@ class ZaynEngine(
 
     private fun providerEntries(repo: RepositoryData, wrappers: List<PluginWrapper>): JSONArray {
         val arr = JSONArray()
-        // (v0.2.9) Fix G: enforce the provLang setting on ROWS only (see
-        // provLangCodes/langRowWanted). Loading, health and providerTest
-        // are never gated by language.
-        val wantedCodes = provLangCodes()
+        // (v1.0.5 F) Samim decided 2026-11-27 ("সব দেখাও"): the repo list
+        // shows ALL providers, every language. The v0.2.9 Fix G provLang
+        // gate on these rows is REMOVED — it hid 28 of the CNC repo's 47
+        // plugins (all 25 Tamil ones included) and the hidden rows could
+        // not even be turned ON. His strict-language rule for CONTENT
+        // (Home tabs / search) is untouched — only this LIST shows all.
         for (w in wrappers) {
             val p = w.plugin
             val apis = apisForPlugin(repo, p)
@@ -396,38 +504,14 @@ class ZaynEngine(
                 }
             }
             if (apis.isEmpty()) {
-                if (langRowWanted(p.language, wantedCodes)) {
-                    arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true, noApi = pluginHasNoApi(repo, p)))
-                }
+                arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true, noApi = pluginHasNoApi(repo, p)))
             } else {
                 for (api in apis) {
-                    if (langRowWanted(api.lang, wantedCodes)) {
-                        arr.put(providerRowJson(repo, p, name = api.name, api = api, notLoaded = false))
-                    }
+                    arr.put(providerRowJson(repo, p, name = api.name, api = api, notLoaded = false))
                 }
             }
         }
         return arr
-    }
-
-    /**
-     * (v0.2.9) Fix G: the provLang setting (full language names, e.g.
-     * "English") was never enforced — every provider row was shown. Maps
-     * the names to BCP 47 codes with the same table as the UI's LCODE.
-     * Returns null when the list is empty, which is the UI's ALL state:
-     * no filtering. A row with no language metadata is always shown.
-     */
-    private fun provLangCodes(): Set<String>? {
-        val names = store.getSettingStringList("provLang", listOf("English", "Bengali", "Hindi"))
-        if (names.isEmpty()) return null
-        return names.map { PROV_LANG_CODES[it] ?: it.trim().lowercase() }.toSet()
-    }
-
-    private fun langRowWanted(lang: String?, wantedCodes: Set<String>?): Boolean {
-        if (wantedCodes == null) return true
-        if (lang.isNullOrBlank()) return true
-        val primary = lang.trim().split('-', '_').first().lowercase()
-        return primary in wantedCodes
     }
 
     private fun providerRowJson(
@@ -1542,13 +1626,31 @@ class ZaynEngine(
      * the score (audio1 +10000, audio2 +5000); quality match adds +100;
      * then MEASURED server-only TTFB ascending. Unmeasured links rank
      * after measured ones at the same score. Nothing is invented.
+     * (v1.0.5 B1/B4) Unplayable links are filtered / penalised BEFORE the
+     * pick, so the PARSING_CONTAINER_UNSUPPORTED stub can no longer win
+     * the Auto pick: .txt URLs are dropped outright, Unknown-quality
+     * links lose 50 and non-manifest (non-M3U8/non-DASH) links lose 50,
+     * below the +100 quality tier — a playable alternative always wins.
+     * The FINAL order itself is unchanged.
      */
     private suspend fun rankLinks(links: List<ExtractorLink>): List<RankedLink> {
         val resPref = store.getSettingString("res", "Auto")
         val a1 = audioCodeOf(store.getSettingString("audio1", "English"))
         val a2 = audioCodeOf(store.getSettingString("audio2", "বাংলা"))
-        val playable = links.filter {
-            it.type != ExtractorLinkType.TORRENT && it.type != ExtractorLinkType.MAGNET
+        val playable = links.filter { link ->
+            if (link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET) return@filter false
+            // (v1.0.5 B1) A .txt URL is a playlist stub / error marker, not
+            // a stream (AllMovieLand's .txt returns the 2-byte body "11"
+            // without its token). Drop it before ranking.
+            val path = link.url.substringBefore('?').substringBefore('#')
+            if (path.endsWith(".txt", ignoreCase = true)) {
+                EngineLogger.log("player", "rankLinks dropped .txt link ${link.source} ${link.url}")
+                return@filter false
+            }
+            // ExtractorLinkType has only VIDEO / M3U8 / DASH besides the
+            // two dropped above, so every surviving type is a playable
+            // container — there is no further type to drop.
+            true
         }
         val scored = playable.map { link ->
             var score = 0
@@ -1557,6 +1659,12 @@ class ZaynEngine(
             if (audio != null && audio == a1) score += 10000
             else if (audio != null && a2 != null && audio == a2) score += 5000
             if (resPref != "Auto" && ql.isNotEmpty() && ql == resPref) score += 100
+            // (v1.0.5 B4) Penalise, never hide: an Unknown-quality link
+            // (the V1.0.4 erroring pick had no quality at all) and a
+            // non-manifest link each lose 50 when a playable alternative
+            // exists. Below the quality tier, above the TTFB tiebreak.
+            if (ql.isEmpty()) score -= 50
+            if (link.type != ExtractorLinkType.M3U8 && link.type != ExtractorLinkType.DASH) score -= 50
             link to (score to audio)
         }
         // Measure TTFB for the top 8 by score only (keeps the call fast).
@@ -1597,6 +1705,56 @@ class ZaynEngine(
                     link to ms
                 }
             }.awaitAll().toMap()
+        }
+    }
+
+    /**
+     * (v1.0.5 B1) Probe ONLY the picked link (cheap: one ranged GET, the
+     * same shape as the TTFB probe, 3 s cap). Returns false — skip this
+     * link — when the server answers with a web page / plain text instead
+     * of media, or with a 1–2 byte stub body (AllMovieLand's .txt returns
+     * "11" without its token). Fail-OPEN on any probe error (timeout, no
+     * headers): a failed probe must never block a playable link;
+     * ExoPlayer + the auto-retry are the backstop.
+     * One deliberate carve-out: text/plain is only a skip for non-manifest
+     * links — a genuine .m3u8 playlist is often served as text/plain.
+     */
+    private suspend fun probePlayable(link: ExtractorLink): Boolean {
+        return try {
+            withTimeout(3000) {
+                val req = Request.Builder().url(link.url)
+                    .apply { link.getAllHeaders().forEach { (k, v) -> header(k, v) } }
+                    .header("Range", "bytes=0-0").build()
+                com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use { resp ->
+                    resp.body?.close()
+                    val ct = (resp.header("Content-Type") ?: "").lowercase()
+                    // Total length: Content-Range ("bytes 0-0/<total>") for
+                    // a 206, else Content-Length. (A 206's Content-Length
+                    // is the 1-byte range, not the file — never use it.)
+                    val totalLen: Long? = if (resp.code == 206) {
+                        resp.header("Content-Range")?.substringAfter('/', "")?.toLongOrNull()
+                    } else {
+                        resp.header("Content-Length")?.toLongOrNull()
+                    }
+                    val reason = when {
+                        ct.startsWith("text/html") -> "content-type text/html"
+                        ct.startsWith("text/plain") &&
+                            link.type != ExtractorLinkType.M3U8 &&
+                            link.type != ExtractorLinkType.DASH -> "content-type text/plain"
+                        totalLen != null && totalLen in 1..2 -> "stub body ($totalLen bytes)"
+                        else -> null
+                    }
+                    if (reason != null) {
+                        EngineLogger.log("player", "probe skipped ${link.source} ${link.url} ($reason)")
+                        false
+                    } else {
+                        true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            EngineLogger.log("player", "probe failed (fail-open) ${link.source}: ${e.message}")
+            true
         }
     }
 
@@ -1662,7 +1820,28 @@ class ZaynEngine(
             for ((i, r) in ranked.withIndex()) arr.put(linkJson(r, i))
             return ok(JSONObject().put("links", arr).put("manual", true))
         }
-        val picked = if (linkIndex in ranked.indices) ranked[linkIndex] else ranked.first()
+        val explicitIndex = linkIndex in ranked.indices
+        var pickedIdx = if (explicitIndex) linkIndex else -1
+        if (!explicitIndex) {
+            // (v1.0.5 B1) Probe the top candidates BEFORE playing (Auto
+            // only — an explicit server pick is the user's choice; a bad
+            // explicit pick is handled by the auto-retry instead). The
+            // first candidate that looks playable wins; at most 3 probes.
+            val probeLimit = if (ranked.size < 3) ranked.size else 3
+            for (i in 0 until probeLimit) {
+                val c = ranked[i]
+                if (c.link is DrmExtractorLink) continue
+                if (probePlayable(c.link)) {
+                    pickedIdx = i
+                    break
+                }
+                EngineLogger.log("player", "play skipped unplayable pick ${c.link.source} ${c.link.url}")
+            }
+            if (pickedIdx < 0) {
+                return err("playback_error", "No playable link found — the best links look like web pages, not video")
+            }
+        }
+        val picked = ranked[pickedIdx]
         val link = picked.link
         if (link is DrmExtractorLink) {
             return err("playback_error", "This stream uses DRM, which is not supported")
@@ -1675,7 +1854,7 @@ class ZaynEngine(
             if (last != null) {
                 val at = last.optLong("atMs", 0)
                 val durH = parseHours(store.getSettingString("reuseDur", "24h"))
-                if (last.optInt("linkIndex", -1) == ranked.indexOf(picked) &&
+                if (last.optInt("linkIndex", -1) == pickedIdx &&
                     System.currentTimeMillis() - at < durH * 3600_000L
                 ) reused = true
             }
@@ -1706,11 +1885,16 @@ class ZaynEngine(
             type = link.type,
         )
         player.play(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
+        // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
+        // name the picked link (URL + type + quality) in the log.
+        playSessionCounter++
+        activePlay = ActivePlay(ranked, pickedIdx, 1, playSessionCounter, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title)
+        EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url} session=$playSessionCounter")
         if (title.isNotBlank()) {
             store.putMapEntry(
                 EngineStore.KEY_LAST_LINK,
                 title,
-                JSONObject().put("linkIndex", ranked.indexOf(picked)).put("atMs", System.currentTimeMillis()),
+                JSONObject().put("linkIndex", pickedIdx).put("atMs", System.currentTimeMillis()),
             )
             val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
             library.markWatching(
@@ -2291,15 +2475,6 @@ class ZaynEngine(
     }
 
     companion object {
-        // (v0.2.9) Fix G: provLang setting names → BCP 47 codes, same
-        // table as the UI's LCODE (zaynplay-app.html).
-        private val PROV_LANG_CODES = mapOf(
-            "English" to "en", "Bengali" to "bn", "Hindi" to "hi",
-            "Marathi" to "mr", "Telugu" to "te", "Tamil" to "ta",
-            "Gujarati" to "gu", "Urdu" to "ur", "Kannada" to "kn",
-            "Odia" to "or", "Malayalam" to "ml"
-        )
-
         fun repoId(url: String): String {
             val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray(Charsets.UTF_8))
             val hex = digest.joinToString("") { "%02x".format(it) }
