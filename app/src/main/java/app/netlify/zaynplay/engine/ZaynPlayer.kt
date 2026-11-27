@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.TextureView
+import android.view.View
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -150,12 +151,24 @@ class ZaynPlayer(
             pushState()
         }
 
-        // (v1.0.6 M2) Settles whether a video track is selected and frames
-        // reach the surface: if onVideoSizeChanged never fires, no video
-        // track was selected; if onRenderedFirstFrame fires, frames arrive
-        // and the V1.0.5 audio-only picture was the covering .player-info.
+        // (v1.0.7) CORRECTS the v1.0.6 M2 comment, which was false:
+        // onRenderedFirstFrame fires when a frame is rendered to WHATEVER
+        // output surface is attached — including Media3's
+        // PlaceholderSurface when no real surface is attached — so it
+        // proves decoding, NOT display. The V1.0.6 black screen had a
+        // video track selected (854x480) and frames rendered, yet the
+        // visible TextureView stayed black.
         override fun onVideoSizeChanged(videoSize: VideoSize) {
-            EngineLogger.log("player", "video size ${videoSize.width}x${videoSize.height}")
+            // (v1.0.7) Log the actual video track alongside the size, so
+            // the next log shows whether the track is a real video track
+            // and whether it is DRM-protected.
+            val vf = player?.videoFormat
+            EngineLogger.log(
+                "player",
+                "video size ${videoSize.width}x${videoSize.height} " +
+                    "videoFormat=${vf?.sampleMimeType ?: "none"} ${vf?.codecs ?: ""} " +
+                    "${vf?.width ?: 0}x${vf?.height ?: 0}",
+            )
         }
 
         override fun onRenderedFirstFrame() {
@@ -253,6 +266,12 @@ class ZaynPlayer(
                 releaseNow()
             }
             ensurePlayer(cacheSizeBytes)
+            // (v1.0.7) Re-assert the video surface on every play: if the
+            // TextureView's SurfaceTexture was destroyed/recreated
+            // (rotation, GONE->VISIBLE, player rebuild), the renderer can
+            // silently fall back to Media3's PlaceholderSurface and
+            // onRenderedFirstFrame still fires — the V1.0.6 black screen.
+            textureView?.let { player?.setVideoTextureView(it) }
             val p = player ?: return@post
             currentLink = link
             currentSubtitleText = subtitleText
@@ -306,6 +325,21 @@ class ZaynPlayer(
             // video track for this link yet — read with the listener lines.
             val vf = p.videoFormat
             EngineLogger.log("player", "play videoFormat=${vf?.sampleMimeType ?: "none"} ${vf?.width ?: 0}x${vf?.height ?: 0} trackGroups=${p.currentTracks.groups.size}")
+            // (v1.0.7) Log the surface state at play time — this line was
+            // missing from the V1.0.6 log, so whether a SurfaceTexture was
+            // even available at play time was unknowable.
+            val tv = textureView
+            val tvVis = when (tv?.visibility) {
+                View.VISIBLE -> "VISIBLE"
+                View.GONE -> "GONE"
+                View.INVISIBLE -> "INVISIBLE"
+                else -> "null"
+            }
+            EngineLogger.log(
+                "player",
+                "play surfaceTexture=${tv?.surfaceTexture != null} " +
+                    "textureView=${tv?.width ?: 0}x${tv?.height ?: 0} visibility=$tvVis",
+            )
         }
     }
 
