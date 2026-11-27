@@ -246,6 +246,13 @@ suspend fun <T> safeApiCall(
         try {
             Resource.Success(work.invoke())
         } catch (throwable: Throwable) {
+            // (v0.2.9) Fix D: NEVER convert a cancellation into a Failure.
+            // TimeoutCancellationException from withTimeout used to be
+            // laundered here into Failure(isNetworkError=false), so the
+            // `catch (TimeoutCancellationException) { error = "timeout" }`
+            // in providerTest could never run and a 45 s kill was reported
+            // as a silent content failure. Cancellation must propagate.
+            if (throwable is CancellationException) throw throwable
             logError(throwable)
             throwAbleToResource(throwable)
         }
