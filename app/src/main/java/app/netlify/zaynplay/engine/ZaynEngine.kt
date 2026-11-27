@@ -505,7 +505,7 @@ class ZaynEngine(
                     val detailText = failureDetail?.let {
                         if (code == "load_class_missing") " — missing class: $it" else " — $it"
                     } ?: ""
-                    return err(code, providerFailureMessage(code, providerName) + detailText)
+                    return err(code, providerFailureMessage(code, providerName) + detailText, failureDetail)
                 }
             }
             // (v0.2.11) B F1: ON-ing a multi-API plugin ONs each of its
@@ -1171,15 +1171,26 @@ class ZaynEngine(
             ?: return err("network_error", "Could not load the home feed")
         val arr = JSONArray()
         var hasNext = false
+        var totalItems = 0
         for (resp in sections) {
             if (resp == null) continue
             hasNext = hasNext || resp.hasNext
             for (list in resp.items) {
                 val items = JSONArray()
-                for (item in list.list) items.put(searchItemJson(item))
+                for (item in list.list) {
+                    items.put(searchItemJson(item))
+                    totalItems++
+                }
                 arr.put(JSONObject().put("name", list.name).put("items", items))
             }
         }
+        // (v1.0.2) Empty success is a failure (upstream HomeViewModel:
+        // "No homepage responses") — an ok feed with zero items must
+        // surface as no_content, never render blank. This is the common
+        // funnel for every provider: a Cloudflare challenge page parses
+        // to zero selectors, so the provider still returns Success with
+        // empty lists, and the old code rendered nothing with no error.
+        if (totalItems == 0) return err("no_content", "No homepage responses")
         return ok(
             JSONObject()
                 .put("provider", JSONObject().put("name", api.name).put("mainUrl", api.mainUrl).put("lang", api.lang))
@@ -2272,6 +2283,12 @@ class ZaynEngine(
     private fun ok(data: JSONObject): JSONObject =
         JSONObject().put("ok", true).put("data", data)
 
-    private fun err(code: String, message: String): JSONObject =
-        JSONObject().put("ok", false).put("code", code).put("message", message)
+    private fun err(code: String, message: String, detail: String? = null): JSONObject {
+        // (v1.0.2) Optional raw detail (e.g. the exception behind a
+        // load_failed) so the UI can name it verbatim — the toggle toast
+        // appends e.detail, exactly like the Test row already does.
+        val obj = JSONObject().put("ok", false).put("code", code).put("message", message)
+        if (detail != null) obj.put("detail", detail)
+        return obj
+    }
 }
