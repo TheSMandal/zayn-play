@@ -7,11 +7,23 @@ plugins {
 
 android {
     namespace = "app.netlify.zaynplay"
-    compileSdk = 34
+    // (v1.0.10) compileSdk 37: the libmpv 1.4.0 AAR carries
+    // minCompileSdk=37 in its aar-metadata (verified from the published
+    // AAR on Maven Central; 1.2.0/1.3.0 and dev.jdtech 1.0.0/1.1.0 are
+    // 37/37/36/37 too, so no libmpv version builds under compileSdk 34).
+    // AGP 8.5.2 only WARNS about an untested compileSdk ("tested up to
+    // 34", suppressible — see gradle.properties), it does not fail.
+    // targetSdk stays 34: compileSdk changes only what the app may
+    // compile against, not runtime behaviour on devices.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "app.netlify.zaynplay"
-        minSdk = 24
+        // (v1.0.10) minSdk 26 REQUIRED by libmpv 1.4.0 (its manifest
+        // declares minSdkVersion 26; mpv uses API-26 pieces, so do NOT
+        // dodge with tools:overrideLibrary). Android 7.0/7.1 (API 24/25)
+        // can no longer install or update the app.
+        minSdk = 26
         targetSdk = 34
         // UI-review build only — never to be released as-is.
         // VERSION SCHEME (v0.2.10): review builds keep sequential
@@ -19,8 +31,8 @@ android {
         // build MUST use versionCode >= 1000, so it can update-install
         // over every review build without an uninstall (Android refuses
         // a downgrade in versionCode even with the same signature).
-        versionCode = 1009
-        versionName = "1.0.9"
+        versionCode = 1010
+        versionName = "1.0.10"
     }
 
     // FIXED SIGNING (v0.2.10): every build — debug AND release — must be
@@ -174,6 +186,15 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
+    // (v1.0.10) libmpv 1.4.0 (Maven Central, AAR 50.7 MB: mpv 0.42.0 +
+    // FFmpeg 9.1 + libplacebo, all 4 ABIs). The AAR's transitive
+    // kotlinx-coroutines-core 1.11.0 is already stripped by the global
+    // exclude above (V1.0.4, load-bearing) — do NOT add a second one.
+    // Its kotlin-stdlib 2.2.10 is forced back to 1.9.24 by the
+    // resolutionStrategy below. MPVLib is called from JAVA only
+    // (ZaynMpvPlayer.java): its Kotlin metadata is mv 2.2.0, which
+    // kotlinc 1.9.24 rejects — javac never reads Kotlin metadata.
+    implementation("io.github.midasvo:libmpv:1.4.0")
     // PINNED: conscrypt-android 2.5.3 crashes everything.
     implementation("org.conscrypt:conscrypt-android:2.5.2")
     // OkHttp 4.12.0 for the vendored NiceHttp source (its 5.3.2 binary is
