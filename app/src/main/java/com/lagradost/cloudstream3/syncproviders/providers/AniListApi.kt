@@ -1,6 +1,7 @@
 package com.lagradost.cloudstream3.syncproviders.providers
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.lagradost.cloudstream3.syncproviders.SyncAPI
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -20,13 +21,15 @@ import kotlinx.serialization.Serializable
  *
  * The 10 nested classes below are copied verbatim from upstream's
  * AniListApi.kt (same fields, same @Serializable/@JsonProperty
- * annotations). The parent class is a plain class here: upstream's
- * is `class AniListApi : SyncAPI()`, but the SyncAPI stack is NOT
- * vendored in this engine, and no plugin references a method on
- * AniListApi itself — only the nested types. AniList sync (login,
- * library, GraphQL) is NOT restored by this file.
+ * annotations). The parent class is `class AniListApi : SyncAPI()`,
+ * as upstream: the minimal SyncAPI stack (syncproviders/SyncAPI.kt,
+ * AuthRepo, SyncRepo, AccountManager) was restored in v0.2.10 because
+ * StreamPlay/TorraStream construct SyncRepo(AccountManager
+ * .getAniListApi()) with a check-cast to SyncAPI. AniList sync
+ * itself (login, library, GraphQL) is NOT restored — the host has no
+ * sync account, so SyncRepo returns no user and an empty library.
  */
-class AniListApi {
+class AniListApi : SyncAPI() {
 
     // (v0.2.9) Fix A: `$stable`, as on Plugin (see plugins/Plugin.kt).
     // Live plugin dexes read these fields in their <clinit> (the
