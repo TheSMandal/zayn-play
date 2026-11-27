@@ -89,6 +89,18 @@ class ZaynLibrary(private val store: EngineStore) {
         return JSONObject().put("status", clean)
     }
 
+    /** (v0.2.11) C-16: set a library entry's status by bookmark id —
+        the playback-end call carries the id only, no URL. */
+    fun librarySetById(id: String, status: String): JSONObject {
+        val clean = status.lowercase()
+        if (clean !in STATUSES) return JSONObject().put("status", JSONObject.NULL)
+        val entry = store.mapEntry(EngineStore.KEY_LIBRARY, id)
+            ?: return JSONObject().put("status", JSONObject.NULL)
+        entry.put("status", clean)
+        store.putMapEntry(EngineStore.KEY_LIBRARY, id, entry)
+        return JSONObject().put("status", clean)
+    }
+
     /** Mark a title as watching (called on play) if it has no entry yet. */
     fun markWatching(url: String, providerName: String, title: String, type: String, poster: String) {
         if (url.isBlank() || title.isBlank()) return
