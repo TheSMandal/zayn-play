@@ -212,7 +212,7 @@ class ZaynEngine(
             // old catch-all swallowed it and replied "unknown" instead.
             throw e
         } catch (e: Exception) {
-            EngineLogger.log("bridge", "$method threw ${e.javaClass.simpleName}")
+            EngineLogger.log("bridge", "$method threw ${e.javaClass.simpleName}: ${e.message}")
             err("unknown", "Engine error")
         }
     }
@@ -358,6 +358,18 @@ class ZaynEngine(
         for (w in wrappers) {
             val p = w.plugin
             val apis = apisForPlugin(repo, p)
+            // (v0.2.11) B F1 migration: a stored ON key under the PLUGIN
+            // name (e.g. "Netmirror") is orphaned — no MainAPI has that
+            // name. Expand it to the plugin's real MainAPIs (each becomes
+            // its own Home tab) and clear the orphan key, so an already
+            // broken install heals without remove/reinstall.
+            if (apis.isNotEmpty() && p.name !in apis.map { it.name }) {
+                val rid = repoId(repo.url)
+                if (store.isProviderOn(rid, p.name)) {
+                    for (api in apis) store.setProviderOn(rid, api.name, true)
+                    store.setProviderOn(rid, p.name, false)
+                }
+            }
             if (apis.isEmpty()) {
                 if (langRowWanted(p.language, wantedCodes)) {
                     arr.put(providerRowJson(repo, p, name = p.name, api = null, notLoaded = true))
@@ -415,6 +427,13 @@ class ZaynEngine(
             .put("hasSettings", (loadedPlugin as? Plugin)?.openSettings != null)
             .put("mainUrl", api?.mainUrl ?: JSONObject.NULL)
             .put("types", JSONArray(p.tvTypes ?: emptyList<String>()))
+            // (v0.2.11) Target 16: full provider details, same fields as
+            // upstream PluginAdapter rows — original icon, description,
+            // authors, version (already) and file size in bytes.
+            .put("iconUrl", p.iconUrl ?: JSONObject.NULL)
+            .put("description", p.description ?: JSONObject.NULL)
+            .put("authors", JSONArray(p.authors))
+            .put("fileSize", p.fileSize ?: JSONObject.NULL)
             .put("notLoaded", notLoaded)
     }
 
@@ -477,8 +496,23 @@ class ZaynEngine(
                     return err(code, providerFailureMessage(code, providerName) + detailText)
                 }
             }
-            store.setProviderOn(repoId, providerName, true)
-            store.setProviderAutoOff(repoId, providerName, false)
+            // (v0.2.11) B F1: ON-ing a multi-API plugin ONs each of its
+            // MainAPIs (NetMirror: Netflix, Disney Plus, Hotstar, Prime
+            // Video — each its own Home tab, per the 2026-11-25 rule (c)).
+            // The plugin-name key is cleared so it cannot build an
+            // unresolvable Home tab.
+            val apis = apisForPlugin(repo, p)
+            if (apis.isNotEmpty() && providerName !in apis.map { it.name }) {
+                for (api in apis) {
+                    store.setProviderOn(repoId, api.name, true)
+                    store.setProviderAutoOff(repoId, api.name, false)
+                }
+                store.setProviderOn(repoId, providerName, false)
+                EngineLogger.log("bridge", "providerSetOn ON $providerName expanded to ${apis.map { it.name }}")
+            } else {
+                store.setProviderOn(repoId, providerName, true)
+                store.setProviderAutoOff(repoId, providerName, false)
+            }
             EngineLogger.log("bridge", "providerSetOn ON $providerName")
         } else {
             // One .cs3 can host several MainAPIs (NetMirror: 4). Unloading
@@ -621,6 +655,7 @@ class ZaynEngine(
         }
         var load = false
         var content = false
+        var feed = false
         var video = false
         var error: String? = null
         // (v0.2.6) Forensic detail threaded from the download+load
@@ -673,7 +708,6 @@ class ZaynEngine(
         if (apiForCheck != null) {
             try {
                 withTimeout(45_000) {
-                    load = true
                     error = null
                     detail = null
                     // (v0.2.9) Fix C: every false outcome below now carries
@@ -682,7 +716,20 @@ class ZaynEngine(
                     // site answering with no usable content, a page with no
                     // links, a loadLinks exception swallowed to `false`),
                     // which the row rendered as "unknown reason".
-                    val (firstItem, transportFailed, contentDetail) = firstContentItem(apiForCheck)
+                    // (v0.2.11) C-1/C-4: the feed is probed on its own
+                    // (getMainPage only, no search fallback). A provider
+                    // WITH a home page passes Content only from its feed;
+                    // search is a separate signal for providers WITHOUT a
+                    // home page. load=true only once the probe has actually
+                    // returned — a timeout no longer reports "Load ✓".
+                    val feedProbe = feedContentItem(apiForCheck)
+                    load = true
+                    feed = feedProbe.item != null
+                    val probe = if (apiForCheck.hasMainPage) feedProbe
+                        else searchContentItem(apiForCheck, feedProbe.probeWord)
+                    val firstItem = probe.item
+                    val transportFailed = probe.transportFailed
+                    val contentDetail = probe.detail
                     content = firstItem != null
                     if (transportFailed) {
                         error = "network_error"
@@ -697,14 +744,22 @@ class ZaynEngine(
                             error = if (loaded.isNetworkError) "network_error" else "load_failed"
                             detail = loaded.errorString
                         }
-                        val data = (loaded as? Resource.Success)?.value?.let(::loadDataOf)
-                        if (data != null) {
+                        // (v0.2.11) C-5: try up to the first 3 episodes'
+                        // data, not just the first — one dead episode no
+                        // longer condemns a working provider.
+                        val datas = (loaded as? Resource.Success)?.value?.let(::loadDataCandidates) ?: emptyList()
+                        if (datas.isNotEmpty()) {
                             var gotLink = false
-                            val links = APIRepository(apiForCheck).loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
-                            video = links.ok && gotLink
+                            var linksError: String? = null
+                            for (data in datas) {
+                                val links = APIRepository(apiForCheck).loadLinks(data, false, { _: SubtitleFile -> }) { _: ExtractorLink -> gotLink = true }
+                                if (links.ok && gotLink) break
+                                if (linksError == null) linksError = links.error
+                            }
+                            video = gotLink
                             if (!video) {
                                 if (error == null) error = "no_links"
-                                if (detail == null) detail = links.error
+                                if (detail == null) detail = linksError
                             }
                         } else if (loaded !is Resource.Failure && error == null) {
                             // Page loaded but carried no playable data.
@@ -726,6 +781,7 @@ class ZaynEngine(
                 .put("providerName", providerName)
                 .put("load", load)
                 .put("content", content)
+                .put("feed", feed)
                 .put("video", video)
                 .put("error", error ?: JSONObject.NULL)
                 // (v0.2.6) Forensic detail, verbatim (a class name for
@@ -765,39 +821,52 @@ class ZaynEngine(
      * AniKoto's search is a title-keyword filter: keyword=movie returns
      * nothing while a title word returns real links.
      */
-    private suspend fun firstContentItem(api: MainAPI): Triple<SearchResponse?, Boolean, String?> {
+    // (v0.2.11) C-1: the Content probe is split in two so the test and
+    // the Home feed exercise the SAME path. feedContentItem is getMainPage
+    // alone (exactly what homeFeed does); searchContentItem is the search
+    // fallback, used only for providers with no home page. firstContentItem
+    // keeps the old combined behaviour for the health probe.
+    private data class ContentProbe(
+        val item: SearchResponse?,
+        val transportFailed: Boolean,
+        val detail: String?,
+        val probeWord: String?,
+    )
+
+    private suspend fun feedContentItem(api: MainAPI): ContentProbe {
         var transportFailed = false
         var failureDetail: String? = null
-        var probeWord: String? = null
-        if (api.hasMainPage) {
-            val feed = try {
-                APIRepository(api).getMainPage(1)
-            } catch (e: CancellationException) {
-                // (v0.2.9) Fix D: never launder a cancellation (incl. the
-                // withTimeout kill) into a transport failure.
-                throw e
-            } catch (e: Exception) {
-                transportFailed = true
-                null
-            }
-            if (feed is Resource.Failure) {
-                if (feed.isNetworkError) transportFailed = true
-                failureDetail = feed.errorString
-            }
-            val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
-            probeWord = probeWordFromSections(sections)
-            val first = sections
-                ?.flatMap { it?.items ?: emptyList() }
-                ?.firstOrNull { it.list.isNotEmpty() }
-                ?.list?.firstOrNull()
-            if (first != null) return Triple(first, false, null)
-            // Home page exists but came back empty: fall through to the
-            // search check instead of failing a working provider.
+        if (!api.hasMainPage) return ContentProbe(null, false, null, null)
+        val feed = try {
+            APIRepository(api).getMainPage(1)
+        } catch (e: CancellationException) {
+            // (v0.2.9) Fix D: never launder a cancellation (incl. the
+            // withTimeout kill) into a transport failure.
+            throw e
+        } catch (e: Exception) {
+            transportFailed = true
+            failureDetail = "${e.javaClass.simpleName}: ${e.message ?: "no message"}".take(200)
+            null
         }
-        // (v0.2.9) Fix E: try title words in order; a site that answers
-        // but matches nothing for one word gets the next word. A transport
-        // failure stops the loop — retrying another word against an
-        // unreachable site is pointless.
+        if (feed is Resource.Failure) {
+            if (feed.isNetworkError) transportFailed = true
+            failureDetail = feed.errorString
+        }
+        val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
+        val probeWord = probeWordFromSections(sections)
+        val first = sections
+            ?.flatMap { it?.items ?: emptyList() }
+            ?.firstOrNull { it.list.isNotEmpty() }
+            ?.list?.firstOrNull()
+        return ContentProbe(first, transportFailed, failureDetail, probeWord)
+    }
+
+    private suspend fun searchContentItem(api: MainAPI, probeWord: String?): ContentProbe {
+        var transportFailed = false
+        var failureDetail: String? = null
+        // (v0.2.11) C-3: try EVERY word unless the failure is a transport
+        // failure; a site rejecting one query no longer ends the probe.
+        // The failing word is recorded in the detail.
         val words = (listOfNotNull(probeWord) + listOf("over", "iron", "guy")).distinct()
         for (word in words) {
             val res = try {
@@ -806,18 +875,37 @@ class ZaynEngine(
                 throw e
             } catch (e: Exception) {
                 transportFailed = true
-                failureDetail = "${e.javaClass.simpleName}: ${e.message ?: "no message"}".take(200)
+                failureDetail = "$word: ${e.javaClass.simpleName}: ${e.message ?: "no message"}".take(200)
                 break
             }
             if (res is Resource.Failure) {
-                if (res.isNetworkError) transportFailed = true
-                failureDetail = res.errorString
-                break
+                failureDetail = "$word: ${res.errorString}"
+                if (res.isNetworkError) {
+                    transportFailed = true
+                    break
+                }
+                continue
             }
             val item = (res as? Resource.Success<SearchResponseList>)?.value?.items?.firstOrNull()
-            if (item != null) return Triple(item, false, null)
+            if (item != null) return ContentProbe(item, false, null, probeWord)
         }
-        return Triple(null, transportFailed, failureDetail)
+        return ContentProbe(null, transportFailed, failureDetail, probeWord)
+    }
+
+    private suspend fun firstContentItem(api: MainAPI): ContentProbe {
+        val feedProbe = feedContentItem(api)
+        if (feedProbe.item != null) return feedProbe
+        // Home page exists but came back empty, or no home page: fall
+        // through to the search check instead of failing a working provider.
+        val searchProbe = searchContentItem(api, feedProbe.probeWord)
+        if (searchProbe.item != null) return searchProbe
+        // Keep the feed's transport signal when the search found nothing.
+        return ContentProbe(
+            null,
+            feedProbe.transportFailed || searchProbe.transportFailed,
+            searchProbe.detail ?: feedProbe.detail,
+            feedProbe.probeWord,
+        )
     }
 
     /**
@@ -836,9 +924,11 @@ class ZaynEngine(
         val words = ArrayList<String>()
         sections?.forEach { section ->
             section?.items?.forEach { list ->
-                words += list.name.split(Regex("[^A-Za-z]+")).filter { it.length >= 3 }
+                // (v0.2.11) C-3: unicode letters, not ASCII only — a
+                // Bengali/Hindi catalogue yields its own title words.
+                words += list.name.split(Regex("[^\p{L}]+")).filter { it.length >= 3 }
                 list.list.forEach { item ->
-                    words += item.name.split(Regex("[^A-Za-z]+")).filter { it.length >= 3 }
+                    words += item.name.split(Regex("[^\p{L}]+")).filter { it.length >= 3 }
                 }
             }
         }
@@ -973,9 +1063,9 @@ class ZaynEngine(
         var transportFailed = false
         try {
             withTimeout(probeTimeoutMs) {
-                val (item, transport, _) = firstContentItem(api)
-                healthy = item != null
-                transportFailed = transport
+                val probe = firstContentItem(api)
+                healthy = probe.item != null
+                transportFailed = probe.transportFailed
             }
         } catch (e: CancellationException) {
             // (v0.2.9) Fix D: a cancelled probe propagates; only a probe
@@ -1042,8 +1132,12 @@ class ZaynEngine(
             ?: return err("provider_not_found", "Provider not found")
         val feed = try {
             APIRepository(api).getMainPage(page.coerceAtLeast(1))
+        } catch (e: CancellationException) {
+            // (v0.2.11) A P7: a timeout is a timeout, never a network
+            // error — rethrow like providerTest/firstContentItem do.
+            throw e
         } catch (e: Exception) {
-            EngineLogger.log("bridge", "homeFeed threw")
+            EngineLogger.log("bridge", "homeFeed threw ${e.javaClass.simpleName}: ${e.message}")
             return err("network_error", "Could not load the home feed")
         }
         val sections = (feed as? Resource.Success<List<HomePageResponse?>>)?.value
@@ -1075,7 +1169,7 @@ class ZaynEngine(
             val res = try {
                 APIRepository(api).search(query, page.coerceAtLeast(1))
             } catch (e: Exception) {
-                EngineLogger.log("bridge", "search threw")
+                EngineLogger.log("bridge", "search threw ${e.javaClass.simpleName}: ${e.message}")
                 return err("network_error", "Search failed")
             }
             val list = (res as? Resource.Success<SearchResponseList>)?.value
@@ -1090,8 +1184,11 @@ class ZaynEngine(
             )
         }
         // All-provider fan-out over ON providers only, capped concurrency 8,
-        // 15 s overall (design §5.3).
-        val ordered = onProviderNamesOrdered()
+        // 60 s overall (v0.2.11 C-10: the 15 s cap killed every provider on
+        // a slow network before any of them could answer).
+        // Targets are (repoId, name) pairs — same-named providers in
+        // different repos no longer collapse onto the first match.
+        val ordered = onProviderPairsOrdered()
         val results = JSONArray()
         val perProvider = JSONArray()
         // (v0.2.1-n) Per-provider resolution failures are surfaced, not
@@ -1100,12 +1197,12 @@ class ZaynEngine(
         var partial = false
         var hasNext = false
         try {
-            withTimeout(15_000) {
+            withTimeout(60_000) {
                 for (chunk in ordered.chunked(8)) {
                     val chunkOut = coroutineScope {
-                        chunk.map { name ->
+                        chunk.map { (repoId, name) ->
                             async<Triple<String, SearchResponseList?, String?>> {
-                                val api = resolveApi(name, null)
+                                val api = resolveApi(name, null, repoId)
                                     ?: return@async Triple(name, null, "unresolved")
                                 val res = try {
                                     APIRepository(api).search(query, page.coerceAtLeast(1))
@@ -1155,7 +1252,7 @@ class ZaynEngine(
         val loaded = try {
             APIRepository(api).load(url)
         } catch (e: Exception) {
-            EngineLogger.log("bridge", "details threw")
+            EngineLogger.log("bridge", "details threw ${e.javaClass.simpleName}: ${e.message}")
             return err("network_error", "Could not load details")
         }
         val resp = (loaded as? Resource.Success<LoadResponse>)?.value
@@ -1200,11 +1297,15 @@ class ZaynEngine(
             )
         }
         val updated = JSONArray()
+        val dead = JSONArray()
         for (repo in RepositoryManager.getRepositories()) {
             val id = repoId(repo.url)
             val wrappers = when (val result = RepositoryManager.getRepoPluginsResult(repo, manual)) {
                 is RepoPluginsResult.Ok -> result.wrappers
-                is RepoPluginsResult.Err -> continue
+                // (v0.2.11) C-13: a dead repo is recorded, not silently
+                // skipped — the UI can mark it dead instead of showing
+                // stale providers with no marker.
+                is RepoPluginsResult.Err -> { dead.put(repo.name); continue }
             }
             for (w in wrappers) {
                 val p = w.plugin
@@ -1248,6 +1349,7 @@ class ZaynEngine(
         return ok(
             JSONObject()
                 .put("updated", updated)
+                .put("dead", dead)
                 .put("upToDate", updated.length() == 0)
         )
     }
@@ -1274,16 +1376,25 @@ class ZaynEngine(
         val links: List<ExtractorLink>,
         val subtitles: List<SubtitleFile>,
         val partial: Boolean,
+        val timedOut: Boolean = false,
     )
 
-    private suspend fun resolveLinks(params: JSONObject): ResolvedLinks? {
+    // (v0.2.11) C-6/C-7: resolveLinks now returns its failure REASON
+    // ("provider_not_found" vs "no_data") instead of a bare null, and the
+    // timeout comes from the user's stored Stream-timeout setting (the UI
+    // sends timeoutSec when it has one; the setting default is 30 s).
+    // A timeout with zero links is flagged timedOut so callers report
+    // "timeout" instead of misreporting it as "no_links" (S-5).
+    private suspend fun resolveLinks(params: JSONObject): Pair<ResolvedLinks?, String?> {
         val providerName = params.optString("providerName", "")
-        val api = resolveApi(providerName, null) ?: return null
-        val data = resolveLinkData(params, api) ?: return null
-        val timeoutSec = params.optInt("timeoutSec", 10).coerceIn(1, 120)
+        val api = resolveApi(providerName, null) ?: return null to "provider_not_found"
+        val data = resolveLinkData(params, api) ?: return null to "no_data"
+        val settingSec = parseSeconds(store.getSettingString("timeout", "30s"))
+        val timeoutSec = params.optInt("timeoutSec", settingSec).coerceIn(1, 120)
         val foundLinks = mutableListOf<ExtractorLink>()
         val foundSubs = mutableListOf<SubtitleFile>()
         var partial = false
+        var timedOut = false
         try {
             withTimeout(timeoutSec * 1000L) {
                 // (v0.2.9) Fix C: loadLinks now returns its cause.
@@ -1295,9 +1406,13 @@ class ZaynEngine(
             }
         } catch (e: TimeoutCancellationException) {
             partial = true
+            timedOut = true
         }
-        return ResolvedLinks(api, foundLinks, foundSubs, partial)
+        return ResolvedLinks(api, foundLinks, foundSubs, partial, timedOut) to null
     }
+
+    private fun parseSeconds(raw: String): Int =
+        Regex("(\\d+)").find(raw)?.groupValues?.get(1)?.toIntOrNull() ?: 30
 
     private fun qualityLabel(q: Int): String = when (q) {
         Qualities.P2160.value -> "4K"
@@ -1442,10 +1557,20 @@ class ZaynEngine(
     }
 
     private suspend fun links(params: JSONObject): JSONObject {
-        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
-        if (resolved.links.isEmpty()) return err("no_links", "No playable links found")
+        val (resolved, reason) = resolveLinks(params)
+        if (resolved == null) {
+            return if (reason == "no_data") err("no_data", "This title has no playable data")
+            else err("provider_not_found", "Provider not found")
+        }
+        if (resolved.links.isEmpty()) {
+            return if (resolved.timedOut) err("timeout", "Loading the links timed out — try again")
+            else err("no_links", "No playable links found")
+        }
         val ranked = rankLinks(resolved.links)
-        if (ranked.isEmpty()) return err("no_links", "No playable links found")
+        if (ranked.isEmpty()) {
+            // (v0.2.11) C-8: links existed but all were torrent/magnet.
+            return err("torrent_only", "This provider only has torrent links, which are not supported")
+        }
         val arr = JSONArray()
         for ((i, r) in ranked.withIndex()) arr.put(linkJson(r, i))
         val subs = JSONArray()
@@ -1460,10 +1585,17 @@ class ZaynEngine(
             return err("playback_error", "libmpv is not available in this version")
         }
         val mode = params.optString("mode", store.getSettingString("mode", "auto"))
-        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
-        if (resolved.links.isEmpty()) return err("no_links", "No playable links found")
+        val (resolved, reason) = resolveLinks(params)
+        if (resolved == null) {
+            return if (reason == "no_data") err("no_data", "This title has no playable data")
+            else err("provider_not_found", "Provider not found")
+        }
+        if (resolved.links.isEmpty()) {
+            return if (resolved.timedOut) err("timeout", "Loading the links timed out — try again")
+            else err("no_links", "No playable links found")
+        }
         val ranked = rankLinks(resolved.links)
-        if (ranked.isEmpty()) return err("no_links", "No playable links found")
+        if (ranked.isEmpty()) return err("torrent_only", "This provider only has torrent links, which are not supported")
         val linkIndex = if (params.has("linkIndex") && !params.isNull("linkIndex")) params.optInt("linkIndex", -1) else -1
         if (mode == "manual" && linkIndex < 0) {
             val arr = JSONArray()
@@ -1596,7 +1728,11 @@ class ZaynEngine(
             false
         }
         if (!installed) return err("app_not_installed", "$appName is not installed")
-        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
+        val (resolved, reason) = resolveLinks(params)
+        if (resolved == null) {
+            return if (reason == "no_data") err("no_data", "This title has no playable data")
+            else err("provider_not_found", "Provider not found")
+        }
         val ranked = rankLinks(resolved.links)
         val picked = ranked.firstOrNull() ?: return err("no_links", "No playable links found")
         if (picked.link is DrmExtractorLink) {
@@ -1657,6 +1793,12 @@ class ZaynEngine(
     // ---- E19–E21: library / progress ----
 
     private fun librarySet(params: JSONObject): JSONObject {
+        // (v0.2.11) C-16: playback-end calls librarySet with the bookmark
+        // id only ({id, status}); resolve by id instead of dropping it.
+        val libId = params.optString("id", "")
+        if (libId.isNotBlank()) {
+            return ok(library.librarySetById(libId, params.optString("status", "")))
+        }
         return ok(
             library.librarySet(
                 params.optString("url", ""),
@@ -1675,7 +1817,11 @@ class ZaynEngine(
         val title = params.optString("title", "")
         val url = params.optString("url", "")
         if (title.isBlank() || url.isBlank()) return err("invalid_input", "Missing title or link")
-        val resolved = resolveLinks(params) ?: return err("provider_not_found", "Provider not found")
+        val (resolved, reason) = resolveLinks(params)
+        if (resolved == null) {
+            return if (reason == "no_data") err("no_data", "This title has no playable data")
+            else err("provider_not_found", "Provider not found")
+        }
         val ranked = rankLinks(resolved.links)
         if (ranked.isEmpty()) return err("no_links", "No downloadable links found")
         val wantQ = store.getSettingString("dlQuality", "Auto")
@@ -1917,6 +2063,15 @@ class ZaynEngine(
         else -> resp.url
     }
 
+    /** (v0.2.11) C-5: up to the first 3 episodes' data for the test. */
+    private fun loadDataCandidates(resp: LoadResponse): List<String> = when (resp) {
+        is MovieLoadResponse -> listOfNotNull(resp.dataUrl)
+        is LiveStreamLoadResponse -> listOfNotNull(resp.dataUrl)
+        is TvSeriesLoadResponse -> resp.episodes.take(3).mapNotNull { it.data }
+        is AnimeLoadResponse -> resp.episodes.values.take(3).mapNotNull { it.firstOrNull()?.data }
+        else -> listOfNotNull(resp.url)
+    }
+
     // ---- lookup helpers ----
 
     /**
@@ -2047,6 +2202,15 @@ class ZaynEngine(
         return ordered
     }
 
+    /** (v0.2.11) C-10: ON providers as (repoId, name) pairs, same order. */
+    private fun onProviderPairsOrdered(): List<Pair<String, String>> {
+        val pairs = store.providerOnPairs()
+        val order = store.getSettingStringList("providerOrder", emptyList())
+        val names = pairs.map { it.second }.toSet()
+        val orderedNames = order.filter { it in names } + (names - order.toSet()).sorted()
+        return orderedNames.mapNotNull { n -> pairs.firstOrNull { it.second == n } }
+    }
+
     companion object {
         // (v0.2.9) Fix G: provLang setting names → BCP 47 codes, same
         // table as the UI's LCODE (zaynplay-app.html).
@@ -2064,63 +2228,15 @@ class ZaynEngine(
         }
 
         /**
-         * (v0.2.2) The 24-repo catalogue (id + URL), rebuilt from the
-         * UI's REPO_CATALOGUE and live-verified 2026-11-26 (23/24 return
-         * HTTP 200; turkish's manifest is 404 — kept, as the UI keeps
-         * it flagged manifestDead). The v0.2.1 list was the STALE 27-repo
-         * snapshot: phisher pointed at "zaynplay-extensions-phisher"
-         * (404; correct is "cloudstream-extensions-phisher"), cspr at
-         * "zaynplay/extensions" (404), redowan had a literal space in
-         * the URL, and extcloud / cuxplug / sarapcanagii are dead — so
-         * findRepo() could never resolve a catalogue id for those repos
-         * and catalogueIdOf() returned null for their installed repos.
+         * (v0.2.11) Target 15 — NO repos by default: the baked catalogue
+         * is REMOVED (it superseded the 2026-11-25 "take ALL repos"
+         * approach and the v0.2.1/v0.2.10 catalogue work). A fresh
+         * install has zero repos; repos exist only after the user adds
+         * one manually by shortcode/URL (repoAdd -> parseRepoUrl).
+         * findRepo() still resolves installed repos by URL and by hash
+         * id; catalogueIdOf() now always returns null.
          */
-        private val CATALOGUE_REPOS: List<Pair<String, String>> = listOf(
-            "cspr" to "https://raw.githubusercontent.com/recloudstream/extensions/master/repo.json",
-            "mega" to "https://raw.githubusercontent.com/self-similarity/MegaRepo/builds/repo.json",
-            "phisher" to "https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/refs/heads/builds/repo.json",
-            "megix" to "https://raw.githubusercontent.com/SaurabhKaperwan/CSX/builds/CS.json",
-            "3rabi" to "https://raw.githubusercontent.com/Abodabodd/re-3arabi/refs/heads/main/repo",
-            "indostream" to "https://raw.githubusercontent.com/TeKuma25/IndoStream/builds/repo.json",
-            "cloudx" to "https://raw.githubusercontent.com/Asm0d3usX/CloudX/builds/repo.json",
-            "dogior" to "https://raw.githubusercontent.com/doGior/doGiorsHadEnough/refs/heads/builds/repo.json",
-            "cncverse" to "https://raw.githubusercontent.com/NivinCNC/CNCVerse-Cloud-Stream-Extension/refs/heads/builds/CNC.json",
-            "diegon" to "https://pastebin.com/raw/qndZtL6D",
-            "cskarma" to "https://raw.githubusercontent.com/Kraptor123/cs-Karma/refs/heads/master/repo.json",
-            "cakestwix" to "https://codeberg.org/CakesTwix/cloudstream-extensions-uk/raw/branch/master/repo.json",
-            "lawlietrepo" to "https://raw.githubusercontent.com/lawlietbr/lietrepo/refs/heads/main/builds/repo.json",
-            "king" to "https://pastebin.com/raw/Cd2g2tfz",
-            "italianprovider" to "https://raw.githubusercontent.com/Gian-Fr/ItalianProvider/builds/repo.json",
-            "netmirror" to "https://raw.githubusercontent.com/Sushan64/NetMirror-Extension/refs/heads/builds/Netflix.json",
-            "redowan" to "https://raw.githubusercontent.com/redowan99/Redowan-Cloudstream/master/repo.json",
-            "saimuel" to "https://raw.githubusercontent.com/saimuelbr/saimuelrepo/refs/heads/main/builds/repo.json",
-            "vietnamese" to "https://gitlab.com/tearrs/cloudstream-vietnamese/-/raw/main/repo.json",
-            "turkish" to "https://raw.githubusercontent.com/Kraptor123/cs-kraptor/refs/heads/master/repo.json",
-            "german" to "https://raw.githubusercontent.com/Bnyro/GermanProviders/refs/heads/master/repo.json",
-            "luna712" to "https://raw.githubusercontent.com/Luna712/Luna712-Cloudstream-Extensions/28885d17ceb7f24782b732b6056085c14c1fd027/repo.json",
-            "zzikozz" to "https://raw.githubusercontent.com/zzikozz/frenchCS/refs/heads/main/repo.json",
-            "gramflix" to "https://raw.githubusercontent.com/tOntOnbOuLii/GramFlix/main/repo.json",
-            // (v0.2.10) 15 repos from the CloudStream wiki's maintained
-            // list that were missing from the catalogue (verified live
-            // 2026-11-27; eclipsia's manifest 403s from here, so its
-            // URL is the wiki's repo link and its plugin names are the
-            // wiki's list, flagged manifestDead in the HTML).
-            "raghav" to "https://raw.githubusercontent.com/raghavdhingra11/extensions/refs/heads/builds/repo.json",
-            "eclipsia" to "https://cs.eclipsia.dpdns.org/repo.json",
-            "indflix" to "https://raw.githubusercontent.com/Gujjar001/Indflix/refs/heads/builds/repo.json",
-            "storm" to "https://raw.githubusercontent.com/stormunblessed/storm-cloudstream/refs/heads/builds/repo.json",
-            "reflex" to "https://raw.githubusercontent.com/Reflex-frp/reflex-repo/refs/heads/builds/repo.json",
-            "flummox" to "https://raw.githubusercontent.com/FlummoxCS/repo/refs/heads/builds/repo.json",
-            "plaviohd" to "https://raw.githubusercontent.com/mr-robot-ops/plaviohd/refs/heads/builds/repo.json",
-            "csar" to "https://raw.githubusercontent.com/alihassan-1997/CloudStream-Arabic/refs/heads/builds/repo.json",
-            "mehdigm" to "https://raw.githubusercontent.com/MehdiiGM/Cloudstream/refs/heads/builds/repo.json",
-            "cartoony" to "https://raw.githubusercontent.com/Lord-Kamina/Cartoony/refs/heads/builds/repo.json",
-            "bigbull" to "https://raw.githubusercontent.com/BigBullApp/Cloudstream-repo/refs/heads/builds/repo.json",
-            "yorik100" to "https://raw.githubusercontent.com/Yorik100/Cloudstream-French/refs/heads/builds/repo.json",
-            "anicompat" to "https://raw.githubusercontent.com/recloudstream/anicompat/refs/heads/builds/repo.json",
-            "desi" to "https://raw.githubusercontent.com/fahim2204/extensions/refs/heads/builds/repo.json",
-            "csgames" to "https://raw.githubusercontent.com/errorcode26/ayu-cloudstream-games/builds/repo.json",
-        )
+        private val CATALOGUE_REPOS: List<Pair<String, String>> = listOf()
         private val CATALOGUE_URL_BY_ID: Map<String, String> = CATALOGUE_REPOS.toMap()
         private val CATALOGUE_ID_BY_URL: Map<String, String> =
             CATALOGUE_REPOS.associate { (id, url) -> url to id }
