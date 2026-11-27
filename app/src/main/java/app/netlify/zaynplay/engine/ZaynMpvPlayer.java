@@ -88,6 +88,8 @@ public class ZaynMpvPlayer {
     private boolean startSeekDone;
     private long pendingStartAtMs;
 
+    private int tickerLogCount;
+
     private final Runnable ticker = new Runnable() {
         @Override
         public void run() {
@@ -101,6 +103,16 @@ public class ZaynMpvPlayer {
                     Double cache = m.getPropertyDouble("demuxer-cache-duration");
                     if (cache != null) lastBufferedMs = Math.max(0L, (long) (cache * 1000));
                 } catch (Exception ignored) {
+                }
+                // (v1.0.11 D2) Progress proof, throttled to every 5 s: the
+                // ticker polled time-pos + demuxer-cache-duration but never
+                // logged them, so a stall was indistinguishable from
+                // progress in the log.
+                tickerLogCount++;
+                if (tickerLogCount % 5 == 0) {
+                    EngineLogger.INSTANCE.log("player",
+                            "mpv: progress time-pos=" + lastPosMs
+                                    + "ms demuxer-cache-duration=" + lastBufferedMs + "ms");
                 }
                 pushState();
             }
@@ -168,6 +180,28 @@ public class ZaynMpvPlayer {
         }
     };
 
+    // (v1.0.11 D2) mpv log-message observer. The EventObserver above
+    // handles only VIDEO_RECONFIG / FILE_LOADED, so a demux, network,
+    // TLS or decoder failure inside mpv was entirely silent. Real API,
+    // javap-verified against the published midasvo libmpv 1.4.0 AAR
+    // (classes.jar): MPVLib.addLogObserver(LogObserver),
+    // MPVLib.requestLogMessages(String) — the string is the mpv minimum
+    // level ("warn" delivers warn + error + fatal), and
+    // LogObserver.logMessage(String prefix, int level, String text)
+    // carries the raw mpv log level (client API: FATAL=10, ERROR=20,
+    // WARN=30, INFO=40, V=50, DEBUG=60, TRACE=70). Only warn-and-above
+    // is logged, so the 200-line ring buffer is not flooded.
+    private final MPVLib.LogObserver logObserver = new MPVLib.LogObserver() {
+        @Override
+        public void logMessage(String prefix, int level, String text) {
+            if (level > 30) return;
+            String msg = text != null ? text.trim() : "";
+            if (msg.isEmpty()) return;
+            EngineLogger.INSTANCE.log("player",
+                    "mpv: log [" + prefix + "] " + msg);
+        }
+    };
+
     public ZaynMpvPlayer(Context context, EventListener onEvent) {
         this.appContext = context.getApplicationContext();
         this.onEvent = onEvent;
@@ -199,6 +233,9 @@ public class ZaynMpvPlayer {
             m.observeProperty("pause", MPVLib.MpvFormat.MPV_FORMAT_FLAG);
             m.observeProperty("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG);
             m.addObserver(observer);
+            // (v1.0.11 D2) Enable mpv's own error/warning log stream.
+            m.addLogObserver(logObserver);
+            m.requestLogMessages("warn");
             mpv = m;
             EngineLogger.INSTANCE.log("player", "mpv: created");
             return true;
@@ -262,7 +299,19 @@ public class ZaynMpvPlayer {
         if (view != null && mpv != null) attachSurfaceIfReady();
     }
 
-    private void attachSurfaceIfReady() {
+    /** (v1.0.11 F2) Public so MainActivity can re-check the attach on
+     * stage-open. Fresh attach-attempt cycle: reset the retry counter
+     * here (F1) — after one exhaustion it stayed 25, so any later play
+     * while the texture was momentarily null got ZERO attach attempts.
+     * The reset lives ONLY on this fresh entry: the retry loop below
+     * re-enters through attachSurfaceInternal(), so the counter still
+     * accumulates across retries and the 25-retry exhaustion is real. */
+    public void attachSurfaceIfReady() {
+        attachRetries = 0;
+        attachSurfaceInternal();
+    }
+
+    private void attachSurfaceInternal() {
         MPVLib m = mpv;
         TextureView tv = textureView;
         if (m == null || tv == null) return;
@@ -273,7 +322,19 @@ public class ZaynMpvPlayer {
             // already issued by then; mpv renders once the surface lands.
             if (attachRetries < 25) {
                 attachRetries++;
-                mainHandler.postDelayed(this::attachSurfaceIfReady, 200);
+                // (v1.0.11 D3) Log each null-texture retry, throttled
+                // (1st, then every 5th) — a silent exhaustion used to be
+                // indistinguishable from "attach never ran".
+                if (attachRetries == 1 || attachRetries % 5 == 0) {
+                    EngineLogger.INSTANCE.log("player",
+                            "mpv: attach retry " + attachRetries + "/25 texture null");
+                }
+                mainHandler.postDelayed(this::attachSurfaceInternal, 200);
+            } else {
+                // (v1.0.11 D3) Exhaustion proof (M5): no log, no error
+                // event and no further retry ever fired here before.
+                EngineLogger.INSTANCE.log("player",
+                        "mpv: attach gave up after 25 retries");
             }
             return;
         }
@@ -293,14 +354,25 @@ public class ZaynMpvPlayer {
             releaseAttachedSurface();
             surfaceAttached = false;
         }
-        if (surfaceAttached) return;
+        if (surfaceAttached) {
+            // (v1.0.11 D1) The silent early return: on every later play
+            // neither "surface attached" nor "attach failed" fired, so
+            // the log could not prove mpv's surface was attached at all.
+            EngineLogger.INSTANCE.log("player",
+                    "mpv: surface already attached texId=" + texId
+                            + " attachedTexId=" + attachedTexId);
+            return;
+        }
         try {
             attachedSurface = new Surface(st);
             m.attachSurface(attachedSurface);
             attachedTexId = texId;
             surfaceAttached = true;
+            // (v1.0.11 D1) Attach log now carries both identities: the
+            // live texture and the one mpv attached to.
             EngineLogger.INSTANCE.log("player",
-                    "mpv: surface attached " + tv.getWidth() + "x" + tv.getHeight());
+                    "mpv: surface attached " + tv.getWidth() + "x" + tv.getHeight()
+                            + " texId=" + texId + " attachedTexId=" + attachedTexId);
         } catch (Exception e) {
             EngineLogger.INSTANCE.log("player", "mpv: attach failed " + e.getMessage());
             releaseAttachedSurface();
@@ -365,6 +437,15 @@ public class ZaynMpvPlayer {
             } catch (Exception e) {
                 EngineLogger.INSTANCE.log("player", "mpv: option failed " + e.getMessage());
             }
+            // (v1.0.11 D1) Log the live texture identity + attach state at
+            // every play() BEFORE attachSurfaceIfReady(): proves whether
+            // mpv's attached surface is the live texture, or stale.
+            SurfaceTexture liveSt = textureView != null
+                    ? textureView.getSurfaceTexture() : null;
+            EngineLogger.INSTANCE.log("player",
+                    "mpv: play attach check texId=" + System.identityHashCode(liveSt)
+                            + " surfaceAttached=" + surfaceAttached
+                            + " attachedTexId=" + attachedTexId);
             // (midasvo example order) attach first, then force-window + vo,
             // then loadfile. Surface attach is retried until the texture
             // exists (see attachSurfaceIfReady).
@@ -404,6 +485,7 @@ public class ZaynMpvPlayer {
             }
             EngineLogger.INSTANCE.log("player", "mpv: loadfile " + link.getSource());
             lastPlaying = true;
+            tickerLogCount = 0;
             startTicker();
             pushState();
         });
@@ -446,6 +528,9 @@ public class ZaynMpvPlayer {
     private void onFileLoaded() {
         MPVLib m = mpv;
         if (m == null) return;
+        // (v1.0.11 D2) FILE_LOADED was silent: the log could not prove
+        // mpv's loadfile had opened the file at all (M1).
+        EngineLogger.INSTANCE.log("player", "mpv: file loaded");
         if (pendingStartAtMs > 0 && !startSeekDone) {
             startSeekDone = true;
             try {
