@@ -34,7 +34,11 @@ import org.json.JSONObject
  * - No GitHub Release exists for zayn-play yet, so the check currently
  *   finds no releases and reports up-to-date — honestly, not as a bug.
  */
-class ZaynUpdater(private val context: Context) {
+class ZaynUpdater(
+    private val context: Context,
+    // (v1.0.4) F3: progress callback (downloadedBytes, totalBytes; total -1 when unknown).
+    private val onProgress: (Long, Long) -> Unit = { _, _ -> },
+) {
 
     companion object {
         const val GITHUB_USER = "TheSMandal"
@@ -148,16 +152,16 @@ class ZaynUpdater(private val context: Context) {
         return out
     }
 
-    /** Download the APK to cacheDir/ZaynPlay.apk and fire the installer. */
-    suspend fun downloadUpdate(url: String): JSONObject {
-        if (url.isBlank()) return JSONObject().put("started", false)
-        // (v1.0.2) Android 8+ needs the per-app unknown-sources grant
-        // before ANY install intent can work — and the V1.0.1 APK did not
-        // even declare REQUEST_INSTALL_PACKAGES, so the grant could never
-        // be given. Check FIRST (before the ~26 MB download): if the
-        // grant is missing, open this app's "Install unknown apps"
-        // screen and report install_permission, so the user grants it
-        // and taps again instead of downloading for nothing.
+    /**
+     * (v1.0.2) Android 8+ needs the per-app unknown-sources grant before
+     * ANY install intent can work — and the V1.0.1 APK did not even declare
+     * REQUEST_INSTALL_PACKAGES, so the grant could never be given. Check
+     * FIRST (before the ~26 MB download): if the grant is missing, open
+     * this app's "Install unknown apps" screen and report
+     * install_permission, so the user grants it and taps again instead of
+     * downloading for nothing.
+     */
+    private fun ensureInstallPermission(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             !context.packageManager.canRequestPackageInstalls()
         ) {
@@ -167,6 +171,29 @@ class ZaynUpdater(private val context: Context) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(settingsIntent)
+            return false
+        }
+        return true
+    }
+
+    private fun fireInstaller(file: File): JSONObject {
+        val uri: Uri = FileProvider.getUriForFile(
+            context, "${context.packageName}.provider", file,
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+        }
+        context.startActivity(intent)
+        return JSONObject().put("started", true)
+    }
+
+    /** Download the APK to cacheDir/ZaynPlay.apk. When [autoInstall] is true (default) the system installer fires at once, as before; when false the file stays for the in-app Install pop-up, which calls [installDownloadedApk]. */
+    suspend fun downloadUpdate(url: String, autoInstall: Boolean = true): JSONObject {
+        if (url.isBlank()) return JSONObject().put("started", false)
+        if (!ensureInstallPermission()) {
             return JSONObject().put("started", false).put("error", "install_permission")
         }
         return try {
@@ -180,27 +207,53 @@ class ZaynUpdater(private val context: Context) {
             if (!resp.isSuccessful || body == null) {
                 return JSONObject().put("started", false)
             }
+            // (v1.0.4) F3: stream in 64 KB chunks and report progress (throttled to 500 ms, like video downloads) instead of one blocking copyTo with no feedback.
+            val total = try { body.contentLength() } catch (e: Exception) { -1L }
+            var written = 0L
+            var lastReport = 0L
             file.outputStream().use { out ->
-                body.byteStream().use { input -> input.copyTo(out) }
+                body.byteStream().use { input ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        written += n
+                        val now = System.currentTimeMillis()
+                        if (now - lastReport >= 500) {
+                            lastReport = now
+                            try { onProgress(written, total) } catch (e: Exception) { }
+                        }
+                    }
+                }
             }
+            try { onProgress(written, total) } catch (e: Exception) { }
             // (v0.2.11) C-14: a truncated/empty download must fail here,
             // not later at the system installer with no message.
             if (!file.exists() || file.length() <= 0) {
                 return JSONObject().put("started", false).put("error", "download_empty")
             }
-            val uri: Uri = FileProvider.getUriForFile(
-                context, "${context.packageName}.provider", file,
-            )
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            }
-            context.startActivity(intent)
-            JSONObject().put("started", true)
+            if (!autoInstall) return JSONObject().put("started", true).put("downloaded", true)
+            fireInstaller(file)
         } catch (e: Exception) {
             EngineLogger.log("updater", "download failed")
+            JSONObject().put("started", false)
+        }
+    }
+
+    /** (v1.0.4) F2: fire the system installer for the already-downloaded update (cacheDir/ZaynPlay.apk). The in-app Install pop-up calls this; "Reinstall" calls it too. */
+    fun installDownloadedApk(): JSONObject {
+        if (!ensureInstallPermission()) {
+            return JSONObject().put("started", false).put("error", "install_permission")
+        }
+        val file = File(context.cacheDir, "ZaynPlay.apk")
+        if (!file.exists() || file.length() <= 0) {
+            return JSONObject().put("started", false).put("error", "no_apk")
+        }
+        return try {
+            fireInstaller(file)
+        } catch (e: Exception) {
+            EngineLogger.log("updater", "install intent failed")
             JSONObject().put("started", false)
         }
     }
