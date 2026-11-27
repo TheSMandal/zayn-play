@@ -214,4 +214,3 @@ configurations.all {
         }
     }
 }
-}
