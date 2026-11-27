@@ -95,12 +95,21 @@ class ZaynEngine(
     private val player: ZaynPlayer,
     private val downloads: ZaynDownloads,
     private val bridgeScope: CoroutineScope,
+    private val onEvent: (String, JSONObject) -> Unit = { _, _ -> },
     private val onStageRect: (JSONObject) -> Unit,
 ) {
     private val library = ZaynLibrary(store)
     private val subtitles = ZaynSubtitles()
     private val accounts = ZaynAccounts(store)
-    private val updater = ZaynUpdater(activity)
+    private val updater = ZaynUpdater(activity) { downloaded, total ->
+        onEvent(
+            "updateDownloadProgress",
+            JSONObject()
+                .put("downloadedBytes", downloaded)
+                .put("totalBytes", total)
+                .put("pct", if (total > 0) ((downloaded * 100) / total).toInt().coerceIn(0, 100) else -1),
+        )
+    }
     private val subtitleCache = ConcurrentHashMap<String, String>()
     @Volatile
     var engineReady: Boolean = false
@@ -180,7 +189,13 @@ class ZaynEngine(
                 "downloadOpen" -> downloadOpen(params.optString("id", ""))
                 // ---- Phase C: updater (E29–E30) ----
                 "appUpdateCheck" -> ok(updater.checkUpdate())
-                "appUpdateDownload" -> ok(updater.downloadUpdate(params.optString("url", "")))
+                "appUpdateDownload" -> ok(
+                    updater.downloadUpdate(
+                        params.optString("url", ""),
+                        params.optBoolean("autoInstall", true),
+                    ),
+                )
+                "appUpdateInstall" -> ok(updater.installDownloadedApk())
                 // ---- Phase C: accounts (E31–E34) ----
                 "accountLoginUrl" -> accountLoginUrl(params.optString("provider", ""))
                 "accountLoginComplete" -> ok(
@@ -1522,10 +1537,11 @@ class ZaynEngine(
     )
 
     /**
-     * Smart-Streams ranking (design §4.6): quality match +100, audio1
-     * +40, audio2 +20, then MEASURED TTFB (1-byte ranged request,
-     * parallel, 3 s cap) ascending. Unmeasured links rank after measured
-     * ones at the same score. Nothing is invented.
+     * Smart-Streams ranking (design §4.6, v1.0.4 FINAL order 17:33):
+     * language 1st, quality 2nd, speed 3rd. The language tier dominates
+     * the score (audio1 +10000, audio2 +5000); quality match adds +100;
+     * then MEASURED server-only TTFB ascending. Unmeasured links rank
+     * after measured ones at the same score. Nothing is invented.
      */
     private suspend fun rankLinks(links: List<ExtractorLink>): List<RankedLink> {
         val resPref = store.getSettingString("res", "Auto")
@@ -1537,10 +1553,10 @@ class ZaynEngine(
         val scored = playable.map { link ->
             var score = 0
             val ql = qualityLabel(link.quality)
-            if (resPref != "Auto" && ql.isNotEmpty() && ql == resPref) score += 100
             val audio = audioFromName(link.name)
-            if (audio != null && audio == a1) score += 40
-            else if (audio != null && a2 != null && audio == a2) score += 20
+            if (audio != null && audio == a1) score += 10000
+            else if (audio != null && a2 != null && audio == a2) score += 5000
+            if (resPref != "Auto" && ql.isNotEmpty() && ql == resPref) score += 100
             link to (score to audio)
         }
         // Measure TTFB for the top 8 by score only (keeps the call fast).
@@ -1560,13 +1576,19 @@ class ZaynEngine(
                 async {
                     val ms = try {
                         withTimeout(3000) {
-                            val t0 = System.currentTimeMillis()
                             val req = Request.Builder().url(link.url)
                                 .apply { link.getAllHeaders().forEach { (k, v) -> header(k, v) } }
                                 .header("Range", "bytes=0-0").build()
                             com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use {
                                 it.body?.close()
-                                System.currentTimeMillis() - t0
+                                // (v1.0.4) Server-only TTFB: response-received
+                                // minus request-sent excludes DNS + TCP + TLS
+                                // setup, which dominated the old wall-clock
+                                // number (~1 s on a fresh mobile connection)
+                                // and made every server look equally slow. A
+                                // genuinely slow server still reports high.
+                                (it.receivedResponseAtMillis - it.sentRequestAtMillis)
+                                    .coerceAtLeast(0)
                             }
                         }
                     } catch (e: Exception) {
@@ -1664,6 +1686,11 @@ class ZaynEngine(
                 library.progressGet(title).optInt("posSec", 0)
             else -> 0
         }
+        // (v1.0.4) Never seek past the saved end of THIS title: a stale
+        // resume (e.g. another title's 23 min) used to seek past the end,
+        // which ended playback at once ("starts at 23 min then cuts").
+        val savedDurSec = library.progressGet(title).optInt("durSec", 0)
+        val safeStartSec = if (startAtSec > 0 && savedDurSec > 0 && startAtSec >= savedDurSec - 30) 0 else startAtSec
         val subLangCode = audioCodeOf(store.getSettingString("subLang", "বাংলা")) ?: "bn"
         val providerSub = resolved.subtitles.firstOrNull { it.langTag == subLangCode || it.lang == subLangCode }
             ?: resolved.subtitles.firstOrNull()
@@ -1678,7 +1705,7 @@ class ZaynEngine(
             headers = link.getAllHeaders(),
             type = link.type,
         )
-        player.play(playLink, startAtSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes())
+        player.play(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
         if (title.isNotBlank()) {
             store.putMapEntry(
                 EngineStore.KEY_LAST_LINK,
@@ -1726,6 +1753,20 @@ class ZaynEngine(
         val raw = store.getSettingString("bufDisk", "250 MB")
         val num = Regex("""(\d+)""").find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: 250L
         return num.coerceIn(16, 2048) * 1024L * 1024L
+    }
+
+    /** (v1.0.4) Buffering level (Settings > Playback > Buffering). */
+    private fun bufferLevel(): String = store.getSettingString("buffer", "normal")
+
+    /**
+     * (v1.0.4) NO-SWITCH rule: ExoPlayer's own track selector used to pick
+     * the manifest's default audio (e.g. Tamil) mid-play even though the
+     * picked link was Hindi. Pin the selector to the picked link's
+     * language, else the preferred-audio setting.
+     */
+    private fun preferredAudioLang(linkAudio: String?): String? {
+        if (linkAudio != null) return linkAudio
+        return audioCodeOf(store.getSettingString("audio1", "English"))
     }
 
     private suspend fun playerControl(params: JSONObject): JSONObject {
