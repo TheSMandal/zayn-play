@@ -196,12 +196,15 @@ class ZaynUpdater(
         if (!ensureInstallPermission()) {
             return JSONObject().put("started", false).put("error", "install_permission")
         }
+        // (v1.0.14 P4 rank 8) The target file is declared outside the
+        // try so the CancellationException path below can delete the
+        // partial download.
+        val file = File(context.cacheDir, "ZaynPlay.apk")
         return try {
             // Delete stale update files first.
             context.cacheDir.listFiles()
                 ?.filter { it.name.startsWith("ZaynPlay") && it.extension == "apk" }
                 ?.forEach { it.delete() }
-            val file = File(context.cacheDir, "ZaynPlay.apk")
             val resp = app.get(url)
             val body = resp.body
             if (!resp.isSuccessful || body == null) {
@@ -235,6 +238,13 @@ class ZaynUpdater(
             }
             if (!autoInstall) return JSONObject().put("started", true).put("downloaded", true)
             fireInstaller(file)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // (v1.0.14 P4 rank 8) A cancelled download must stay cancelled
+            // (the old catch-all swallowed it and replied "not started")
+            // and must not leave a partial APK behind for
+            // installDownloadedApk to fire later.
+            file.delete()
+            throw e
         } catch (e: Exception) {
             EngineLogger.log("updater", "download failed")
             JSONObject().put("started", false)
