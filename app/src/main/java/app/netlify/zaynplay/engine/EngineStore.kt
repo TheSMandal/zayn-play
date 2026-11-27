@@ -83,6 +83,7 @@ class EngineStore(private val context: Context) {
             "bufDisk" to "250 MB",
             "bufSize" to "64 MB",
             "bufLen" to "50s",
+            "buffer" to "normal",
             "tvSeekShown" to 30,
             "tvSeekHidden" to 10,
             "theme" to "system",
