@@ -12,19 +12,29 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DecoderInitializationException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.drm.DrmSessionException
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import java.io.File
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import org.json.JSONObject
 
 /**
@@ -147,6 +157,157 @@ class ZaynPlayer(
                 "state=$state activity=$activityState" +
                 if (note.isNotEmpty()) " $note" else "",
         )
+    }
+
+    // (v1.0.13 P2-B) Redact signed-token query values before logging a URL:
+    // `in=<redacted>` — never log a live token (INVESTIGATION-4 §3.5).
+    private fun redactUrlForLog(url: String?): String {
+        if (url.isNullOrBlank()) return "none"
+        return url.replace(Regex("([?&]in=)[^&]*"), "$1<redacted>")
+    }
+
+    /** (v1.0.13 P2-B) Cause chain of a playback error, token-redacted, at most 5 deep. */
+    private fun causeChainForLog(error: Throwable): String {
+        val parts = mutableListOf<String>()
+        var c = error.cause
+        var depth = 0
+        while (c != null && depth < 5) {
+            parts += "${c.javaClass.simpleName}: ${redactUrlForLog(c.message)}"
+            c = c.cause
+            depth++
+        }
+        return if (parts.isEmpty()) "none" else parts.joinToString(" <- ")
+    }
+
+    /** (v1.0.13 P2-B) Age in ms of a ::(<epoch-seconds>):: token segment in
+     * a URL, or null when the URL carries no such token. Never logs the token. */
+    private fun tokenAgeMs(url: String?): Long? {
+        if (url.isNullOrBlank()) return null
+        val epochSec = Regex("[?&]in=[^&]*::(\\d{9,11})::").find(url)
+            ?.groupValues?.get(1)?.toLongOrNull()
+            ?: Regex("::(\\d{9,11})::").find(url)
+                ?.groupValues?.get(1)?.toLongOrNull()
+            ?: return null
+        return System.currentTimeMillis() - epochSec * 1000L
+    }
+
+    /** (v1.0.13 P2-B) "tokenAgeMs=<ms>" when the URL carries an epoch token, else "". */
+    private fun tokenAgeSuffix(url: String?): String {
+        val age = tokenAgeMs(url) ?: return ""
+        return " tokenAgeMs=$age"
+    }
+
+    /**
+     * (v1.0.13 P4-B, extended P6-A) Playback failure classes — the full
+     * Part E §13 set (13 types; P4-B's five kept first, in the same order,
+     * so the P4-B log lines and routing are untouched). The class is logged
+     * as `errorClass=<TYPE>` in onPlayerError and in the engine retry log,
+     * and routes recovery in ZaynEngine.onPlaybackError.
+     * MANIFEST_MALFORMED: the parser rejected the manifest (Media3
+     * PARSING_MANIFEST_MALFORMED, or an unsupported manifest feature).
+     * MANIFEST_AUTH: the manifest/child fetch was refused with HTTP
+     * 401/403 (token/Referer rejected). MANIFEST_HTTP: any other
+     * non-200 manifest/child fetch (status from
+     * HttpDataSource.InvalidResponseCodeException when available).
+     * NETWORK: timeout-excluded transport failure (DNS/connect). OTHER:
+     * the UNKNOWN fallback — no signal matched (see classifyPlaybackError).
+     * NETWORK_TIMEOUT: the server took too long (IO_NETWORK_CONNECTION_
+     * TIMEOUT code, or a SocketTimeoutException in the cause chain).
+     * DECODE_ERROR: the decoder failed (DECODING_FAILED /
+     * DECODER_INIT_FAILED / DECODER_QUERY_FAILED, or a
+     * DecoderInitializationException cause). DRM_ERROR: DRM failure
+     * (DRM_CONTENT_ERROR / DRM_LICENSE_EXPIRED, or a DrmSessionException
+     * cause). SOURCE_NOT_FOUND: the URL is gone (HTTP 404, or
+     * IO_FILE_NOT_FOUND). LINK_EXPIRED: the signed link expired (HTTP
+     * 410, or AUTHENTICATION_EXPIRED). UNSUPPORTED_FORMAT: the container
+     * or codec is unsupported (PARSING_CONTAINER_MALFORMED /
+     * UNSUPPORTED, DECODING_FORMAT_UNSUPPORTED /
+     * DECODING_FORMAT_EXCEEDS_CAPABILITIES). PLAYBACK_INTERRUPTED: the
+     * load position fell behind the live window (BEHIND_LIVE_WINDOW).
+     * STALLED: reserved — Media3 1.4.1 has NO error code for a stall
+     * (no ERROR_CODE_TIMEOUT exists), so a stall surfaces upstream as
+     * NETWORK_TIMEOUT; STALLED is never returned by classifyPlaybackError
+     * and exists so the §13 set is named in full for a future
+     * stall detector (e.g. ticker-based no-progress) to return.
+     */
+    enum class PlaybackErrorClass {
+        MANIFEST_MALFORMED, MANIFEST_HTTP, MANIFEST_AUTH, NETWORK, OTHER, NETWORK_TIMEOUT, DECODE_ERROR, DRM_ERROR, SOURCE_NOT_FOUND, LINK_EXPIRED, UNSUPPORTED_FORMAT, PLAYBACK_INTERRUPTED, STALLED
+    }
+
+    /** (v1.0.13 P4-B, extended P6-A) Classify one PlaybackException. Code-based
+     * first; the HTTP status is read from the cause chain only when Media3
+     * raised it (never parsed out of a message string). Precedence is
+     * deliberate: a manifest parse failure is named even when its cause
+     * chain also carries a transport type, and a timeout is named before
+     * the generic network class. */
+    fun classifyPlaybackError(error: PlaybackException): PlaybackErrorClass {
+        if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED) {
+            return PlaybackErrorClass.MANIFEST_MALFORMED
+        }
+        if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED) {
+            return PlaybackErrorClass.MANIFEST_MALFORMED
+        }
+        var httpStatus: Int? = null
+        var networkCause = false
+        var timeoutCause = false
+        var decodeCause = false
+        var drmCause = false
+        var cause: Throwable? = error.cause
+        var depth = 0
+        while (cause != null && depth < 10) {
+            when (cause) {
+                is HttpDataSource.InvalidResponseCodeException ->
+                    if (httpStatus == null) httpStatus = cause.responseCode
+                is UnknownHostException, is ConnectException, is NoRouteToHostException ->
+                    networkCause = true
+                is SocketTimeoutException -> timeoutCause = true
+                is DecoderInitializationException -> decodeCause = true
+                is DrmSessionException -> drmCause = true
+            }
+            cause = cause.cause
+            depth++
+        }
+        if (httpStatus == 401 || httpStatus == 403) return PlaybackErrorClass.MANIFEST_AUTH
+        if (httpStatus == 404) return PlaybackErrorClass.SOURCE_NOT_FOUND
+        if (httpStatus == 410) return PlaybackErrorClass.LINK_EXPIRED
+        if (httpStatus != null ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+        ) return PlaybackErrorClass.MANIFEST_HTTP
+        if (error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT || timeoutCause) {
+            return PlaybackErrorClass.NETWORK_TIMEOUT
+        }
+        if (error.errorCode == PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR ||
+            error.errorCode == PlaybackException.ERROR_CODE_DRM_LICENSE_EXPIRED || drmCause
+        ) return PlaybackErrorClass.DRM_ERROR
+        if (error.errorCode == PlaybackException.ERROR_CODE_AUTHENTICATION_EXPIRED) {
+            return PlaybackErrorClass.LINK_EXPIRED
+        }
+        if (error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND) {
+            return PlaybackErrorClass.SOURCE_NOT_FOUND
+        }
+        if (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED || decodeCause
+        ) return PlaybackErrorClass.DECODE_ERROR
+        if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ||
+            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES
+        ) return PlaybackErrorClass.UNSUPPORTED_FORMAT
+        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+            return PlaybackErrorClass.PLAYBACK_INTERRUPTED
+        }
+        if (networkCause ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+        ) return PlaybackErrorClass.NETWORK
+        // (v1.0.13 P6-A) No signal matched — OTHER is the UNKNOWN fallback.
+        // Log what WAS available once, so the next failure is
+        // self-diagnosing instead of a bare class name.
+        EngineLogger.log(
+            "player",
+            "classifyPlaybackError OTHER (unknown): errorCodeName=${error.errorCodeName} errorCode=${error.errorCode} message=${redactUrlForLog(error.message)} cause=${causeChainForLog(error)}",
+        )
+        return PlaybackErrorClass.OTHER
     }
 
     // (v1.0.12 §3/§4) Only a settled landscape size counts as
@@ -331,6 +492,15 @@ class ZaynPlayer(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // (v1.0.13 P2-B) Log the failure in full: message + cause chain +
+            // failing URI, token-redacted — the V1.0.12 log recorded only the
+            // errorCodeName (INVESTIGATION-4 §3.5).
+            // (v1.0.13 P4-B) errorClass is appended LAST so the P2 log
+            // shape stays an exact substring (gate AJ asserts it).
+            EngineLogger.log(
+                "player",
+                "player error ${error.errorCodeName} message=${redactUrlForLog(error.message)} cause=${causeChainForLog(error)} uri=${redactUrlForLog(currentLink?.url)} errorClass=${classifyPlaybackError(error)}",
+            )
             // (v1.0.5 B2) Offer the engine the retry first: a started retry
             // suppresses the playerError toast/event until retries run out.
             val retrying = try {
@@ -440,6 +610,65 @@ class ZaynPlayer(
     }
 
     /**
+     * (v1.0.13 P4-A) DataSource wrapper that re-attaches the PLAYING
+     * manifest's signed query token (INVESTIGATION-4 §3.7 L2) to child
+     * playlist / segment requests that lost it: ExoPlayer resolves
+     * relative child URIs against the master URL, and RFC 3986 drops
+     * the `?in=…` query on relative resolution — the same loss the P3
+     * validator repairs for its own fetches (ZaynEngine.reattachToken).
+     * The rule is identical (ZaynHeaderManager.reattachToken): a
+     * request URI that already carries a query is never touched, and
+     * a manifest URL with no query changes nothing. Scope is
+     * STRUCTURAL: one wrapper instance is built per play() call for
+     * that play's manifest URL, on the per-link DataSource.Factory —
+     * one manifest's token can never reach another provider's or
+     * another manifest's requests. The top-level manifest request
+     * itself already carries the query, so it passes through
+     * unchanged. Re-attachments are reported via [onReattached]
+     * (token-redacted, at most once per child URI per play — the
+     * caller dedups).
+     */
+    private class TokenReattachingDataSource(
+        private val upstream: DataSource,
+        private val manifestUrl: String,
+        private val onReattached: (String) -> Unit,
+    ) : DataSource {
+        override fun addTransferListener(transferListener: TransferListener) {
+            upstream.addTransferListener(transferListener)
+        }
+
+        override fun open(dataSpec: DataSpec): Long {
+            val uriString = dataSpec.uri.toString()
+            val rewritten = ZaynHeaderManager.reattachToken(manifestUrl, uriString)
+            if (rewritten != uriString) {
+                onReattached(rewritten)
+                return upstream.open(dataSpec.withUri(Uri.parse(rewritten)))
+            }
+            return upstream.open(dataSpec)
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            upstream.read(buffer, offset, length)
+
+        override fun getUri(): Uri? = upstream.uri
+
+        override fun getResponseHeaders(): Map<String, String> = upstream.responseHeaders
+
+        override fun close() = upstream.close()
+    }
+
+    /** (v1.0.13 P4-A) Factory for [TokenReattachingDataSource]: one
+     * instance per play, bound to that play's manifest URL. */
+    private class TokenReattachingDataSourceFactory(
+        private val upstream: DataSource.Factory,
+        private val manifestUrl: String,
+        private val onReattached: (String) -> Unit,
+    ) : DataSource.Factory {
+        override fun createDataSource(): DataSource =
+            TokenReattachingDataSource(upstream.createDataSource(), manifestUrl, onReattached)
+    }
+
+    /**
      * Play a picked link. Runs on the main thread; the bridge returns
      * at once and progress arrives via playerState events.
      * subtitleText = downloaded subtitle file text (E18); subtitleUrl =
@@ -455,6 +684,9 @@ class ZaynPlayer(
         bufferLevel: String = "normal",
         preferredAudioLang: String? = null,
     ) {
+        // (v1.0.13 P2-B T1) Log every player.play() entry (token-redacted):
+        // a second play path, if one exists, becomes visible here.
+        EngineLogger.log("player", "player.play() entry url=${redactUrlForLog(link.url)} source=${link.source}")
         mainHandler.post {
             // (v1.0.4) A changed Buffering level rebuilds the player here
             // (LoadControl is build-time); the new play starts fresh
@@ -479,17 +711,46 @@ class ZaynPlayer(
             lastQuality = link.qualityLabel
             lastSource = link.source
             lastAudio = link.audio
-            val headers = buildMap<String, String> {
-                if (link.referer.isNotBlank()) put("referer", link.referer)
-                putAll(link.headers)
-            }
+            // (v1.0.13 P3-C) Headers via the header manager: the same
+            // per-link Referer + headers the probe/validator sends for
+            // this link (deduped on "referer" — the snapshot already
+            // contains it via getAllHeaders()).
+            val headers = ZaynHeaderManager.headersForPlayLink(link)
+            // (v1.0.13 P4-A header audit) Header keys (NAMES only, never
+            // values — a Cookie/Authorization value must never be
+            // logged) sent to this MediaSource: the extractor's headers
+            // — Cookie included, when the extractor returns one — flow
+            // via getAllHeaders() -> PlayLink.headers -> here, and
+            // setDefaultRequestProperties applies them to the manifest,
+            // child-playlist AND segment requests of this MediaSource
+            // (one factory for the whole source). Verified, not rebuilt.
+            EngineLogger.log("player", "play headers source=${link.source} keys=${headers.keys.sorted().joinToString(",")}")
             val dataFactory = if (link.isLocalFile) {
                 DefaultDataSource.Factory(context)
             } else {
-                OkHttpDataSource.Factory(app.baseClient)
+                val httpFactory = OkHttpDataSource.Factory(app.baseClient)
                     .setUserAgent(USER_AGENT)
                     .setDefaultRequestProperties(headers)
-                    .let { DefaultDataSource.Factory(context, it) }
+                // (v1.0.13 P4-A) Child-URI token preservation, signed
+                // manifests only: the wrapper re-attaches this play's
+                // manifest query to child/segment requests that lack
+                // one (INVESTIGATION-4 §3.7 L2). Unsigned links (e.g.
+                // Castle TV) keep the exact pre-P4 factory. Logged
+                // token-redacted, at most once per child URI per play.
+                val reattachedLogged = HashSet<String>()
+                val playFactory: DataSource.Factory =
+                    if (ZaynHeaderManager.isSignedUrl(link.url)) {
+                        EngineLogger.log("player", "play child token re-attach enabled source=${link.source} url=${redactUrlForLog(link.url)}")
+                        TokenReattachingDataSourceFactory(httpFactory, link.url) { rewritten ->
+                            val redacted = redactUrlForLog(rewritten)
+                            if (reattachedLogged.add(redacted)) {
+                                EngineLogger.log("player", "child token re-attached uri=$redacted manifest=${redactUrlForLog(link.url)}")
+                            }
+                        }
+                    } else {
+                        httpFactory
+                    }
+                DefaultDataSource.Factory(context, playFactory)
             }
             val mime = when (link.type) {
                 ExtractorLinkType.M3U8 -> MimeTypes.APPLICATION_M3U8
@@ -571,7 +832,10 @@ class ZaynPlayer(
         // (v1.0.5 B3) Name the picked link in the play log line (URL +
         // type + quality) so the next failure names the link — V1.0.4's
         // PARSING_CONTAINER_UNSUPPORTED named no link at all.
-        EngineLogger.log("player", "play ${link.source} ${link.qualityLabel} type=${link.type} url=${link.url}")
+        EngineLogger.log("player", "play ${link.source} ${link.qualityLabel} type=${link.type} url=${redactUrlForLog(link.url)}")
+        // (v1.0.13 P2-B T1) Log PlayLink.url (token-redacted) at prepare, plus
+        // the token age at ExoPlayer fetch time (never the token itself).
+        EngineLogger.log("player", "prepare url=${redactUrlForLog(link.url)} source=${link.source}${tokenAgeSuffix(link.url)}")
         // (v1.0.6 M2) Log the selected video track at play time: a null
         // videoFormat here (or 0 track groups) means ExoPlayer has no
         // video track for this link yet — read with the listener lines.
@@ -602,6 +866,8 @@ class ZaynPlayer(
         subtitleLang: String?,
         subtitleUrl: String?,
     ): MediaItem {
+        // (v1.0.13 P2-B T1) Log PlayLink.url (token-redacted) at buildMediaItem.
+        EngineLogger.log("player", "buildMediaItem url=${redactUrlForLog(link.url)} source=${link.source}")
         val builder = MediaItem.Builder().setUri(Uri.parse(link.url))
         if (mime != null) builder.setMimeType(mime)
         if (subtitleText != null) {
@@ -680,6 +946,14 @@ class ZaynPlayer(
 
     /** Player controls from the bridge. value is seconds / rate / 0..1 volume. */
     fun control(action: String, value: Double?): JSONObject {
+        // (v1.0.13 P6-C) Dead-session guard (INVESTIGATION-4 §7.3): seek /
+        // resume on a player with no loaded media is a silent no-op that
+        // returns a stale cached snapshot — refuse it with an error
+        // snapshot instead of the silent ok.
+        if ((action == "seek" || action == "resume") && !hasActiveMedia()) {
+            EngineLogger.log("player", "control $action rejected — no active media (playback_error)")
+            return errorStateSnapshot()
+        }
         // (v1.0.12 §10) Volume/seek coalescing (last-write-wins): keep only
         // the latest pending value and post at most one runnable — rapid
         // pointermove/input events collapse instead of queueing a runnable
@@ -696,6 +970,12 @@ class ZaynPlayer(
         }
         mainHandler.post {
             val p = player
+            // (v1.0.13 P6-C) The media can die between control() and this
+            // posted run — re-check before issuing seek/resume.
+            if ((action == "seek" || action == "resume") && !hasActiveMedia()) {
+                EngineLogger.log("player", "control $action rejected — no active media (playback_error)")
+                return@post
+            }
             when (action) {
                 "pause" -> p?.pause()
                 "resume" -> p?.play()
@@ -758,6 +1038,10 @@ class ZaynPlayer(
         .put("source", lastSource)
         .put("audio", lastAudio ?: JSONObject.NULL)
 
+    /** (v1.0.13 P6-C) The state snapshot with a playback_error marker, so a
+     * refused control is distinguishable from a stale ok snapshot. */
+    private fun errorStateSnapshot(): JSONObject = stateSnapshot().put("error", "playback_error")
+
     private fun pushState() {
         lastPushStateMs = System.currentTimeMillis()
         onEvent("playerState", stateSnapshot())
@@ -781,9 +1065,15 @@ class ZaynPlayer(
             pendingSeekSec?.let { sec ->
                 pendingSeekSec = null
                 volumeOnly = false
-                val target = (sec * 1000).toLong()
-                val dur = p?.duration ?: 0L
-                p?.seekTo(target.coerceIn(0, if (dur > 0) dur else target))
+                // (v1.0.13 P6-C) Drop a coalesced seek when the media died
+                // after control() queued it.
+                if (!hasActiveMedia()) {
+                    EngineLogger.log("player", "control seek rejected — no active media (playback_error)")
+                } else {
+                    val target = (sec * 1000).toLong()
+                    val dur = p?.duration ?: 0L
+                    p?.seekTo(target.coerceIn(0, if (dur > 0) dur else target))
+                }
             }
             if (p != null) {
                 lastPosMs = p.currentPosition.coerceAtLeast(0)
