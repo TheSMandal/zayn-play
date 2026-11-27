@@ -14,6 +14,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
@@ -107,6 +108,16 @@ public class ZaynMpvPlayer {
         }
     };
 
+    // (v1.0.10) JSONObject.put throws checked JSONException, so every put
+    // in this file must go through this helper (CI 46046097780: "unreported
+    // exception JSONException" at 18 call sites). A put can only fail on a
+    // null key / unsupported value, neither of which occurs here, so a
+    // failure is silently ignored and the object is returned as-is.
+    private static JSONObject put(JSONObject o, String key, Object value) {
+        try { o.put(key, value); } catch (JSONException ignored) { }
+        return o;
+    }
+
     private final MPVLib.EventObserver observer = new MPVLib.EventObserver() {
         @Override
         public void event(int eventId) {
@@ -121,15 +132,16 @@ public class ZaynMpvPlayer {
         public void eventEndFile(int reason, int error) {
             if (reason == MPVLib.MpvEndFileReason.MPV_END_FILE_REASON_EOF) {
                 lastPlaying = false;
-                postEvent("playerEnded", new JSONObject().put("source", lastSource));
+                postEvent("playerEnded", put(new JSONObject(), "source", lastSource));
                 pushState();
             } else if (reason == MPVLib.MpvEndFileReason.MPV_END_FILE_REASON_ERROR) {
                 EngineLogger.INSTANCE.log("player", "mpv: end of file (error)");
                 lastPlaying = false;
-                postEvent("playerError", new JSONObject()
-                        .put("code", "playback_error")
-                        .put("message", "Video could not be played")
-                        .put("retryable", true));
+                JSONObject err = new JSONObject();
+                put(err, "code", "playback_error");
+                put(err, "message", "Video could not be played");
+                put(err, "retryable", true);
+                postEvent("playerError", err);
                 pushState();
             }
         }
@@ -383,10 +395,11 @@ public class ZaynMpvPlayer {
                 m.command(new String[]{"loadfile", link.getUrl()});
             } catch (Exception e) {
                 EngineLogger.INSTANCE.log("player", "mpv: loadfile failed " + e.getMessage());
-                postEvent("playerError", new JSONObject()
-                        .put("code", "playback_error")
-                        .put("message", "Video could not be played")
-                        .put("retryable", true));
+                JSONObject err = new JSONObject();
+                put(err, "code", "playback_error");
+                put(err, "message", "Video could not be played");
+                put(err, "retryable", true);
+                postEvent("playerError", err);
                 return;
             }
             EngineLogger.INSTANCE.log("player", "mpv: loadfile " + link.getSource());
@@ -541,18 +554,19 @@ public class ZaynMpvPlayer {
     }
 
     public JSONObject stateSnapshot() {
-        return new JSONObject()
-                .put("playing", lastPlaying)
-                .put("buffering", lastBuffering)
-                .put("posSec", (int) (lastPosMs / 1000))
-                .put("durSec", (int) (lastDurMs / 1000))
-                .put("bufferedSec", (int) (lastBufferedMs / 1000))
-                .put("rate", (double) lastRate)
-                .put("volume", (double) lastVolume)
-                .put("muted", muted)
-                .put("qualityLabel", lastQuality)
-                .put("source", lastSource)
-                .put("audio", lastAudio != null ? lastAudio : JSONObject.NULL);
+        JSONObject o = new JSONObject();
+        put(o, "playing", lastPlaying);
+        put(o, "buffering", lastBuffering);
+        put(o, "posSec", (int) (lastPosMs / 1000));
+        put(o, "durSec", (int) (lastDurMs / 1000));
+        put(o, "bufferedSec", (int) (lastBufferedMs / 1000));
+        put(o, "rate", (double) lastRate);
+        put(o, "volume", (double) lastVolume);
+        put(o, "muted", muted);
+        put(o, "qualityLabel", lastQuality);
+        put(o, "source", lastSource);
+        put(o, "audio", lastAudio != null ? lastAudio : JSONObject.NULL);
+        return o;
     }
 
     private void pushState() {
