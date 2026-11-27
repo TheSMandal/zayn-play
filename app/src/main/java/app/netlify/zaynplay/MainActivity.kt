@@ -602,9 +602,23 @@ class MainActivity : AppCompatActivity() {
             // (a 0-size rect used to leave it GONE while the page showed
             // the player as open). Positioning follows on the next report.
             playerSurface.visibility = View.VISIBLE
+            // (v1.0.11 D4) Log probe start on EVERY stage-open, even when
+            // the probe is already running from an earlier play: the old
+            // code logged only on a texId change, so a running probe left
+            // no line in the log and the L1 negative rested on inference.
+            EngineLogger.log(
+                "player",
+                "player texture frame probe started alreadyRunning=$frameProbeRunning",
+            )
             // (v1.0.10 L1) Start the frame-arrival probe now that the stage
             // is open (it stops itself when the surface goes GONE).
             startFrameProbe()
+            // (v1.0.11 F2) Re-check the mpv surface attach on every
+            // stage-open: attach was attempted only at play() /
+            // setTextureView (a no-op at startup); a reopen after a GONE
+            // close never re-checked it. Silent no-op when already
+            // attached, so it cannot disturb a working play.
+            if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.attachSurfaceIfReady()
             // (v1.0.8) Post-stage-open surface-state check (see postSurfaceCheck).
             postSurfaceCheck()
             // (v1.0.5 A4) A degenerate rect must NOT leave the surface at
@@ -624,6 +638,9 @@ class MainActivity : AppCompatActivity() {
                         "fsOn=${rect.optBoolean("fsOn", false)} stg=${rect.optBoolean("stg", false)} " +
                         "scrId=${rect.optString("scrId", "")} nativeVideo=${rect.optBoolean("nativeVideo", false)} " +
                         "fell back to lastGoodRect=${good != null} " +
+                        // (v1.0.11 D4) Hardware acceleration at stage-open:
+                        // a TextureView draws nothing in a software window.
+                        "hwAccel window=${window.decorView.isHardwareAccelerated} webView=${webView.isHardwareAccelerated} " +
                         "surface=${surfaceState()} webViewBg=#%08X".format(lastWebViewBgColor),
                 )
                 return@runOnUiThread
@@ -635,6 +652,9 @@ class MainActivity : AppCompatActivity() {
                 "visible=true x=$x y=$y w=$w h=$h vw=$vw vh=$vh " +
                     "fsOn=${rect.optBoolean("fsOn", false)} stg=${rect.optBoolean("stg", false)} " +
                     "scrId=${rect.optString("scrId", "")} nativeVideo=${rect.optBoolean("nativeVideo", false)} " +
+                    // (v1.0.11 D4) Hardware acceleration at stage-open:
+                    // a TextureView draws nothing in a software window.
+                    "hwAccel window=${window.decorView.isHardwareAccelerated} webView=${webView.isHardwareAccelerated} " +
                     "surface=${surfaceState()} webViewBg=#%08X".format(lastWebViewBgColor),
             )
         }
