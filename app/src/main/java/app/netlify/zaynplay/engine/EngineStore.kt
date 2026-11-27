@@ -60,7 +60,7 @@ class EngineStore(private val context: Context) {
             "res" to "Auto",
             "audio1" to "English",
             "audio2" to "বাংলা",
-            "timeout" to "10s",
+            "timeout" to "30s",
             "reuse" to true,
             "reuseDur" to "24h",
             "srcPrio" to "quality",
@@ -249,6 +249,21 @@ class EngineStore(private val context: Context) {
             map.put(mapKey(repoId, providerName), on)
             writeMap(KEY_PROV_ON, map)
         }
+    }
+
+    /** (v0.2.11) C-10: ON providers as (repoId, name) pairs. Keys are
+        "<repoId>|<name>"; a name alone cannot tell two repos apart. */
+    fun providerOnPairs(): List<Pair<String, String>> {
+        val map = readMap(KEY_PROV_ON)
+        val out = mutableListOf<Pair<String, String>>()
+        val keys = map.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            if (map.optBoolean(k, false) && k.contains("|")) {
+                out += k.substringBefore("|") to k.substringAfter("|")
+            }
+        }
+        return out
     }
 
     /** Names of all providers currently ON, across all repos. */
