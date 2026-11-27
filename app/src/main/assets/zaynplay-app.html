@@ -1030,6 +1030,14 @@ body.native-video #phone{ background:transparent; }
       .screen.fs-host{ overflow:hidden; }
       .phone-screen.fs-on .tabbar{ opacity:0; pointer-events:none; }
       .phone-screen.fs-on .statusbar{ display:none; }
+      /* (v1.0.6 M1) The player-info section is the stage's next in-flow
+         sibling: when the stage goes absolute in fullscreen the info flows
+         up to y=0 and its opaque white cards paint THROUGH the transparent
+         stage over the video (V1.0.5 log proved the native hole was open).
+         Hide it only while .fs is on the stage; it returns on exit to
+         portrait. Menus/sheets/buffer overlay are INSIDE .stage-video, so
+         they are unaffected. */
+      .stage-video.fs ~ .player-info{ display:none; }
 
       /* toast */
       .toast{
@@ -1916,7 +1924,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.5</p>
+                  <p class="splash-ver">Zayn Play v1.0.6</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -6839,7 +6847,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.5</span></div>' +
+      '<span class="v31-val">Version 1.0.6</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
