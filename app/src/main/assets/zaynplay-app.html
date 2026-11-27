@@ -503,6 +503,17 @@ body.native-video #phone{ background:transparent; }
         backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
       }
       .v-center .big svg{ width:27px; height:27px; }
+      /* (v1.0.13 P6-C) Dead-session error banner: same glass/dark styling as the
+         player controls (glass-btn buttons, dark translucent panel) — a
+         persistent error signal, not a redesign. Shown only while the
+         dead-session latch is set; hidden otherwise. */
+      .p-err-banner{ position:absolute; left:50%; top:56%; transform:translateX(-50%); z-index:6; display:flex; flex-direction:column; gap:10px; align-items:center; text-align:center; max-width:86%; padding:14px 16px; border-radius:16px; background:rgba(18,18,22,.78); border:1px solid rgba(255,255,255,.18); box-shadow:0 8px 30px rgba(0,0,0,.45); color:#fff; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+      .p-err-banner[hidden]{ display:none; }
+      .p-err-msg{ font-size:14px; line-height:1.45; }
+      .p-err-actions{ display:flex; gap:10px; }
+      .p-err-actions .glass-btn{ padding:8px 14px; border-radius:99px; font-size:13px; cursor:pointer; }
+      .stage-video.player-failed .v-progress{ opacity:.35; pointer-events:none; }
+      .stage-video.player-failed #seek-back, .stage-video.player-failed #seek-fwd, .stage-video.player-failed #p-toggle{ opacity:.35; pointer-events:none; }
       .v-bottom{ position:absolute; left:0; right:0; bottom:0; padding:0 12px 10px; z-index:3; }
       .v-times{ display:flex; justify-content:space-between; font-size:11.5px; color:#dfe5ec; margin-bottom:5px; }
       .v-progress{ height:6px; border-radius:99px; background:rgba(255,255,255,.18); position:relative; cursor:pointer; touch-action:none; }
@@ -1925,7 +1936,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.12</p>
+                  <p class="splash-ver">Zayn Play v1.0.13</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2258,6 +2269,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                       <button id="seek-back" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24"><path d="M12 5V1L6 7l6 6V9a6 6 0 1 1-6 6H4a8 8 0 1 0 8-10z"/></svg></button>
                       <button class="big" id="p-toggle" aria-label="Play or pause"><svg viewBox="0 0 24 24" id="p-toggle-icon"><path d="M8 5h3.4v14H8zM12.8 5H16v14h-3.2z"/></svg></button>
                       <button id="seek-fwd" aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24"><path d="M12 5V1l6 6-6 6V9a6 6 0 1 0 6 6h2a8 8 0 1 1-8-10z"/></svg></button>
+                    </div>
+                    <div class="p-err-banner" id="p-err-banner" hidden>
+                      <span class="p-err-msg" id="p-err-msg">প্লেব্যাক সমস্যা হয়েছে — আবার চেষ্টা করুন</span>
+                      <span class="p-err-actions"><button class="glass-btn" id="p-err-retry">আবার চেষ্টা করুন</button><button class="glass-btn" id="p-err-back" data-go="details">ফিরে যান</button></span>
                     </div>
                     <button class="tap-zone left" id="zone-l" aria-label="Double-tap to rewind 10 seconds"></button>
                     <button class="tap-zone right" id="zone-r" aria-label="Double-tap to forward 10 seconds"></button>
@@ -3153,6 +3168,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            — the in-flight play owns the player. A different title proceeds
            (playFromServer supersedes via its token). */
         if (playFromServer._inFlight && playFromServer._inFlightTitle === title) return;
+        /* (v1.0.13 P6-C) A new play clears the dead-session latch. (The
+           typeof guard is for partial-extraction harnesses such as the
+           provider-switch repro, which eval openPlayer standalone — in the
+           app the function always exists.) */
+        if (typeof setPlayerFailed === 'function') setPlayerFailed(false);
         /* (v1.0.4) Fresh resume state for THIS title only — a stale
            resumeSeek from an abandoned Manual/external play must never
            leak into the next title. */
@@ -3167,7 +3187,36 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
 
       var playing = true;
+      /* (v1.0.13 P6-C) Dead-session latch (INVESTIGATION-4 §7.3): set in
+         onEnginePlayerError, cleared in openPlayer / playFromServer. While
+         latched the seek bar, ±10 s buttons and the play/pause toggle are
+         disabled/greyed and the persistent error banner is shown. */
+      var playerFailed = false;
+      function setPlayerFailed(on, msg){
+        playerFailed = !!on;
+        var stage = document.querySelector('#scr-player .stage-video');
+        if (stage) stage.classList.toggle('player-failed', playerFailed);
+        var banner = document.getElementById('p-err-banner');
+        if (banner){
+          if (playerFailed){
+            var m = document.getElementById('p-err-msg');
+            if (m) m.textContent = msg || 'প্লেব্যাক সমস্যা হয়েছে — আবার চেষ্টা করুন';
+            banner.hidden = false;
+          } else banner.hidden = true;
+        }
+        var tgl = document.getElementById('p-toggle');
+        if (tgl) tgl.disabled = playerFailed;
+        var sb = document.getElementById('seek-back');
+        if (sb) sb.disabled = playerFailed;
+        var sf = document.getElementById('seek-fwd');
+        if (sf) sf.disabled = playerFailed;
+      }
       function setPlaying(on, viaEngine){
+        /* (v1.0.13 P6-C) Dead-session latch: the toggle is disabled while
+           latched, but a programmatic viaEngine call must also refuse —
+           never send resume/pause to a dead session. Internal setPlaying
+           calls (no flag) still move the icon. */
+        if (viaEngine && playerFailed) return;
         var prev = playing;
         playing = on;
         document.getElementById('p-toggle-icon').innerHTML = on
@@ -3277,6 +3326,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       function onEnginePlayerError(e){
         hideBuffer();
         setPlaying(false);
+        /* (v1.0.13 P6-C) Latch the dead session: the transient toast alone
+           let the user keep tapping live-looking controls at a dead player
+           (INVESTIGATION-4 §7.3) — the banner below stays until Retry or
+           Back, and the controls are disabled until a new play clears it. */
+        setPlayerFailed(true, (e && e.message) ? e.message : null);
         toast((e && e.message) ? e.message : 'প্লেব্যাক সমস্যা হয়েছে — আবার চেষ্টা করুন');
       }
       function onEnginePlayerEnded(){
@@ -3476,7 +3530,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* Phase C: player helpers go through playerControl (E14) — the old
          playerSetRate / playerSeek / playerSetVolume / playerSetMuted methods
          never existed on the native side. Each failure toasts visibly. */
-      function playerSetRate(rate){ curRate = rate; return engineCall('playerControl', { action: 'rate', value: rate }).catch(function(e){ toast(engineErrText(e)); }); }
+      function playerSetRate(rate){ if (playerFailed) return Promise.resolve(); curRate = rate; return engineCall('playerControl', { action: 'rate', value: rate }).catch(function(e){ toast(engineErrText(e)); }); }
       /* (v1.0.12 §10) Seek debounce: 250 ms trailing — rapid seeks (double-tap
          accumulation, ±10 s buttons, Skip Intro) collapse to ONE bridge call
          with the latest target; cur/renderTime() already updated live by the
@@ -3484,6 +3538,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          playerSeekNow (they already emit exactly one seek). State lives on
          the function object so the verbatim-extracted function works in Node. */
       function playerSeek(sec){
+        if (playerFailed) return Promise.resolve();
         playerSeek._pending = sec;
         if (playerSeek._timer) clearTimeout(playerSeek._timer);
         playerSeek._timer = setTimeout(function(){
@@ -3494,6 +3549,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return Promise.resolve();
       }
       function playerSeekNow(sec){
+        if (playerFailed) return Promise.resolve();
         if (playerSeek._timer){ clearTimeout(playerSeek._timer); playerSeek._timer = null; }
         playerSeek._pending = null;
         return engineCall('playerControl', { action: 'seek', value: sec }).catch(function(e){ toast(engineErrText(e)); });
@@ -4041,6 +4097,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 
       /* player controls */
       document.getElementById('p-toggle').addEventListener('click', function(){ setPlaying(!playing, true); });
+      /* (v1.0.13 P6-C) Dead-session banner actions: Retry re-runs the play
+         (fresh resolve, new token); Back clears the latch and leaves the
+         player (data-go="details" navigates via the delegated handler). */
+      document.getElementById('p-err-retry').addEventListener('click', function(){ playFromServer(-1, true); });
+      document.getElementById('p-err-back').addEventListener('click', function(){ setPlayerFailed(false); });
       document.getElementById('d-play').addEventListener('click', function(){ openPlayer(TITLES[current].title, resumePos(TITLES[current].title, current), current); });
       /* player menus: subtitles / audio / quality / speed — one system for all four */
       var SET_LABEL = { subs:'subs-label', audio:'audio-label', quality:'quality-label', speed:'speed-label', ratio:'ratio-label' };
@@ -4313,6 +4374,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         }, 1000);
       }
       function doSeek(delta){
+        if (playerFailed) return;
         cur = Math.min(TOTAL, Math.max(0, cur + delta));
         playerSeek(cur);
         renderTime();
@@ -4347,6 +4409,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       var progScrub = null;
       if (progBar){
         progBar.addEventListener('pointerdown', function(e){
+          if (playerFailed) return;
           e.stopPropagation();
           try{ progBar.setPointerCapture(e.pointerId); }catch(err){}
           progScrub = { pid: e.pointerId };
@@ -5027,6 +5090,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* Phase C: play goes through the engine (E13). idx >= 0 plays the picked
          bridge link; idx -1 lets the engine rank (Smart-Streams) itself. */
       async function playFromServer(idx, force){
+        /* (v1.0.13 P6-C) A new play clears the dead-session latch. (The
+           typeof guard is for partial-extraction harnesses such as the
+           provider-switch repro, which eval playFromServer standalone.) */
+        if (typeof setPlayerFailed === 'function') setPlayerFailed(false);
         /* (v1.0.12 §7) Duplicate-play guard: same title + same link while a
            play is in flight is ignored (no caller awaits this promise — all
            call sites are fire-and-forget — so ignoring is the pending-play
@@ -6965,7 +7032,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.12</span></div>' +
+      '<span class="v31-val">Version 1.0.13</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
