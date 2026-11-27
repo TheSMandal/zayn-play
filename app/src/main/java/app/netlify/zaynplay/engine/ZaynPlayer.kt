@@ -22,10 +22,10 @@ import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DecoderInitializationException
+import androidx.media3.decoder.DecoderInitializationException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
-import androidx.media3.exoplayer.drm.DrmSessionException
+import androidx.media3.exoplayer.drm.DrmSession.DrmSessionException
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
@@ -652,7 +652,7 @@ class ZaynPlayer(
 
         override fun getUri(): Uri? = upstream.uri
 
-        override fun getResponseHeaders(): Map<String, String> = upstream.responseHeaders
+        override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
 
         override fun close() = upstream.close()
     }
