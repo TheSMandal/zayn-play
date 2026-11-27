@@ -120,7 +120,7 @@ class ZaynEngine(
     // a new bridge call. A new play() replaces the session; the session id
     // guards against a late error from an old session retrying.
     private data class ActivePlay(
-        val ranked: List<RankedLink>,
+        var ranked: List<RankedLink>,
         var index: Int,
         var attempts: Int,
         val session: Int,
@@ -129,6 +129,9 @@ class ZaynEngine(
         val subtitleLang: String?,
         val providerSubUrl: String?,
         val title: String,
+        // (v1.0.6 R1) The original play() params, so a retry can re-resolve
+        // links (fresh loadLinks) when the ranked list is exhausted.
+        val params: JSONObject,
     )
 
     private var activePlay: ActivePlay? = null
@@ -140,16 +143,123 @@ class ZaynEngine(
         // Start a retry when this session has a next ranked link and an
         // attempt left (3 attempts total per session); otherwise return
         // false and the player fires the usual playerError toast.
+        // (v1.0.6 R1) A single-link session has no next link, so the old
+        // gate could NEVER retry it (V1.0.5 log: ranked.size==1, "no retry
+        // left (attempts=1)"). When the list is exhausted but attempts
+        // remain, re-resolve links for a NEW ranked list instead — a retry
+        // of the same URL after a transient transport drop is worth it too.
         player.onPlaybackError = { error ->
             val ap = activePlay
-            if (ap == null || ap.attempts >= maxPlayAttempts || ap.index + 1 >= ap.ranked.size) {
-                EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (attempts=${ap?.attempts ?: 0})")
+            if (ap == null || ap.attempts >= maxPlayAttempts) {
+                EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (attempts=${ap?.attempts ?: 0} ranked.size=${ap?.ranked?.size ?: 0})")
                 false
-            } else {
+            } else if (ap.index + 1 < ap.ranked.size) {
                 bridgeScope.launch { retryNextLink(ap) }
+                true
+            } else {
+                bridgeScope.launch { reresolveAndRetry(ap) }
                 true
             }
         }
+    }
+
+    /**
+     * (v1.0.5 B2) Play one ranked link as a retry: count the attempt,
+     * log it, remember the link that actually played, then play it.
+     * Shared by retryNextLink (next link in the current list) and
+     * reresolveAndRetry (first link of a freshly resolved list).
+     */
+    private suspend fun playRetryLink(ap: ActivePlay, ranked: List<RankedLink>, next: Int, candidate: RankedLink) {
+        val link = candidate.link
+        ap.ranked = ranked
+        ap.index = next
+        ap.attempts++
+        EngineLogger.log("player", "retry attempt ${ap.attempts}/$maxPlayAttempts: play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url}")
+        if (ap.title.isNotBlank()) {
+            store.putMapEntry(
+                EngineStore.KEY_LAST_LINK,
+                ap.title,
+                JSONObject().put("linkIndex", next).put("atMs", System.currentTimeMillis()),
+            )
+        }
+        player.play(
+            ZaynPlayer.PlayLink(
+                url = link.url,
+                source = link.source,
+                qualityLabel = qualityLabel(link.quality),
+                audio = candidate.audio,
+                referer = link.referer,
+                headers = link.getAllHeaders(),
+                type = link.type,
+            ),
+            ap.safeStartSec * 1000L,
+            ap.subtitleText,
+            ap.subtitleLang,
+            ap.providerSubUrl,
+            cacheSizeBytes(),
+            bufferLevel(),
+            preferredAudioLang(candidate.audio),
+        )
+    }
+
+    /** Fire the withheld playerError event and end the session. */
+    private fun failPlaySession(ap: ActivePlay, reason: String) {
+        EngineLogger.log("player", reason)
+        activePlay = null
+        onEvent(
+            "playerError",
+            JSONObject()
+                .put("code", "playback_error")
+                .put("message", "Video could not be played")
+                .put("retryable", true),
+        )
+    }
+
+    /**
+     * (v1.0.6 R1) The ranked list is exhausted but attempts remain:
+     * re-resolve links (fresh loadLinks via resolveLinks with the original
+     * play params) to build a NEW ranked list and retry from it. The
+     * re-resolve itself counts as the retry attempt (playRetryLink
+     * increments ap.attempts), so the 3-attempt cap still holds. If the
+     * re-resolve yields nothing playable, the withheld playerError event
+     * is finally fired.
+     */
+    private suspend fun reresolveAndRetry(ap: ActivePlay) {
+        // A newer play() replaces the session — a late error must not
+        // restart an old title.
+        if (activePlay !== ap) return
+        EngineLogger.log("player", "retry re-resolving links (attempts=${ap.attempts} ranked.size=${ap.ranked.size} session=${ap.session})")
+        val (resolved, _) = resolveLinks(ap.params)
+        if (activePlay !== ap) return
+        if (resolved == null || resolved.links.isEmpty()) {
+            failPlaySession(ap, "retry re-resolve found no links — no retry left (attempts=${ap.attempts} ranked.size=${ap.ranked.size} session=${ap.session})")
+            return
+        }
+        val ranked = rankLinks(resolved.links)
+        if (ranked.isEmpty()) {
+            failPlaySession(ap, "retry re-resolve found no playable links — no retry left (attempts=${ap.attempts} ranked.size=${ap.ranked.size} session=${ap.session})")
+            return
+        }
+        var next = 0
+        var candidate: RankedLink? = null
+        val probeLimit = if (ranked.size < 3) ranked.size else 3
+        while (next < probeLimit) {
+            val c = ranked[next]
+            if (c.link is DrmExtractorLink) {
+                next++
+                continue
+            }
+            if (probePlayable(c.link)) {
+                candidate = c
+                break
+            }
+            next++
+        }
+        if (candidate == null) {
+            failPlaySession(ap, "retry re-resolve found no playable link — no retry left (attempts=${ap.attempts} ranked.size=${ap.ranked.size} session=${ap.session})")
+            return
+        }
+        playRetryLink(ap, ranked, next, candidate)
     }
 
     /**
@@ -179,46 +289,10 @@ class ZaynEngine(
             break
         }
         if (candidate == null) {
-            EngineLogger.log("player", "retry exhausted — no playable link left in session ${ap.session}")
-            activePlay = null
-            onEvent(
-                "playerError",
-                JSONObject()
-                    .put("code", "playback_error")
-                    .put("message", "Video could not be played")
-                    .put("retryable", true),
-            )
+            failPlaySession(ap, "retry exhausted — no playable link left in session ${ap.session}")
             return
         }
-        val link = candidate.link
-        ap.index = next
-        ap.attempts++
-        EngineLogger.log("player", "retry attempt ${ap.attempts}/$maxPlayAttempts: play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url}")
-        if (ap.title.isNotBlank()) {
-            store.putMapEntry(
-                EngineStore.KEY_LAST_LINK,
-                ap.title,
-                JSONObject().put("linkIndex", next).put("atMs", System.currentTimeMillis()),
-            )
-        }
-        player.play(
-            ZaynPlayer.PlayLink(
-                url = link.url,
-                source = link.source,
-                qualityLabel = qualityLabel(link.quality),
-                audio = candidate.audio,
-                referer = link.referer,
-                headers = link.getAllHeaders(),
-                type = link.type,
-            ),
-            ap.safeStartSec * 1000L,
-            ap.subtitleText,
-            ap.subtitleLang,
-            ap.providerSubUrl,
-            cacheSizeBytes(),
-            bufferLevel(),
-            preferredAudioLang(candidate.audio),
-        )
+        playRetryLink(ap, ap.ranked, next, candidate)
     }
 
     fun markReady() {
@@ -1532,12 +1606,14 @@ class ZaynEngine(
         val foundSubs = mutableListOf<SubtitleFile>()
         var partial = false
         var timedOut = false
+        var linksError: String? = null
         try {
             withTimeout(timeoutSec * 1000L) {
                 // (v0.2.9) Fix C: loadLinks now returns its cause.
                 val linksResult = APIRepository(api).loadLinks(data, false, { s -> foundSubs += s }) { l -> foundLinks += l }
                 if (!linksResult.ok) {
                     partial = foundLinks.isEmpty()
+                    linksError = linksResult.error
                     linksResult.error?.let { EngineLogger.log("bridge", "resolveLinks loadLinks failed: $it") }
                 }
             }
@@ -1545,7 +1621,61 @@ class ZaynEngine(
             partial = true
             timedOut = true
         }
+        // (v1.0.6 D1) The provider's own LoadData JSON can be missing a
+        // required field (Disney: MissingKotlinParameterException "title") —
+        // the provider's load() produced it seconds earlier, so stale data
+        // is not the cause. Fall back ONCE to a fresh load(url) ->
+        // loadDataOf(resp) (for a series: the FIRST episode's data, which
+        // normally carries a title) and retry loadLinks with that data.
+        if (linksError != null && isDeserializationError(linksError) && !timedOut) {
+            val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
+            if (pageUrl.isNotBlank()) {
+                val freshData = try {
+                    val loaded = APIRepository(api).load(pageUrl)
+                    val resp = (loaded as? Resource.Success<LoadResponse>)?.value
+                    if (resp != null) loadDataOf(resp) else null
+                } catch (e: Exception) {
+                    null
+                }
+                if (freshData != null && freshData.isNotBlank() && freshData != data) {
+                    EngineLogger.log("bridge", "resolveLinks deserialization failure — retrying loadLinks with fresh load() data")
+                    val retryLinks = mutableListOf<ExtractorLink>()
+                    val retrySubs = mutableListOf<SubtitleFile>()
+                    try {
+                        withTimeout(timeoutSec * 1000L) {
+                            val retryResult = APIRepository(api).loadLinks(freshData, false, { s -> retrySubs += s }) { l -> retryLinks += l }
+                            if (retryResult.ok) {
+                                foundLinks.clear()
+                                foundLinks += retryLinks
+                                foundSubs.clear()
+                                foundSubs += retrySubs
+                                partial = false
+                                linksError = null
+                            } else {
+                                retryResult.error?.let { EngineLogger.log("bridge", "resolveLinks fallback loadLinks failed: $it") }
+                            }
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        partial = true
+                        timedOut = true
+                    }
+                }
+            }
+        }
         return ResolvedLinks(api, foundLinks, foundSubs, partial, timedOut) to null
+    }
+
+    /** (v1.0.6 D1) loadLinks errors that mean the provided `data` JSON
+     * could not be deserialized (its shape, not the network): the error
+     * string is "<SimpleName>: <message>" from APIRepository.loadLinks. */
+    private fun isDeserializationError(msg: String?): Boolean {
+        if (msg == null) return false
+        return msg.contains("MissingKotlinParameterException") ||
+            msg.contains("JsonMappingException") ||
+            msg.contains("JsonParseException") ||
+            msg.contains("MismatchedInputException") ||
+            msg.contains("InvalidDefinitionException") ||
+            msg.contains("JsonProcessingException")
     }
 
     private fun parseSeconds(raw: String): Int =
@@ -1888,7 +2018,7 @@ class ZaynEngine(
         // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
         // name the picked link (URL + type + quality) in the log.
         playSessionCounter++
-        activePlay = ActivePlay(ranked, pickedIdx, 1, playSessionCounter, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title)
+        activePlay = ActivePlay(ranked, pickedIdx, 1, playSessionCounter, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title, params)
         EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url} session=$playSessionCounter")
         if (title.isNotBlank()) {
             store.putMapEntry(
