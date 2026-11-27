@@ -308,20 +308,12 @@ class MainActivity : AppCompatActivity() {
             }
             zaynEngine.markReady()
             pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
-            // (v0.2.9) Fix G: optional boot update check. The plugAutoUpd
-            // setting EXISTS (default true) and pluginUpdateCheck honours
-            // it internally — manual=false returns skippedAutoCheck when
-            // auto-update is off — so this only ever updates when the user
-            // allows it. Best-effort and AFTER ready: a failure here must
-            // never break boot. Cancellation still propagates.
-            try {
-                val upd = zaynEngine.call("pluginUpdateCheck", JSONObject().put("manual", false))
-                EngineLogger.log("engine", "boot pluginUpdateCheck: $upd")
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                EngineLogger.log("engine", "boot pluginUpdateCheck threw ${e.message}")
-            }
+            // (v0.2.11) C-11: NO boot auto-update check any more — it
+            // fetched every repo manifest and downloaded updates over the
+            // same slow link while the first home feed was loading, and
+            // could race the user's first toggle/test. Updates now run
+            // only when the user opens Settings -> Extensions (which
+            // already triggers a check) or taps update manually.
         }
         webView.addJavascriptInterface(object {
             @JavascriptInterface
