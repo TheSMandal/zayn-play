@@ -554,6 +554,11 @@ class MainActivity : AppCompatActivity() {
             // Transparent WebView background while the surface shows, so
             // the page's transparent stage hole reveals the video below.
             if (::webView.isInitialized) setWebViewBackground(Color.TRANSPARENT)
+            // (v1.0.7) Re-attach the surface whenever the stage opens, so a
+            // SurfaceTexture destroyed while the stage was closed cannot
+            // leave the renderer on the PlaceholderSurface for the whole
+            // play (the V1.0.6 black screen).
+            if (::zaynPlayer.isInitialized) zaynPlayer.setSurface(playerSurface)
             // (v1.0.4) The surface must be VISIBLE whenever the page says
             // the player is open, even if this report's rect is degenerate
             // (a 0-size rect used to leave it GONE while the page showed
