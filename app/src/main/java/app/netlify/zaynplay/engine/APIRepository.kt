@@ -19,6 +19,7 @@ import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.newSearchResponseList
 import com.lagradost.cloudstream3.utils.Coroutines.atomicListOf
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -198,20 +199,33 @@ class APIRepository(val api: MainAPI) {
         }
     }
 
+    // (v0.2.9) Fix C: loadLinks used to swallow every throwable and return
+    // a bare `false`, so a failed video check had no cause anywhere and the
+    // row could only say "unknown reason". It now returns its cause; a
+    // cancellation still propagates (Fix D) instead of becoming `false`.
+    data class LoadLinksResult(val ok: Boolean, val error: String?)
+
     suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
-    ): Boolean {
-        if (isInvalidData(data)) return false // this makes providers cleaner
+    ): LoadLinksResult {
+        if (isInvalidData(data)) return LoadLinksResult(false, "invalid_data") // this makes providers cleaner
         return try {
-            withTimeout(getTimeout(api.loadLinksTimeoutMs)) {
+            val ok = withTimeout(getTimeout(api.loadLinksTimeoutMs)) {
                 api.loadLinks(data, isCasting, subtitleCallback, callback)
             }
+            LoadLinksResult(ok, null)
+        } catch (throwable: CancellationException) {
+            throw throwable
         } catch (throwable: Throwable) {
             logError(throwable)
-            return false
+            LoadLinksResult(
+                false,
+                "${throwable.javaClass.simpleName}: ${throwable.message ?: "no message"}"
+                    .replace('\n', ' ').take(200)
+            )
         }
     }
 }
