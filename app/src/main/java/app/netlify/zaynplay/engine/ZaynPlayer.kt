@@ -172,7 +172,8 @@ class ZaynPlayer(
                 "video size ${videoSize.width}x${videoSize.height} " +
                     "videoFormat=${vf?.sampleMimeType ?: "none"} ${vf?.codecs ?: ""} " +
                     "${vf?.width ?: 0}x${vf?.height ?: 0} " +
-                    "drmInitData=${vf?.drmInitData != null}",
+                    "drmInitData=${vf?.drmInitData != null} " +
+                    "texId=${System.identityHashCode(textureView?.surfaceTexture)}",
             )
         }
 
@@ -183,8 +184,32 @@ class ZaynPlayer(
             EngineLogger.log("player", "surface size ${width}x${height}")
         }
 
+        // (v1.0.10, web-research lead 3) Log the SELECTED video decoder's
+        // name + whether it is hardware or software, so the next log proves
+        // or refutes the decoder as the cause. Heuristic: OMX.google.* /
+        // c2.android.* / *.sw.* are software decoders; anything else (OMX.qcom,
+        // c2.qcom, ...) is hardware. The 10-bit HEVC silent-failure cause is
+        // already REFUTED for our links (avc1.640028 H.264 in the V1.0.9 log),
+        // but the decoder identity itself was never logged.
+        override fun onVideoDecoderInitialized(mimeType: String, codecName: String, initializationDurationMs: Long) {
+            val lower = codecName.lowercase()
+            val software = lower.startsWith("omx.google.") ||
+                lower.startsWith("c2.android.") || ".sw." in lower
+            EngineLogger.log(
+                "player",
+                "video decoder $codecName mime=$mimeType software=$software",
+            )
+        }
+
         override fun onRenderedFirstFrame() {
-            EngineLogger.log("player", "first frame rendered")
+            // (v1.0.10 L2/L3) texId at first-frame time + tell MainActivity
+            // to re-report the stage rect NOW, so the page-hole state is
+            // captured AT the first frame, not only at stage-open.
+            EngineLogger.log(
+                "player",
+                "first frame rendered texId=${System.identityHashCode(textureView?.surfaceTexture)}",
+            )
+            onEvent("playerFirstFrame", JSONObject())
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -245,6 +270,10 @@ class ZaynPlayer(
         // (MSG_SET_VIDEO_OUTPUT_RESOLUTION), which the raw-Surface path
         // could never do (it only ever reported -1x-1).
         textureView?.let { exo.setVideoTextureView(it) }
+        // (v1.0.10 L2) Texture identity at attach time: the stale-Surface
+        // suspect (INVESTIGATION-1 §6B) dies iff this id matches the id at
+        // first frame and in postSurfaceCheck.
+        EngineLogger.log("player", "texture id=${System.identityHashCode(textureView?.surfaceTexture)}")
         builtBufferLevel = pendingBufferLevel
         EngineLogger.log("player", "ExoPlayer created")
     }
