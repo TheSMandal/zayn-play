@@ -469,6 +469,12 @@ val INFER_TYPE: ExtractorLinkType? = null
  */
 val CLEARKEY_DRM_UUID = Uuid(-0x1d8e62a7567a4c37L, 0x781AB030AF78D30EL)
 
+// (v1.0.6 C1) Alias for plugins compiled against newer CloudStream:
+// the host's Uuid IS java.util.UUID, so this is an identity alias.
+// Placed directly after its own DRM val (not all three together above)
+// so no alias reads a DRM val before its initializer has run.
+val CLEARKEY_UUID = CLEARKEY_DRM_UUID
+
 /**
  * [Uuid] for the Widevine DRM scheme.
  *
@@ -476,6 +482,9 @@ val CLEARKEY_DRM_UUID = Uuid(-0x1d8e62a7567a4c37L, 0x781AB030AF78D30EL)
  * Widevine is supported on Android devices running Android 4.3 (API Level 18) and up.
  */
 val WIDEVINE_DRM_UUID = Uuid(-0x121074568629b532L, -0x5c37d8232ae2de13L)
+
+// (v1.0.6 C1) Identity alias — see CLEARKEY_UUID above.
+val WIDEVINE_UUID = WIDEVINE_DRM_UUID
 
 /**
  * [Uuid] for the PlayReady DRM scheme.
@@ -485,6 +494,9 @@ val WIDEVINE_DRM_UUID = Uuid(-0x121074568629b532L, -0x5c37d8232ae2de13L)
  * provide PlayReady support.
  */
 val PLAYREADY_DRM_UUID = Uuid(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
+
+// (v1.0.6 C1) Identity alias — see CLEARKEY_UUID above.
+val PLAYREADY_UUID = PLAYREADY_DRM_UUID
 
 suspend fun newExtractorLink(
     source: String,
