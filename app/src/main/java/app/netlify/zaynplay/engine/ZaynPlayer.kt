@@ -80,6 +80,16 @@ class ZaynPlayer(
     private var currentSubtitleLang: String? = null
     private var tickerRunning = false
 
+    /**
+     * (v1.0.5 B2) Auto-retry hook, set by ZaynEngine. Invoked on the main
+     * thread when ExoPlayer errors. Return true when a retry to the next
+     * ranked link was started (the engine plays it asynchronously) — the
+     * playerError event is then withheld until retries are exhausted, so
+     * a bad pick becomes a brief retry instead of a dead player + toast.
+     * Return false (or leave unset) for the old behaviour: log + event.
+     */
+    var onPlaybackError: ((PlaybackException) -> Boolean)? = null
+
     // (v1.0.4) Buffering level (Settings > Playback > Buffering). The
     // LoadControl is build-time, so a level change rebuilds the player
     // on the next play() — never mid-play.
@@ -140,6 +150,19 @@ class ZaynPlayer(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // (v1.0.5 B2) Offer the engine the retry first: a started retry
+            // suppresses the playerError toast/event until retries run out.
+            val retrying = try {
+                onPlaybackError?.invoke(error) ?: false
+            } catch (e: Exception) {
+                false
+            }
+            if (retrying) {
+                EngineLogger.log("player", "error ${error.errorCodeName} — retrying next link")
+                lastPlaying = false
+                pushState()
+                return
+            }
             EngineLogger.log("player", "error ${error.errorCodeName}")
             lastPlaying = false
             onEvent(
@@ -261,7 +284,10 @@ class ZaynPlayer(
             p.play()
             lastPlaying = true
             pushState()
-            EngineLogger.log("player", "play ${link.source} ${link.qualityLabel}")
+            // (v1.0.5 B3) Name the picked link in the play log line (URL +
+            // type + quality) so the next failure names the link — V1.0.4's
+            // PARSING_CONTAINER_UNSUPPORTED named no link at all.
+            EngineLogger.log("player", "play ${link.source} ${link.qualityLabel} type=${link.type} url=${link.url}")
         }
     }
 
