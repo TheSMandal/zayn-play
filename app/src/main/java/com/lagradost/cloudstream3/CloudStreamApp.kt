@@ -31,10 +31,13 @@ import java.lang.ref.WeakReference
  * below only fills the local reference if it ever is.
  *
  * What is deliberately NOT restored here: the CloudStream UI
- * (MainActivity UI, HomeViewModel, player, settings screens), the
- * sync stack (SyncAPI/AccountManager), and the real Cloudflare
- * bypass (see CloudflareKiller stub). Plugins that need those still
- * fail — but v0.2.6's forensic detail names the exact missing class.
+ * (MainActivity UI, HomeViewModel, player, settings screens) and the
+ * real Cloudflare bypass (see CloudflareKiller stub). The sync stack
+ * (SyncAPI/AccountManager/AuthRepo/SyncRepo) IS minimally restored
+ * since v0.2.10 — no account, no login; authUser() is null and
+ * library() is empty — because StreamPlay/TorraStream construct it.
+ * Plugins that need the rest still fail — but the forensic detail
+ * names the exact missing class.
  */
 class CloudStreamApp : Application() {
 
