@@ -96,7 +96,7 @@ class EngineStore(private val context: Context) {
             "rowTop10" to true,
             "appLang" to "English",
             "provLang" to listOf("English", "Bengali", "Hindi"),
-            "media" to listOf("Movie", "TV Series", "Anime", "Cartoon", "Documentary", "Live TV"),
+            "media" to listOf("Movie", "AnimeMovie", "TvSeries", "Cartoon", "Anime", "OVA", "Torrent", "Documentary", "AsianDrama", "Live", "Others", "Music", "AudioBook", "CustomMedia", "Audio", "Podcast", "Video"),
             "dubsub" to "both",
             "bioLock" to false,
             "updNotify" to true,
