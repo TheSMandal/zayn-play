@@ -13,7 +13,6 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -106,6 +105,11 @@ public class ZaynMpvPlayer {
     private String activityState = "unknown";
     private int lastVideoW;
     private int lastVideoH;
+    // (v1.0.13 P5-B) Last size logged by onVideoReconfig — the dedup
+    // signal: a reconfig with the same size logs nothing (session 7
+    // logged 960x540 six times in ~1.2 s).
+    private int lastReconfigW;
+    private int lastReconfigH;
     private boolean diagVisibleLogged;
     private boolean ended;
     private int lastAttachedW;
@@ -201,6 +205,13 @@ public class ZaynMpvPlayer {
             } else if (reason == MPVLib.MpvEndFileReason.MPV_END_FILE_REASON_ERROR) {
                 EngineLogger.INSTANCE.log("player", "mpv: end of file (error)");
                 lastPlaying = false;
+                // (v1.0.13 P6-C) A fatal mpv error ends the session too:
+                // mark it ended (today only EOF did, so a failed mpv
+                // session still reported active media and its controls
+                // silently no-op'd) and stop the ticker, so no stale
+                // progress/state is pushed after death.
+                ended = true;
+                stopTicker();
                 JSONObject err = new JSONObject();
                 put(err, "code", "playback_error");
                 put(err, "message", "Video could not be played");
@@ -248,12 +259,16 @@ public class ZaynMpvPlayer {
     // level ("warn" delivers warn + error + fatal), and
     // LogObserver.logMessage(String prefix, int level, String text)
     // carries the raw mpv log level (client API: FATAL=10, ERROR=20,
-    // WARN=30, INFO=40, V=50, DEBUG=60, TRACE=70). Only warn-and-above
-    // is logged, so the 200-line ring buffer is not flooded.
+    // WARN=30, INFO=40, V=50, DEBUG=60, TRACE=70). (v1.0.13 P5-A) Info
+    // level and above is logged: the warn-only capture hid WHY mpv fell
+    // back to software decode (session 7: hwdec-current=no x8 with no
+    // reason visible) — the hwdec-fallback reason is typically info
+    // level. Verbose/debug stay filtered so the ring buffer is not
+    // flooded.
     private final MPVLib.LogObserver logObserver = new MPVLib.LogObserver() {
         @Override
         public void logMessage(String prefix, int level, String text) {
-            if (level > 30) return;
+            if (level > 40) return;
             String msg = text != null ? text.trim() : "";
             if (msg.isEmpty()) return;
             // (v1.0.12 §6 step 4) VO-failure detection: the EGL surface
@@ -358,6 +373,22 @@ public class ZaynMpvPlayer {
             }
             m.setOptionString("gpu-context", "android");
             m.setOptionString("hwdec", "mediacodec");
+            // (v1.0.13 P5-A) hwdec diagnosis (INVESTIGATION-4 §7.1):
+            // session 7 (V1.0.12) proved this option set-but-ineffective —
+            // hwdec-current=no x8, i.e. mpv fell back to software decode.
+            // The hwdec VALUE is NOT changed here (diagnose first); if the
+            // info logs still report no, software decode is ACCEPTED for
+            // H.264 — session 7 played fine in software (time-pos 83 ms ->
+            // 69,027 ms, seeks working), so the cost is battery/CPU/heat
+            // only, never a playback block, and no hwdec variant is forced
+            // that could break the proven-working libmpv video path.
+            // The copy-mode hwdec variant was NOT tried (no info-log
+            // evidence for it).
+            // (v1.0.13 P5-A) vo=gpu set BEFORE init() — it was previously
+            // set per-play only, after init() (play() keeps its own set as
+            // well): VO/hwdec negotiation may need the VO known at init
+            // time, one candidate cause of the hwdec fallback.
+            m.setOptionString("vo", "gpu");
             m.init();
             m.observeProperty("time-pos", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE);
             m.observeProperty("duration", MPVLib.MpvFormat.MPV_FORMAT_DOUBLE);
@@ -365,8 +396,11 @@ public class ZaynMpvPlayer {
             m.observeProperty("paused-for-cache", MPVLib.MpvFormat.MPV_FORMAT_FLAG);
             m.addObserver(observer);
             // (v1.0.11 D2) Enable mpv's own error/warning log stream.
+            // (v1.0.13 P5-A) Raised to info: the hwdec-fallback reason is
+            // typically info level, invisible at warn. logObserver passes
+            // level <= 40 through.
             m.addLogObserver(logObserver);
-            m.requestLogMessages("warn");
+            m.requestLogMessages("info");
             mpv = m;
             EngineLogger.INSTANCE.log("player", "mpv: created");
             // (v1.0.12 §8 L1) Player Created.
@@ -581,20 +615,26 @@ public class ZaynMpvPlayer {
             voFailed = false;
             ended = false;
             diagVisibleLogged = false;
+            // (v1.0.13 P5-B) Reset the reconfig-dedup baseline per play:
+            // without this, a play whose video size matches the previous
+            // play's last size would log no L6/L7 at all for the new play.
+            lastReconfigW = 0;
+            lastReconfigH = 0;
             try {
                 // Headers the signed CDN links need (E4: without Referer /
                 // User-Agent the Netflix/Prime CDNs refuse; Disney accepted
                 // VLC without them, so this must be per-link, not assumed).
-                StringBuilder fields = new StringBuilder();
-                if (link.getReferer() != null && !link.getReferer().isEmpty()) {
-                    fields.append("Referer: ").append(link.getReferer());
-                }
-                for (Map.Entry<String, String> e : link.getHeaders().entrySet()) {
-                    if (fields.length() > 0) fields.append(",");
-                    fields.append(e.getKey()).append(": ").append(e.getValue());
-                }
-                if (fields.length() > 0) {
-                    m.setOptionString("http-header-fields", fields.toString());
+                // (v1.0.13 P3-C) Via the header manager: the same per-link
+                // Referer + headers the ExoPlayer path sends, so libmpv can
+                // never carry another provider's headers.
+                // (v1.0.13 P7 fix-forward D-3) Via the header manager, not
+                // an inline join: httpHeaderFieldsForPlayLink produces the
+                // identical format ("," + "Key: value") from the same
+                // headersForPlayLink map, so the format can no longer drift
+                // from the ExoPlayer path.
+                String fields = ZaynHeaderManager.INSTANCE.httpHeaderFieldsForPlayLink(link);
+                if (!fields.isEmpty()) {
+                    m.setOptionString("http-header-fields", fields);
                 }
                 m.setOptionString("user-agent", MainAPIKt.USER_AGENT);
                 if (preferredAudioLang != null && !preferredAudioLang.isEmpty()) {
@@ -676,23 +716,45 @@ public class ZaynMpvPlayer {
     private void onVideoReconfig() {
         MPVLib m = mpv;
         if (m == null) return;
+        // (v1.0.13 P5-B) Detach guard: observer events demonstrably fire
+        // after stop/detach (session 8 read hwdec-current=null with
+        // state=paused) — after detach there is no video to report, so no
+        // L6/L7 at all. The events themselves are real
+        // MPV_EVENT_VIDEO_RECONFIG; only the logging is guarded, and the
+        // voFailed-clear / first-frame blocks below are skipped with it
+        // (a post-detach reconfig must not claim video is flowing).
+        if (!surfaceAttached) return;
+        boolean sizeChanged = false;
         try {
             Integer w = m.getPropertyInt("dwidth");
             Integer h = m.getPropertyInt("dheight");
             if (w != null && h != null) {
+                sizeChanged = (w.intValue() != lastReconfigW || h.intValue() != lastReconfigH);
+                lastReconfigW = w;
+                lastReconfigH = h;
                 lastVideoW = w;
                 lastVideoH = h;
-                EngineLogger.INSTANCE.log("player", "mpv: video size " + w + "x" + h);
+                if (sizeChanged) {
+                    EngineLogger.INSTANCE.log("player", "mpv: video size " + w + "x" + h);
+                }
             }
-            String hwdec = m.getPropertyString("hwdec-current");
-            String codec = m.getPropertyString("video-codec");
-            EngineLogger.INSTANCE.log("player",
-                    "mpv: hwdec-current=" + hwdec + " video-codec=" + codec);
+            // (v1.0.13 P5-B) Dedup: the session-7 burst logged 960x540 six
+            // times in ~1.2 s. Log hwdec + L6/L7 only when the size
+            // actually changed since the last reconfig.
+            if (sizeChanged) {
+                String hwdec = m.getPropertyString("hwdec-current");
+                String codec = m.getPropertyString("video-codec");
+                EngineLogger.INSTANCE.log("player",
+                        "mpv: hwdec-current=" + hwdec + " video-codec=" + codec);
+            }
         } catch (Exception ignored) {
         }
         // (v1.0.12 §8) L6 Video Format Received, L7 Decoder Initialized.
-        diag("L6", "Video Format Received");
-        diag("L7", "Decoder Initialized");
+        // (v1.0.13 P5-B) Only on a real size change (see above).
+        if (sizeChanged) {
+            diag("L6", "Video Format Received");
+            diag("L7", "Decoder Initialized");
+        }
         // (v1.0.12 §6 step 4) A reconfig proves video is flowing again, so
         // the gpu-VO failure is cleared — the fallback did its job.
         if (voFailed && voFallbackDone) {
@@ -714,6 +776,18 @@ public class ZaynMpvPlayer {
         // (v1.0.11 D2) FILE_LOADED was silent: the log could not prove
         // mpv's loadfile had opened the file at all (M1).
         EngineLogger.INSTANCE.log("player", "mpv: file loaded");
+        // (v1.0.13 P5-A) hwdec-current at FILE_LOADED, not only at
+        // reconfig: shows whether hardware decode was even attempted for
+        // this file, before any VO renegotiation storm. If this line says
+        // no while the info-level mpv log names a reason (e.g. hwdec init
+        // failure on this device), the WHY of session 7 is answered.
+        try {
+            String hwdecAtLoad = m.getPropertyString("hwdec-current");
+            String codecAtLoad = m.getPropertyString("video-codec");
+            EngineLogger.INSTANCE.log("player",
+                    "mpv: hwdec-current=" + hwdecAtLoad + " video-codec=" + codecAtLoad + " at file loaded");
+        } catch (Exception ignored) {
+        }
         // (v1.0.12 §8 L5) Player Prepared (file loaded + VO init attempted).
         diag("L5", "Player Prepared");
         if (pendingStartAtMs > 0 && !startSeekDone) {
@@ -764,6 +838,25 @@ public class ZaynMpvPlayer {
 
     /** Player controls from the bridge. value is seconds / rate / 0..1 volume. */
     public JSONObject control(String action, Double value) {
+        // (v1.0.13 P5-B) Synchronous pause state: the pause-property
+        // observer used to be the only thing flipping lastPlaying, so the
+        // ticker kept logging and diag() kept reading state=playing for
+        // seconds after a pause command (session 7). Flip it here, now —
+        // the observer still confirms it when it fires.
+        if ("pause".equals(action)) {
+            lastPlaying = false;
+            stopTicker();
+        }
+        // (v1.0.13 P6-C) Dead-session guard (INVESTIGATION-4 §7.3):
+        // seek/resume with no loaded file is a silent no-op that returns
+        // a stale cached snapshot — refuse it with an error snapshot
+        // instead. (A seek with no file is also caught + logged by the
+        // mpv command below; this guard makes the refusal explicit
+        // before the command is even issued.)
+        if (("seek".equals(action) || "resume".equals(action)) && !hasActiveMedia()) {
+            EngineLogger.INSTANCE.log("player", "mpv: control " + action + " rejected — no active media (playback_error)");
+            return errorStateSnapshot();
+        }
         // (v1.0.12 §10) Volume/seek coalescing (last-write-wins, same as
         // ZaynPlayer.control()): keep only the latest pending value and
         // post at most one runnable. No native delay.
@@ -783,6 +876,12 @@ public class ZaynMpvPlayer {
         mainHandler.post(() -> {
             MPVLib m = mpv;
             if (m == null) return;
+            // (v1.0.13 P6-C) The media can die between control() and this
+            // posted run — re-check before issuing seek/resume.
+            if (("seek".equals(action) || "resume".equals(action)) && !hasActiveMedia()) {
+                EngineLogger.INSTANCE.log("player", "mpv: control " + action + " rejected — no active media (playback_error)");
+                return;
+            }
             try {
                 switch (action) {
                     case "pause":
@@ -855,6 +954,14 @@ public class ZaynMpvPlayer {
         return o;
     }
 
+    /** (v1.0.13 P6-C) The state snapshot with a playback_error marker, so
+     * a refused control is distinguishable from a stale ok snapshot. */
+    private JSONObject errorStateSnapshot() {
+        JSONObject o = stateSnapshot();
+        put(o, "error", "playback_error");
+        return o;
+    }
+
     private void pushState() {
         lastPushStateMs = System.currentTimeMillis();
         mainHandler.post(() -> onEvent.onEvent("playerState", stateSnapshot()));
@@ -883,7 +990,13 @@ public class ZaynMpvPlayer {
                     double target = pendingSeekSec;
                     pendingSeekSec = null;
                     volumeOnly = false;
-                    m.command(new String[]{"seek", String.valueOf(target), "absolute"});
+                    // (v1.0.13 P6-C) Drop a coalesced seek when the media
+                    // died after control() queued it.
+                    if (!hasActiveMedia()) {
+                        EngineLogger.INSTANCE.log("player", "mpv: control seek rejected — no active media (playback_error)");
+                    } else {
+                        m.command(new String[]{"seek", String.valueOf(target), "absolute"});
+                    }
                 }
             } catch (Exception e) {
                 EngineLogger.INSTANCE.log("player", "mpv: control coalesced failed " + e.getMessage());
@@ -946,6 +1059,12 @@ public class ZaynMpvPlayer {
     /** (v1.0.12 §7) Stop the previous session outright (not just pause):
      *  mpv stop + ticker stop so no stale pushState interleaves. */
     public void stop() {
+        // (v1.0.13 P5-B) Synchronous, as in control("pause") above — do
+        // not wait for the posted runnable (or the pause observer) to stop
+        // the ticker / flip the playing flag. The runnable below repeats
+        // both lines (idempotent) for the posted execution path.
+        lastPlaying = false;
+        stopTicker();
         mainHandler.post(() -> {
             MPVLib m = mpv;
             if (m == null) return;
