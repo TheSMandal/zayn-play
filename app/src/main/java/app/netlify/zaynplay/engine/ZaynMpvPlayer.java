@@ -90,6 +90,32 @@ public class ZaynMpvPlayer {
 
     private int tickerLogCount;
 
+    // (v1.0.12 §6 steps 4–6) VO-failure state. voFailed is set when the gpu
+    // VO fails to create its EGL surface and cleared only when a
+    // VIDEO_RECONFIG proves video is flowing again (after the fallback).
+    // voRetryDone / voFallbackDone / voRecreateDone bound the recovery to
+    // one attempt per step per play — never infinite.
+    private boolean voFailed;
+    private boolean voRetryDone;
+    private boolean voFallbackDone;
+    private boolean voRecreateDone;
+    // (v1.0.12 §8) Diagnostics session id (set by ZaynEngine per play) +
+    // activity state (set by MainActivity onResume/onPause) + last known
+    // video size (for the diag lines) + end-of-file flag (dedup signal).
+    private int diagSessionId;
+    private String activityState = "unknown";
+    private int lastVideoW;
+    private int lastVideoH;
+    private boolean diagVisibleLogged;
+    private boolean ended;
+    private int lastAttachedW;
+    private int lastAttachedH;
+    // (v1.0.12 §10) Volume/seek coalescing for control() (see ZaynPlayer).
+    private Double pendingVolume;
+    private Double pendingSeekSec;
+    private boolean controlCoalescePosted;
+    private long lastPushStateMs;
+
     private final Runnable ticker = new Runnable() {
         @Override
         public void run() {
@@ -120,6 +146,24 @@ public class ZaynMpvPlayer {
         }
     };
 
+    // (v1.0.12 §8) Twelve-event first-frame diagnostics — same line shape
+    // as ZaynPlayer.diag (session + engine + ts + texId + surface/video
+    // size + state + activity). Unverifiable events are logged UNVERIFIED,
+    // never as verified; surface size here is the live view size (mpv has
+    // no player.surfaceSize equivalent).
+    private void diag(String code, String name, String note) {
+        SurfaceTexture st = textureView != null ? textureView.getSurfaceTexture() : null;
+        String state = mpv == null ? "no-player" : (lastPlaying ? "playing" : "paused");
+        EngineLogger.INSTANCE.log("player",
+                "diag " + code + " " + name + " session=" + diagSessionId + " engine=mpv"
+                        + " ts=" + System.currentTimeMillis()
+                        + " texId=" + System.identityHashCode(st)
+                        + " surfaceSize=" + (textureView != null ? textureView.getWidth() + "x" + textureView.getHeight() : "-1x-1")
+                        + " videoSize=" + lastVideoW + "x" + lastVideoH
+                        + " state=" + state + " activity=" + activityState
+                        + (note != null && !note.isEmpty() ? " " + note : ""));
+    }
+
     // (v1.0.10) JSONObject.put throws checked JSONException, so every put
     // in this file must go through this helper (CI 46046097780: "unreported
     // exception JSONException" at 18 call sites). A put can only fail on a
@@ -144,6 +188,7 @@ public class ZaynMpvPlayer {
         public void eventEndFile(int reason, int error) {
             if (reason == MPVLib.MpvEndFileReason.MPV_END_FILE_REASON_EOF) {
                 lastPlaying = false;
+                ended = true;
                 postEvent("playerEnded", put(new JSONObject(), "source", lastSource));
                 pushState();
             } else if (reason == MPVLib.MpvEndFileReason.MPV_END_FILE_REASON_ERROR) {
@@ -172,6 +217,13 @@ public class ZaynMpvPlayer {
             if ("pause".equals(property)) {
                 lastPlaying = !value;
                 if (!value) startTicker(); else stopTicker();
+                // (v1.0.12 §8 L12) UNVERIFIED-by-code: playing proves the
+                // pipeline runs, NOT that a frame is displayed — only an
+                // on-device sighting proves Playback Visible.
+                if (!value && !diagVisibleLogged) {
+                    diagVisibleLogged = true;
+                    diag("L12", "Playback Visible", "UNVERIFIED-by-code — display proven only by on-device sighting");
+                }
                 pushState();
             } else if ("paused-for-cache".equals(property)) {
                 lastBuffering = value;
@@ -197,10 +249,82 @@ public class ZaynMpvPlayer {
             if (level > 30) return;
             String msg = text != null ? text.trim() : "";
             if (msg.isEmpty()) return;
+            // (v1.0.12 §6 step 4) VO-failure detection: the EGL surface
+            // failure triggers the bounded recovery below. Runs on mpv's
+            // log thread — the recovery itself runs on main.
+            if (msg.contains("Could not create EGL surface")) {
+                mainHandler.post(() -> recoverVoFailure());
+            }
             EngineLogger.INSTANCE.log("player",
                     "mpv: log [" + prefix + "] " + msg);
         }
     };
+
+    // (v1.0.12 §6 steps 4–5) Bounded VO recovery, one attempt per step per
+    // play: retry (detach → re-attach → vo=gpu again; loadfile is NOT
+    // re-issued — mpv's internal retry re-attempts VO init on the next
+    // video packet), then ONE loud fallback to vo=mediacodec_embed
+    // (degraded: no subtitles), then ONE last-resort instance recreate.
+    // No looping; if all three fail, voFailed stays set and ZaynEngine's
+    // tripwire routes the next play to ExoPlayer.
+    private void recoverVoFailure() {
+        if (!voRetryDone) {
+            voRetryDone = true;
+            voFailed = true;
+            EngineLogger.INSTANCE.log("player", "mpv: VO FAILED egl surface — retrying after detach");
+            detachSurfaceNow();
+            attachSurfaceIfReady();
+            MPVLib m = mpv;
+            if (m != null) {
+                try { m.setPropertyString("vo", "gpu"); } catch (Exception ignored) { }
+            }
+        } else if (!voFallbackDone) {
+            voFallbackDone = true;
+            EngineLogger.INSTANCE.log("player", "mpv: vo fallback mediacodec_embed — subtitles unavailable in this mode");
+            MPVLib m = mpv;
+            if (m != null) {
+                try { m.setPropertyString("vo", "mediacodec_embed"); } catch (Exception ignored) { }
+            }
+        } else if (!voRecreateDone) {
+            voRecreateDone = true;
+            EngineLogger.INSTANCE.log("player", "mpv: VO still failing — recreating libmpv instance (last resort, once per play)");
+            recreateForVoFailure();
+        } else {
+            EngineLogger.INSTANCE.log("player", "mpv: VO recovery exhausted — libmpv excluded for this session");
+        }
+    }
+
+    private void recreateForVoFailure() {
+        // Last resort only (step 5): fresh instance, then step 4 again.
+        // Unlike the step-4 retry, a destroyed instance has NO file loaded,
+        // so loadfile IS re-issued here for the current link — without it
+        // the session could never play anything.
+        ZaynPlayer.PlayLink link = currentLink;
+        releaseNow();
+        if (!ensureCreated()) {
+            EngineLogger.INSTANCE.log("player", "mpv: recreate failed — instance could not be created");
+            return;
+        }
+        firstFrameLogged = false;
+        startSeekDone = false;
+        tickerLogCount = 0;
+        attachSurfaceIfReady();
+        MPVLib m = mpv;
+        if (m == null) return;
+        try { m.setOptionString("force-window", "yes"); } catch (Exception ignored) { }
+        try { m.setOptionString("vo", "gpu"); } catch (Exception ignored) { }
+        if (link != null) {
+            try {
+                m.command(new String[]{"loadfile", link.getUrl()});
+                EngineLogger.INSTANCE.log("player", "mpv: recreated — loadfile re-issued " + link.getSource());
+            } catch (Exception e) {
+                EngineLogger.INSTANCE.log("player", "mpv: recreated loadfile failed " + e.getMessage());
+            }
+        }
+        lastPlaying = true;
+        startTicker();
+        pushState();
+    }
 
     public ZaynMpvPlayer(Context context, EventListener onEvent) {
         this.appContext = context.getApplicationContext();
@@ -238,6 +362,8 @@ public class ZaynMpvPlayer {
             m.requestLogMessages("warn");
             mpv = m;
             EngineLogger.INSTANCE.log("player", "mpv: created");
+            // (v1.0.12 §8 L1) Player Created.
+            diag("L1", "Player Created");
             return true;
         } catch (Throwable t) {
             EngineLogger.INSTANCE.log("player", "mpv: create failed " + t.getMessage());
@@ -361,6 +487,9 @@ public class ZaynMpvPlayer {
             EngineLogger.INSTANCE.log("player",
                     "mpv: surface already attached texId=" + texId
                             + " attachedTexId=" + attachedTexId);
+            // (v1.0.12 §6 step 3) Report the live size on every stage-open
+            // re-attach check too (rotation changes it).
+            setSurfaceSizeOption();
             return;
         }
         try {
@@ -368,14 +497,38 @@ public class ZaynMpvPlayer {
             m.attachSurface(attachedSurface);
             attachedTexId = texId;
             surfaceAttached = true;
+            // (v1.0.12 §6 step 3) Report the live size at attach.
+            setSurfaceSizeOption();
             // (v1.0.11 D1) Attach log now carries both identities: the
             // live texture and the one mpv attached to.
             EngineLogger.INSTANCE.log("player",
                     "mpv: surface attached " + tv.getWidth() + "x" + tv.getHeight()
-                            + " texId=" + texId + " attachedTexId=" + attachedTexId);
+                            + " texId=" + texId + " attachedTexId=" + attachedTexId
+                            + " android-surface-size=" + tv.getWidth() + "x" + tv.getHeight());
+            // (v1.0.12 §8) L2/L3/L4 at attach; L11 when the size changed.
+            diag("L2", "Surface Available");
+            diag("L3", "Surface Valid");
+            diag("L4", "Surface Attached");
+            if (tv.getWidth() != lastAttachedW || tv.getHeight() != lastAttachedH) {
+                lastAttachedW = tv.getWidth();
+                lastAttachedH = tv.getHeight();
+                diag("L11", "Surface Updated");
+            }
         } catch (Exception e) {
             EngineLogger.INSTANCE.log("player", "mpv: attach failed " + e.getMessage());
             releaseAttachedSurface();
+        }
+    }
+
+    // (v1.0.12 §6 step 3) android-surface-size (<w>x<h>, live view size) at
+    // every attach and stage-open — what mpv-android sets on surfaceChanged.
+    private void setSurfaceSizeOption() {
+        MPVLib m = mpv;
+        TextureView tv = textureView;
+        if (m == null || tv == null) return;
+        try {
+            m.setPropertyString("android-surface-size", tv.getWidth() + "x" + tv.getHeight());
+        } catch (Exception ignored) {
         }
     }
 
@@ -411,6 +564,16 @@ public class ZaynMpvPlayer {
             pendingStartAtMs = startAtMs;
             startSeekDone = false;
             firstFrameLogged = false;
+            // (v1.0.12 §6 steps 4–5) Fresh VO-recovery budget per play. The
+            // tripwire flag voFailed is reset here — ZaynEngine checks it
+            // BEFORE calling play(), so a previous play's failure still
+            // routes the next play to ExoPlayer; a fresh attempt starts clean.
+            voRetryDone = false;
+            voFallbackDone = false;
+            voRecreateDone = false;
+            voFailed = false;
+            ended = false;
+            diagVisibleLogged = false;
             try {
                 // Headers the signed CDN links need (E4: without Referer /
                 // User-Agent the Netflix/Prime CDNs refuse; Disney accepted
@@ -510,6 +673,8 @@ public class ZaynMpvPlayer {
             Integer w = m.getPropertyInt("dwidth");
             Integer h = m.getPropertyInt("dheight");
             if (w != null && h != null) {
+                lastVideoW = w;
+                lastVideoH = h;
                 EngineLogger.INSTANCE.log("player", "mpv: video size " + w + "x" + h);
             }
             String hwdec = m.getPropertyString("hwdec-current");
@@ -518,9 +683,20 @@ public class ZaynMpvPlayer {
                     "mpv: hwdec-current=" + hwdec + " video-codec=" + codec);
         } catch (Exception ignored) {
         }
+        // (v1.0.12 §8) L6 Video Format Received, L7 Decoder Initialized.
+        diag("L6", "Video Format Received");
+        diag("L7", "Decoder Initialized");
+        // (v1.0.12 §6 step 4) A reconfig proves video is flowing again, so
+        // the gpu-VO failure is cleared — the fallback did its job.
+        if (voFailed && voFallbackDone) {
+            voFailed = false;
+            EngineLogger.INSTANCE.log("player", "mpv: video flowing after vo fallback mediacodec_embed — subtitles unavailable in this mode");
+        }
         if (!firstFrameLogged) {
             firstFrameLogged = true;
             EngineLogger.INSTANCE.log("player", "mpv: first frame rendered");
+            // (v1.0.12 §8 L8) First Frame Decoded — decoding, not display.
+            diag("L8", "First Frame Decoded", "decoded-not-displayed");
             postEvent("playerFirstFrame", new JSONObject());
         }
     }
@@ -531,6 +707,8 @@ public class ZaynMpvPlayer {
         // (v1.0.11 D2) FILE_LOADED was silent: the log could not prove
         // mpv's loadfile had opened the file at all (M1).
         EngineLogger.INSTANCE.log("player", "mpv: file loaded");
+        // (v1.0.12 §8 L5) Player Prepared (file loaded + VO init attempted).
+        diag("L5", "Player Prepared");
         if (pendingStartAtMs > 0 && !startSeekDone) {
             startSeekDone = true;
             try {
@@ -579,6 +757,22 @@ public class ZaynMpvPlayer {
 
     /** Player controls from the bridge. value is seconds / rate / 0..1 volume. */
     public JSONObject control(String action, Double value) {
+        // (v1.0.12 §10) Volume/seek coalescing (last-write-wins, same as
+        // ZaynPlayer.control()): keep only the latest pending value and
+        // post at most one runnable. No native delay.
+        if ("volume".equals(action) || "seek".equals(action)) {
+            if ("volume".equals(action)) {
+                double v = value != null ? value : 1.0;
+                pendingVolume = Math.max(0.0, Math.min(1.0, v));
+            } else {
+                pendingSeekSec = value != null ? value : 0.0;
+            }
+            if (!controlCoalescePosted) {
+                controlCoalescePosted = true;
+                mainHandler.post(controlCoalesceRunnable);
+            }
+            return stateSnapshot();
+        }
         mainHandler.post(() -> {
             MPVLib m = mpv;
             if (m == null) return;
@@ -655,8 +849,42 @@ public class ZaynMpvPlayer {
     }
 
     private void pushState() {
+        lastPushStateMs = System.currentTimeMillis();
         mainHandler.post(() -> onEvent.onEvent("playerState", stateSnapshot()));
     }
+
+    // (v1.0.12 §10) Applies the latest coalesced volume/seek (see
+    // control()). Volume-only controls skip pushState() when the last one
+    // was <500 ms ago — the 1 s ticker delivers the fresh state anyway.
+    private final Runnable controlCoalesceRunnable = new Runnable() {
+        @Override
+        public void run() {
+            controlCoalescePosted = false;
+            MPVLib m = mpv;
+            if (m == null) return;
+            boolean volumeOnly = false;
+            try {
+                if (pendingVolume != null) {
+                    double v = pendingVolume;
+                    pendingVolume = null;
+                    volumeOnly = pendingSeekSec == null;
+                    lastVolume = (float) v;
+                    muted = v <= 0.0;
+                    m.setPropertyDouble("volume", v * 100.0);
+                }
+                if (pendingSeekSec != null) {
+                    double target = pendingSeekSec;
+                    pendingSeekSec = null;
+                    volumeOnly = false;
+                    m.command(new String[]{"seek", String.valueOf(target), "absolute"});
+                }
+            } catch (Exception e) {
+                EngineLogger.INSTANCE.log("player", "mpv: control coalesced failed " + e.getMessage());
+            }
+            if (volumeOnly && System.currentTimeMillis() - lastPushStateMs < 500) return;
+            pushState();
+        }
+    };
 
     private void postEvent(String type, JSONObject data) {
         mainHandler.post(() -> onEvent.onEvent(type, data));
@@ -673,9 +901,76 @@ public class ZaynMpvPlayer {
         mainHandler.removeCallbacks(ticker);
     }
 
+    /** (v1.0.12 §8) Last known video size for the diagnostics lines. */
+    public String videoSizeText() {
+        return lastVideoW + "x" + lastVideoH;
+    }
+
     /** Current link (for resume / next-episode), or null. */
     public ZaynPlayer.PlayLink currentLink() {
         return currentLink;
+    }
+
+    /** (v1.0.12 §6 step 1) Switch-time detach: vo=null → detachSurface →
+     *  release Surface → surfaceAttached=false, attachedTexId=0. Posted to
+     *  the main thread (callers run on the IO bridge thread); FIFO ordering
+     *  on the main handler puts the detach before the new engine's play().
+     *  The line is logged only when a surface was actually attached, so it
+     *  never claims a detach that did not happen. */
+    public void detachSurfaceForSwitch() {
+        mainHandler.post(this::detachSurfaceNow);
+    }
+
+    private void detachSurfaceNow() {
+        boolean wasAttached = surfaceAttached;
+        MPVLib m = mpv;
+        if (m != null) {
+            try { m.setPropertyString("vo", "null"); } catch (Exception ignored) { }
+            try { m.detachSurface(); } catch (Exception ignored) { }
+        }
+        releaseAttachedSurface();
+        surfaceAttached = false;
+        attachedTexId = 0;
+        if (wasAttached) {
+            EngineLogger.INSTANCE.log("player", "mpv: surface detached for switch");
+        }
+    }
+
+    /** (v1.0.12 §7) Stop the previous session outright (not just pause):
+     *  mpv stop + ticker stop so no stale pushState interleaves. */
+    public void stop() {
+        mainHandler.post(() -> {
+            MPVLib m = mpv;
+            if (m == null) return;
+            try { m.command(new String[]{"stop"}); } catch (Exception ignored) { }
+            stopTicker();
+            lastPlaying = false;
+        });
+    }
+
+    public boolean isPlaying() {
+        return lastPlaying;
+    }
+
+    /** (v1.0.12 §7) True while media is loaded and not ended — the dedup
+     *  signal for a same-title/same-link replay. */
+    public boolean hasActiveMedia() {
+        return mpv != null && currentLink != null && !ended;
+    }
+
+    /** (v1.0.12 §6 step 6) True once the gpu VO has failed and recovery has
+     *  not proven video flowing — ZaynEngine routes the next play to
+     *  ExoPlayer. */
+    public boolean isVoFailed() {
+        return voFailed;
+    }
+
+    public void setDiagSessionId(int id) {
+        diagSessionId = id;
+    }
+
+    public void setActivityState(String s) {
+        activityState = s;
     }
 
     public void pauseForBackground() {
