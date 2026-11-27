@@ -89,6 +89,9 @@ class ZaynDownloads(
                     .put("poster", entry.optString("poster", ""))
                     .put("status", entry.optString("status"))
                     .put("progressPct", entry.optInt("progressPct", 0))
+                    .put("pct", entry.optInt("progressPct", 0))
+                    .put("error", if (entry.optString("status") == "failed") entry.optString("error", "download_failed") else entry.optString("error", ""))
+                    .put("providerName", entry.optString("providerName", ""))
                     .put("sizeMB", entry.optDouble("sizeMB", 0.0))
                     .put("path", entry.optString("path", "")),
             )
@@ -189,12 +192,13 @@ class ZaynDownloads(
             pushProgress(id, "paused")
             throw e
         } catch (e: Exception) {
-            entry.put("status", "failed")
+            val errorText = "${e.javaClass.simpleName}: ${e.message}"
+            entry.put("status", "failed").put("error", errorText)
             store.putMapEntry(EngineStore.KEY_DOWNLOADS, id, entry)
             notify(id, entry.optString("title"), "Download failed", entry.optInt("progressPct", 0))
             onEvent(
                 "downloadFailed",
-                JSONObject().put("id", id).put("code", "download_failed"),
+                JSONObject().put("id", id).put("code", "download_failed").put("error", errorText),
             )
             EngineLogger.log("download", "failed $id")
         } finally {
@@ -220,6 +224,7 @@ class ZaynDownloads(
             JSONObject()
                 .put("id", id)
                 .put("progressPct", entry.optInt("progressPct", 0))
+                .put("pct", entry.optInt("progressPct", 0))
                 .put("status", status),
         )
     }
