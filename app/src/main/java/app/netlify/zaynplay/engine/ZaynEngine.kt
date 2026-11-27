@@ -7,6 +7,9 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.dash.manifest.DashManifestParser
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.Episode
@@ -34,8 +37,10 @@ import com.lagradost.cloudstream3.plugins.RepositoryManager.RepoPluginsResult
 import com.lagradost.cloudstream3.plugins.SitePlugin
 import com.lagradost.cloudstream3.utils.DrmExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.HlsPlaylistParser
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
@@ -139,11 +144,37 @@ class ZaynEngine(
         // (v1.0.6 R1) The original play() params, so a retry can re-resolve
         // links (fresh loadLinks) when the ranked list is exhausted.
         val params: JSONObject,
+        // (v1.0.13 P2-B) The other engine has already been tried once for a
+        // MALFORMED manifest in this session — never try it twice.
+        var malformedEngineSwitched: Boolean = false,
+        // (v1.0.13 P4-B) A fresh re-resolve has already been spent once
+        // for a MANIFEST_AUTH failure in this session — never spend it twice.
+        var authReresolved: Boolean = false,
+        // (v1.0.13 P6-B) The other engine has already been tried once for a
+        // DECODE_ERROR / UNSUPPORTED_FORMAT failure in this session — never
+        // try it twice.
+        var decodeEngineSwitched: Boolean = false,
+        // (v1.0.13 P6-B) A fresh re-resolve has already been spent once
+        // for a SOURCE_NOT_FOUND / LINK_EXPIRED failure in this session —
+        // never spend it twice (never replay the failed URL).
+        var sourceReresolved: Boolean = false,
     )
 
     private var activePlay: ActivePlay? = null
     private var playSessionCounter = 0
     private val maxPlayAttempts = 3
+
+    // (v1.0.13 P6-C) Dead-session latch (INVESTIGATION-4 §7.3): set when a
+    // play session ends in failure (no retry left, or a fail-fast class);
+    // playerControl refuses seek/resume/toggle/rate while it is set, until
+    // the next play() arms a new session and clears it.
+    @Volatile
+    private var playbackFailed: Boolean = false
+
+    // (v1.0.13 P2-B) One-shot engine override for the MALFORMED retry
+    // (retryOtherEngine): set just before the retry's playActive call and
+    // cleared right after it returns. Only that one play is affected.
+    private var oneShotEngineOverride: String? = null
 
     // (v1.0.12 §7) Duplicate-play guard: one play() at a time (a new user
     // play supersedes the old one — the old one's activePlay is replaced
@@ -174,13 +205,146 @@ class ZaynEngine(
         // of the same URL after a transient transport drop is worth it too.
         player.onPlaybackError = { error ->
             val ap = activePlay
+            // (v1.0.13 P4-B, P6-B) Classify the failure once; the class drives
+            // both the log line below and the recovery route after it.
+            // MANIFEST_MALFORMED -> next link / other engine (P2);
+            // MANIFEST_AUTH -> fresh re-resolve once, never the same URL;
+            // DECODE_ERROR / UNSUPPORTED_FORMAT -> other engine once;
+            // SOURCE_NOT_FOUND / LINK_EXPIRED -> fresh re-resolve once;
+            // DRM_ERROR / OTHER (UNKNOWN) -> fail fast, no blind retry;
+            // MANIFEST_HTTP / NETWORK / NETWORK_TIMEOUT /
+            // PLAYBACK_INTERRUPTED / STALLED -> existing retry below.
+            val errorClass = player.classifyPlaybackError(error)
+            // (v1.0.13 P2-B) Log the failure in full: message + cause chain +
+            // failing URI, token-redacted — the V1.0.12 log recorded only the
+            // errorCodeName, which cannot distinguish top-level-malformed
+            // from child-playlist-failed from error-page-body
+            // (INVESTIGATION-4 §3.5). (v1.0.13 P4-B) errorClass is
+            // appended LAST so the P2 log shape stays an exact
+            // substring (gate AJ asserts it).
+            val failingUri = if (ap != null) ap.ranked.getOrNull(ap.index)?.link?.url else null
+            EngineLogger.log(
+                "player",
+                "playback error ${error.errorCodeName} message=${redactUrlForLog(error.message)} cause=${causeChainForLog(error)} uri=${redactUrlForLog(failingUri)} errorClass=$errorClass",
+            )
             if (ap == null || ap.attempts >= maxPlayAttempts) {
+                // (v1.0.13 P6-B/C) Attempts exhausted: end the session here.
+                // Before P6 only failPlaySession cleared activePlay, and this
+                // path never took it — the dead session stayed armed and its
+                // controls kept silently no-op'ing (INVESTIGATION-4 §7.3).
+                // The playerError event is still fired by
+                // ZaynPlayer.onPlayerError (false below), which latches the
+                // JS banner; the engine latch below refuses further controls.
+                if (ap != null) activePlay = null
+                playbackFailed = true
+                EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap?.attempts ?: 0} session=${ap?.session ?: 0}")
                 EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (attempts=${ap?.attempts ?: 0} ranked.size=${ap?.ranked?.size ?: 0})")
                 false
+            } else if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED) {
+                // (v1.0.13 P2-B) MALFORMED: never re-resolve the same provider
+                // for the same URL shape — the old loop re-probed and re-played
+                // the same class of failure 3x with fresh tokens and no new
+                // information (INVESTIGATION-4 §3.7). Spend the attempts on
+                // DIFFERENT links/engines instead: next ranked link if one
+                // exists, else the other engine once, else fail. The
+                // 3-attempt budget (maxPlayAttempts) still caps it all.
+                if (ap.index + 1 < ap.ranked.size) {
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=next-link attempts=${ap.attempts} session=${ap.session}")
+                    bridgeScope.launch { retryNextLink(ap) }
+                    true
+                } else if (!ap.malformedEngineSwitched) {
+                    ap.malformedEngineSwitched = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=other-engine attempts=${ap.attempts} session=${ap.session}")
+                    bridgeScope.launch { retryOtherEngine(ap) }
+                    true
+                } else {
+                    playbackFailed = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap.attempts} session=${ap.session}")
+                    EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (MALFORMED: no next link, other engine already tried, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
+                    false
+                }
+            } else if (errorClass == ZaynPlayer.PlaybackErrorClass.MANIFEST_AUTH) {
+                // (v1.0.13 P4-B) AUTH (401/403 — token/Referer rejected):
+                // NEVER retry the same URL, and never spend the attempt on
+                // another link from the same resolve batch (same minting
+                // time, same rejection). Re-resolve fresh ONCE (new
+                // tokens), then fail. The 3-attempt budget still caps it
+                // all: the re-resolve's play counts via playRetryLink,
+                // and the top guard stops any further retry.
+                if (!ap.authReresolved) {
+                    ap.authReresolved = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=fresh-resolve attempts=${ap.attempts} session=${ap.session}")
+                    EngineLogger.log("player", "error ${error.errorCodeName} errorClass=$errorClass — auth rejected, re-resolving fresh once (attempts=${ap.attempts} session=${ap.session})")
+                    bridgeScope.launch { reresolveAndRetry(ap) }
+                    true
+                } else {
+                    playbackFailed = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap.attempts} session=${ap.session}")
+                    EngineLogger.log("player", "error ${error.errorCodeName} errorClass=$errorClass — no retry left (AUTH: fresh re-resolve already tried, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
+                    false
+                }
+            } else if (errorClass == ZaynPlayer.PlaybackErrorClass.DECODE_ERROR ||
+                errorClass == ZaynPlayer.PlaybackErrorClass.UNSUPPORTED_FORMAT
+            ) {
+                // (v1.0.13 P6-B) DECODE_ERROR / UNSUPPORTED_FORMAT: the
+                // failure is in THIS engine's decoder stack, so the retry is
+                // the OTHER engine once (a different decoder stack) — never
+                // the same engine on the same link, and never a re-resolve
+                // (a fresh token cannot fix a decoder). Then fail.
+                if (!ap.decodeEngineSwitched) {
+                    ap.decodeEngineSwitched = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=other-engine attempts=${ap.attempts} session=${ap.session}")
+                    bridgeScope.launch { retryOtherEngine(ap, "DECODE") }
+                    true
+                } else {
+                    playbackFailed = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap.attempts} session=${ap.session}")
+                    EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (DECODE: other engine already tried, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
+                    false
+                }
+            } else if (errorClass == ZaynPlayer.PlaybackErrorClass.SOURCE_NOT_FOUND ||
+                errorClass == ZaynPlayer.PlaybackErrorClass.LINK_EXPIRED
+            ) {
+                // (v1.0.13 P6-B) SOURCE_NOT_FOUND / LINK_EXPIRED: the URL
+                // itself is dead (404 / 410 / expired auth) — NEVER replay
+                // it as-is. Re-resolve fresh ONCE (a new URL, a new token),
+                // then fail.
+                if (!ap.sourceReresolved) {
+                    ap.sourceReresolved = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=fresh-resolve attempts=${ap.attempts} session=${ap.session}")
+                    bridgeScope.launch { reresolveAndRetry(ap) }
+                    true
+                } else {
+                    playbackFailed = true
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap.attempts} session=${ap.session}")
+                    EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (SOURCE: fresh re-resolve already tried, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
+                    false
+                }
+            } else if (errorClass == ZaynPlayer.PlaybackErrorClass.DRM_ERROR ||
+                errorClass == ZaynPlayer.PlaybackErrorClass.OTHER
+            ) {
+                // (v1.0.13 P6-B) DRM_ERROR / OTHER (the UNKNOWN fallback):
+                // fail fast with the error surfaced — no blind retry. A DRM
+                // failure cannot be fixed by another link or a new token,
+                // and an unclassified failure has no signal to aim a retry
+                // at, so a retry would only burn attempts on the same
+                // failure.
+                playbackFailed = true
+                EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap.attempts} session=${ap.session}")
+                false
             } else if (ap.index + 1 < ap.ranked.size) {
+                // (v1.0.13 P4-B) MANIFEST_HTTP / NETWORK / OTHER: the
+                // pre-P6 retry grouped these three; (v1.0.13 P6-B) OTHER
+                // leaves the group and fails fast above (DRM_ERROR /
+                // UNKNOWN: no blind retry), while MANIFEST_HTTP, NETWORK,
+                // NETWORK_TIMEOUT, PLAYBACK_INTERRUPTED and STALLED keep
+                // the existing retry — next ranked link, else a fresh
+                // re-resolve.
+                EngineLogger.log("player", "recovery errorClass=$errorClass action=next-link attempts=${ap.attempts} session=${ap.session}")
                 bridgeScope.launch { retryNextLink(ap) }
                 true
             } else {
+                EngineLogger.log("player", "recovery errorClass=$errorClass action=fresh-resolve attempts=${ap.attempts} session=${ap.session}")
                 bridgeScope.launch { reresolveAndRetry(ap) }
                 true
             }
@@ -211,7 +375,13 @@ class ZaynEngine(
         // keeps the queue connected, which is what made mpv's
         // eglCreateWindowSurface fail (INVESTIGATION-2 §2). F3's pause is
         // kept; detach is added (F3's pause-only rule is superseded here).
-        if (isMpv() && !mpvPlayer.isVoFailed() && mpvPlayer.ensureCreated()) {
+        // (v1.0.13 P2-B) One-shot engine override for the MALFORMED retry
+        // (retryOtherEngine): this play — and only this play — runs on the
+        // other engine. The override is read here, synchronously, and cleared
+        // by the caller right after this call returns (the mpv branch only
+        // posts a delayed play after this decision, so clearing is safe).
+        val engineForThisPlay = oneShotEngineOverride ?: if (isMpv()) "libmpv" else "exoplayer"
+        if (engineForThisPlay == "libmpv" && !mpvPlayer.isVoFailed() && mpvPlayer.ensureCreated()) {
             lastActiveEngine = "libmpv"
             // (v1.0.12 §7) Stop the previous engine outright (not just
             // pause) before starting the new one — one ticker only.
@@ -233,12 +403,14 @@ class ZaynEngine(
             // (v1.0.12 §6 step 6) Exclusion tripwire: a VO-init failure that
             // survived detach+retry (mpvPlayer.isVoFailed()) routes the play
             // to ExoPlayer instead of offering audio-only libmpv as video.
-            if (isMpv()) {
+            if (engineForThisPlay == "libmpv") {
                 if (mpvPlayer.isVoFailed()) {
                     EngineLogger.log("player", "mpv: VO failed after detach+retry — falling back to ExoPlayer, libmpv excluded for this session")
                 } else {
                     EngineLogger.log("player", "mpv unavailable — falling back to ExoPlayer for this play")
                 }
+            } else if (oneShotEngineOverride != null) {
+                EngineLogger.log("player", "player: one-shot engine override to ExoPlayer for this retry")
             }
             lastActiveEngine = "exoplayer"
             mpvPlayer.pauseForBackground()
@@ -267,7 +439,7 @@ class ZaynEngine(
         ap.ranked = ranked
         ap.index = next
         ap.attempts++
-        EngineLogger.log("player", "retry attempt ${ap.attempts}/$maxPlayAttempts: play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url}")
+        EngineLogger.log("player", "retry attempt ${ap.attempts}/$maxPlayAttempts: play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${redactUrlForLog(link.url)}")
         if (ap.title.isNotBlank()) {
             store.putMapEntry(
                 EngineStore.KEY_LAST_LINK,
@@ -285,7 +457,7 @@ class ZaynEngine(
                 qualityLabel = qualityLabel(link.quality),
                 audio = candidate.audio,
                 referer = link.referer,
-                headers = link.getAllHeaders(),
+                headers = ZaynHeaderManager.headersFor(link),
                 type = link.type,
             ),
             ap.safeStartSec * 1000L,
@@ -302,6 +474,10 @@ class ZaynEngine(
     private fun failPlaySession(ap: ActivePlay, reason: String) {
         EngineLogger.log("player", reason)
         activePlay = null
+        // (v1.0.13 P6-C) The session ended in failure — latch the
+        // dead-session flag so further controls are refused until the
+        // next play().
+        playbackFailed = true
         onEvent(
             "playerError",
             JSONObject()
@@ -389,6 +565,38 @@ class ZaynEngine(
             return
         }
         playRetryLink(ap, ap.ranked, next, candidate)
+    }
+
+    /**
+     * (v1.0.13 P2-B) MALFORMED retry, second resort: replay the SAME picked
+     * link on the OTHER engine once (libmpv's ffmpeg HLS parser is far more
+     * lenient than Media3's — if mpv plays it, the manifest is Media3-strict
+     * malformed rather than unfetchable; INVESTIGATION-4 §3.8). The attempt
+     * is counted by playRetryLink (the file's single attempts increment), so the
+     * 3-attempt budget still caps it all. Never re-resolves the provider.
+     * (v1.0.13 P6-B) The same one-shot other-engine retry serves
+     * DECODE_ERROR / UNSUPPORTED_FORMAT (label "DECODE"): the failure is in
+     * this engine's decoder stack, so the other engine is the retry.
+     */
+    private suspend fun retryOtherEngine(ap: ActivePlay, label: String = "MALFORMED") {
+        // A newer play() replaces the session — a late error must not
+        // restart an old title.
+        if (activePlay !== ap) return
+        val other = if (isMpv()) "exoplayer" else "libmpv"
+        EngineLogger.log("player", "retry $label — trying other engine $other once (attempts=${ap.attempts} session=${ap.session})")
+        if (other == "libmpv" && (mpvPlayer.isVoFailed() || !mpvPlayer.ensureCreated())) {
+            failPlaySession(ap, "retry MALFORMED — other engine libmpv unavailable, no retry left (attempts=${ap.attempts} session=${ap.session})")
+            return
+        }
+        val candidate = ap.ranked[ap.index]
+        // One-shot override: playRetryLink -> playActive reads it
+        // synchronously, and it is cleared right after that call returns.
+        oneShotEngineOverride = other
+        try {
+            playRetryLink(ap, ap.ranked, ap.index, candidate)
+        } finally {
+            oneShotEngineOverride = null
+        }
     }
 
     fun markReady() {
@@ -1695,7 +1903,16 @@ class ZaynEngine(
     private suspend fun resolveLinks(params: JSONObject): Pair<ResolvedLinks?, String?> {
         val providerName = params.optString("providerName", "")
         val api = resolveApi(providerName, null) ?: return null to "provider_not_found"
+        // (v1.0.13 P2-C P1) Provider Loaded.
+        providerDiag("P1", "Provider Loaded", "provider=$providerName")
         val data = resolveLinkData(params, api) ?: return null to "no_data"
+        // (v1.0.13 P2-C P2) LoadData Completed.
+        providerDiag("P2", "LoadData Completed", "shape=${loadDataShape(data)}")
+        val dataSource = when {
+            params.optString("episodeData", "").isNotBlank() -> "episodeData"
+            params.optString("data", "").isNotBlank() -> "data"
+            else -> "fresh"
+        }
         val settingSec = parseSeconds(store.getSettingString("timeout", "30s"))
         val timeoutSec = params.optInt("timeoutSec", settingSec).coerceIn(1, 120)
         val foundLinks = mutableListOf<ExtractorLink>()
@@ -1703,14 +1920,40 @@ class ZaynEngine(
         var partial = false
         var timedOut = false
         var linksError: String? = null
+        var loadLinksOk = false
+        // (v1.0.13 P2-A) Universal data adapter: normalize Id JSON to
+        // LoadData JSON BEFORE loadLinks (see normalizeLoadData) — the
+        // Id-parse runs before any fresh load, so a fresh load returning
+        // the SAME title-less data can no longer kill the play
+        // (INVESTIGATION-4 §4.4 fallback gap).
+        val playTitle = params.optString("title", "")
+        val normalized = normalizeLoadData(data, playTitle)
+        if (normalized != null) {
+            EngineLogger.log("bridge", "loadData normalized shape=id source=$dataSource titlePresent=${playTitle.isNotBlank()}")
+        }
+        val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
+        // Data that is not JSON at all (a plain URL) is never passed to
+        // loadLinks as a raw URL (v1.0.5 E1) — it goes to the fresh-load
+        // path below instead. When no fresh-load path exists (no page URL
+        // at all) the direct attempt stays as the last resort.
+        val skipDirectLoadLinks = normalized == null && !isJsonObject(data) && pageUrl.isNotBlank()
+        if (skipDirectLoadLinks) {
+            EngineLogger.log("bridge", "loadData non-JSON data — skipping direct loadLinks, using fresh-load path shape=${loadDataShape(data)} source=$dataSource")
+        }
+        val dataForLinks = normalized ?: data
         try {
             withTimeout(timeoutSec * 1000L) {
                 // (v0.2.9) Fix C: loadLinks now returns its cause.
-                val linksResult = APIRepository(api).loadLinks(data, false, { s -> foundSubs += s }) { l -> foundLinks += l }
-                if (!linksResult.ok) {
-                    partial = foundLinks.isEmpty()
-                    linksError = linksResult.error
-                    linksResult.error?.let { EngineLogger.log("bridge", "resolveLinks loadLinks failed: $it") }
+                if (!skipDirectLoadLinks) {
+                    val linksResult = APIRepository(api).loadLinks(dataForLinks, false, { s -> foundSubs += s }) { l -> foundLinks += l }
+                    if (linksResult.ok) {
+                        loadLinksOk = true
+                    } else {
+                        partial = foundLinks.isEmpty()
+                        linksError = linksResult.error
+                        linksResult.error?.let { EngineLogger.log("bridge", "resolveLinks loadLinks failed: $it") }
+                        if (isDeserializationError(linksError)) logDataShapeOnFailure(dataForLinks, dataSource)
+                    }
                 }
             }
         } catch (e: TimeoutCancellationException) {
@@ -1723,10 +1966,12 @@ class ZaynEngine(
         // is not the cause. Fall back ONCE to a fresh load(url) ->
         // loadDataOf(resp) (for a series: the FIRST episode's data, which
         // normally carries a title) and retry loadLinks with that data.
-        if (linksError != null && isDeserializationError(linksError) && !timedOut) {
-            val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
+        // (v1.0.13 P2-A) The fallback also runs when the direct loadLinks
+        // was skipped for non-JSON data (skipDirectLoadLinks) — the fresh
+        // load IS the path for that data.
+        if ((linksError != null && isDeserializationError(linksError) && !timedOut) || (skipDirectLoadLinks && !timedOut)) {
             if (pageUrl.isNotBlank()) {
-                val freshData = try {
+                var freshData = try {
                     val loaded = APIRepository(api).load(pageUrl)
                     val resp = (loaded as? Resource.Success<LoadResponse>)?.value
                     if (resp != null) loadDataOf(resp) else null
@@ -1734,7 +1979,18 @@ class ZaynEngine(
                     null
                 }
                 if (freshData != null && freshData.isNotBlank() && freshData != data) {
-                    EngineLogger.log("bridge", "resolveLinks deserialization failure — retrying loadLinks with fresh load() data")
+                    if (skipDirectLoadLinks) {
+                        EngineLogger.log("bridge", "resolveLinks non-JSON data — retrying loadLinks with fresh load() data")
+                    } else {
+                        EngineLogger.log("bridge", "resolveLinks deserialization failure — retrying loadLinks with fresh load() data")
+                    }
+                    // (v1.0.13 P2-A) The fresh data can be Id JSON too —
+                    // normalize it before the retry, same as the direct data.
+                    val freshNormalized = normalizeLoadData(freshData, playTitle)
+                    if (freshNormalized != null) {
+                        EngineLogger.log("bridge", "loadData normalized shape=id source=fresh titlePresent=${playTitle.isNotBlank()}")
+                        freshData = freshNormalized
+                    }
                     val retryLinks = mutableListOf<ExtractorLink>()
                     val retrySubs = mutableListOf<SubtitleFile>()
                     try {
@@ -1747,8 +2003,10 @@ class ZaynEngine(
                                 foundSubs += retrySubs
                                 partial = false
                                 linksError = null
+                                loadLinksOk = true
                             } else {
                                 retryResult.error?.let { EngineLogger.log("bridge", "resolveLinks fallback loadLinks failed: $it") }
+                                if (isDeserializationError(retryResult.error)) logDataShapeOnFailure(freshData, "fresh")
                             }
                         }
                     } catch (e: TimeoutCancellationException) {
@@ -1758,6 +2016,14 @@ class ZaynEngine(
                 }
             }
         }
+        // (v1.0.13 P2-C P3) LoadLinks Completed — only when a loadLinks call
+        // actually returned ok (direct or fallback).
+        if (loadLinksOk) {
+            providerDiag("P3", "LoadLinks Completed", "links=${foundLinks.size} partial=$partial")
+        }
+        // (v1.0.13 P2-C P4) Extractor Completed — the extraction result as
+        // assembled (links + subtitles), whatever the outcome.
+        providerDiag("P4", "Extractor Completed", "links=${foundLinks.size} subs=${foundSubs.size}")
         return ResolvedLinks(api, foundLinks, foundSubs, partial, timedOut) to null
     }
 
@@ -1772,6 +2038,179 @@ class ZaynEngine(
             msg.contains("MismatchedInputException") ||
             msg.contains("InvalidDefinitionException") ||
             msg.contains("JsonProcessingException")
+    }
+
+    // (v1.0.13 P2-A) Universal data adapter helpers. The provider's loadLinks
+    // parses `data` as LoadData (id + title, both required), but some
+    // providers emit Id JSON ({"id":"..."}) with no title — and loadLinks
+    // only ever USES the id (INVESTIGATION-4 §4.1). Never let a missing
+    // UNUSED field fail link resolution.
+    /** Shape label for a data string: "loaddata" (has a non-null title),
+     * "id" (has a non-null id but no title), "other" (anything else). */
+    private fun loadDataShape(data: String): String {
+        val obj = try {
+            JSONObject(data)
+        } catch (e: Exception) {
+            return "other" // not a JSON object (plain URL, malformed JSON)
+        }
+        return when {
+            !obj.isNull("title") -> "loaddata"
+            !obj.isNull("id") -> "id"
+            else -> "other"
+        }
+    }
+
+    /** True when `data` parses as a JSON object — tells a plain URL apart
+     * from LoadData/Id JSON. (A try-parse, not a brace-literal test: the
+     * gate counts braces naively, string literals included.) */
+    private fun isJsonObject(data: String): Boolean {
+        return try {
+            JSONObject(data)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Normalize a data string to LoadData JSON, or null to leave it as-is:
+     * LoadData JSON passes through; Id JSON gets "title" injected from the
+     * play params (or ""); non-JSON data (a plain URL) and JSON with BOTH
+     * id and title missing are left alone — a raw URL is never passed to
+     * loadLinks as a fake LoadData, and an id is never invented.
+     */
+    private fun normalizeLoadData(data: String, title: String): String? {
+        val obj = try {
+            JSONObject(data)
+        } catch (e: Exception) {
+            return null // not JSON at all (plain URL) or malformed: fresh-load path
+        }
+        if (!obj.isNull("title")) return null // already LoadData shape
+        if (obj.isNull("id")) return null // neither id nor title: no id to use
+        val normalized = JSONObject()
+        for (key in obj.keys()) normalized.put(key, obj.get(key))
+        normalized.put("title", title)
+        return normalized.toString()
+    }
+
+    /** (v1.0.13 P2-A) First ~200 chars of a data string for the failure log —
+     * ONLY when it is a JSON object with no token-like content (no "?", no
+     * "::", no "in="). Anything else returns null: the log then carries just
+     * the shape label, never a URL with a signed query. */
+    private fun dataShapeSnippet(data: String): String? {
+        try {
+            JSONObject(data)
+        } catch (e: Exception) {
+            return null // not a JSON object: never snippet a URL
+        }
+        if (data.contains("?") || data.contains("::") || data.contains("in=")) return null
+        return data.take(200)
+    }
+
+    /** (v1.0.13 P2-A) Log the data shape on a deserialization failure, plus
+     * which source supplied the data (episodeData vs data vs fresh load). */
+    private fun logDataShapeOnFailure(data: String, source: String) {
+        val snippet = dataShapeSnippet(data)
+        EngineLogger.log(
+            "bridge",
+            "loadData deserialization failed shape=${loadDataShape(data)} source=$source" +
+                if (snippet != null) " data=$snippet" else " data=<redacted>",
+        )
+    }
+
+    // (v1.0.13 P2-B) Redact signed-token query values before logging a URL:
+    // `in=<redacted>` — never log a live token (INVESTIGATION-4 §3.5).
+    private fun redactUrlForLog(url: String?): String {
+        if (url.isNullOrBlank()) return "none"
+        return url.replace(Regex("([?&]in=)[^&]*"), "$1<redacted>")
+    }
+
+    /** (v1.0.13 P2-B) Cause chain of a playback error, token-redacted, at most 5 deep. */
+    private fun causeChainForLog(error: Throwable): String {
+        val parts = mutableListOf<String>()
+        var c = error.cause
+        var depth = 0
+        while (c != null && depth < 5) {
+            parts += "${c.javaClass.simpleName}: ${redactUrlForLog(c.message)}"
+            c = c.cause
+            depth++
+        }
+        return if (parts.isEmpty()) "none" else parts.joinToString(" <- ")
+    }
+
+    /** (v1.0.13 P2-B) Age in ms of a ::(<epoch-seconds>):: token segment in
+     * a URL, or null when the URL carries no such token. Never logs the token. */
+    private fun tokenAgeMs(url: String?): Long? {
+        if (url.isNullOrBlank()) return null
+        val epochSec = Regex("[?&]in=[^&]*::(\\d{9,11})::").find(url)
+            ?.groupValues?.get(1)?.toLongOrNull()
+            ?: Regex("::(\\d{9,11})::").find(url)
+                ?.groupValues?.get(1)?.toLongOrNull()
+            ?: return null
+        return System.currentTimeMillis() - epochSec * 1000L
+    }
+
+    /** (v1.0.13 P2-B) "tokenAgeMs=<ms>" when the URL carries an epoch token, else "". */
+    private fun tokenAgeSuffix(url: String?): String {
+        val age = tokenAgeMs(url) ?: return ""
+        return " tokenAgeMs=$age"
+    }
+
+    // (v1.0.13 P3-A) Manifest-validation cache, keyed by the EXACT URL
+    // instance: a re-resolve mints a new token, hence a new key, so a
+    // cached failure can never poison a fresh URL. BOTH passes and
+    // failures are cached — a retry that re-probes the same URL must not
+    // re-fetch (and re-burn) it. Bounded: cleared past 64 entries.
+    private val manifestValidationCache = ConcurrentHashMap<String, ManifestValidation>()
+    // (v1.0.13 P3-A) Largest manifest the validator will read (2 MB):
+    // a real HLS/DASH manifest is kilobytes (Castle TV's is 67 KB).
+    private val maxManifestBytes = 2 * 1024 * 1024
+
+    /** (v1.0.13 P3-A) Outcome of validating one manifest link. `ok` is
+     * true only when the REAL parser validated the full manifest;
+     * `reason` names the failure (token-redacted) for the probe log. */
+    private data class ManifestValidation(
+        val ok: Boolean,
+        val manifestType: String, // "HLS" / "DASH" / "direct"
+        val isMultivariant: Boolean,
+        val childrenChecked: Int,
+        val reason: String? = null,
+    )
+
+    /** (v1.0.13 P3-A) One child-playlist check outcome: how many children
+     * were fetched, and the first failure (token-redacted), if any. */
+    private data class ChildCheckResult(
+        val checked: Int,
+        val failure: String?,
+    )
+
+    /** (v1.0.13 P3-A) One manifest fetch: HTTP status, content type, full
+     * body text, and whether the body exceeded [maxManifestBytes]. */
+    private data class ManifestFetch(
+        val status: Int,
+        val contentType: String,
+        val body: String,
+        val tooLarge: Boolean,
+    )
+
+    // (v1.0.13 P3-C) Last link whose headers were built, for the
+    // per-provider isolation check in validateManifestLink.
+    private var lastHeaderSource: String? = null
+    private var lastHeaders: Map<String, String> = emptyMap()
+
+    /** (v1.0.13 P2-C) Provider-side diagnostics P1–P7, same field shape as
+     * the L1–L12 player events (diag <code> <name> session=... engine=...
+     * ts=...). NOTE: P1–P6 fire during resolve/rank/probe, before the new
+     * play's session id is fixed at play time, so on the INITIAL play they
+     * carry the previous session's counter; P7 (after playActive) carries
+     * the new one. Correlate P1–P6 by ts. */
+    private fun providerDiag(code: String, name: String, note: String = "") {
+        EngineLogger.log(
+            "player",
+            "diag $code $name session=$playSessionCounter engine=${if (isMpv()) "libmpv" else "exoplayer"} " +
+                "ts=${System.currentTimeMillis()}" +
+                if (note.isNotEmpty()) " $note" else "",
+        )
     }
 
     private fun parseSeconds(raw: String): Int =
@@ -1870,7 +2309,7 @@ class ZaynEngine(
             // without its token). Drop it before ranking.
             val path = link.url.substringBefore('?').substringBefore('#')
             if (path.endsWith(".txt", ignoreCase = true)) {
-                EngineLogger.log("player", "rankLinks dropped .txt link ${link.source} ${link.url}")
+                EngineLogger.log("player", "rankLinks dropped .txt link ${link.source} ${redactUrlForLog(link.url)}")
                 return@filter false
             }
             // ExtractorLinkType has only VIDEO / M3U8 / DASH besides the
@@ -1896,75 +2335,118 @@ class ZaynEngine(
         // Measure TTFB for the top 8 by score only (keeps the call fast).
         val top = scored.sortedByDescending { it.second.first }.take(8).map { it.first }
         val ttfb = measureTtfb(top)
-        return scored.map { (link, scoreAudio) ->
+        val ranked = scored.map { (link, scoreAudio) ->
             RankedLink(link, scoreAudio.first, ttfb[link], scoreAudio.second)
         }.sortedWith(
             compareByDescending<RankedLink> { it.score }
                 .thenBy { it.ttfbMs ?: Long.MAX_VALUE },
         )
+        // (v1.0.13 P2-C P5) Stream Resolved.
+        if (ranked.isNotEmpty()) {
+            providerDiag("P5", "Stream Resolved", "links=${ranked.size}")
+        }
+        return ranked
     }
 
     private suspend fun measureTtfb(links: List<ExtractorLink>): Map<ExtractorLink, Long?> {
         return coroutineScope {
             links.map { link ->
                 async {
-                    val ms = try {
-                        withTimeout(3000) {
-                            val req = Request.Builder().url(link.url)
-                                .apply { link.getAllHeaders().forEach { (k, v) -> header(k, v) } }
-                                .header("Range", "bytes=0-0").build()
-                            com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use {
-                                it.body?.close()
-                                // (v1.0.4) Server-only TTFB: response-received
-                                // minus request-sent excludes DNS + TCP + TLS
-                                // setup, which dominated the old wall-clock
-                                // number (~1 s on a fresh mobile connection)
-                                // and made every server look equally slow. A
-                                // genuinely slow server still reports high.
-                                (it.receivedResponseAtMillis - it.sentRequestAtMillis)
-                                    .coerceAtLeast(0)
+                    // (v1.0.13 P3-B) Mechanism (b) — the signed URL is NEVER
+                    // fetched before play by TTFB or the 2KB probe: either
+                    // fetch could burn a single-use token (INVESTIGATION-4
+                    // §5.3(d)). The validator (probePlayable ->
+                    // validateManifestLink) performs the SINGLE pre-play
+                    // fetch of the picked URL, right before play, and its
+                    // result is cached per URL instance. An unmeasured
+                    // signed link ranks after measured ones at the same
+                    // score (ttfbMs=null) — honestly, not invented.
+                    if (ZaynHeaderManager.isSignedUrl(link.url)) {
+                        EngineLogger.log("player", "ttfb skipped signed URL ${link.source} url=${redactUrlForLog(link.url)}")
+                        link to null
+                    } else {
+                        val ms = try {
+                            withTimeout(3000) {
+                                val req = Request.Builder().url(link.url)
+                                    .apply { ZaynHeaderManager.headersFor(link).forEach { (k, v) -> header(k, v) } }
+                                    .header("Range", "bytes=0-0").build()
+                                com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use {
+                                    it.body?.close()
+                                    // (v1.0.4) Server-only TTFB: response-received
+                                    // minus request-sent excludes DNS + TCP + TLS
+                                    // setup, which dominated the old wall-clock
+                                    // number (~1 s on a fresh mobile connection)
+                                    // and made every server look equally slow. A
+                                    // genuinely slow server still reports high.
+                                    (it.receivedResponseAtMillis - it.sentRequestAtMillis)
+                                        .coerceAtLeast(0)
+                                }
                             }
+                        } catch (e: Exception) {
+                            null
                         }
-                    } catch (e: Exception) {
-                        null
+                        link to ms
                     }
-                    link to ms
                 }
             }.awaitAll().toMap()
         }
     }
 
     /**
-     * (v1.0.5 B1) Probe ONLY the picked link (cheap: one ranged GET, the
-     * same shape as the TTFB probe, 3 s cap). Returns false — skip this
-     * link — when the server answers with a web page / plain text instead
-     * of media, or with a 1–2 byte stub body (AllMovieLand's .txt returns
-     * "11" without its token). Fail-OPEN on any probe error (timeout, no
-     * headers): a failed probe must never block a playable link;
-     * ExoPlayer + the auto-retry are the backstop.
-     * One deliberate carve-out: text/plain is only a skip for non-manifest
-     * links — a genuine .m3u8 playlist is often served as text/plain.
+     * (v1.0.13 P3-A) Probe = full-manifest validation for manifest links.
+     * The v1.0.7 2KB head check could not see a malformed body past byte
+     * 2048 or a bad child playlist, and ExoPlayer rejected links the probe
+     * passed (INVESTIGATION-4 §3.2). The picked link must now pass the
+     * real validator (validateManifestLink) before it is played; the head
+     * check survives only as a pre-filter inside the validator. A manifest
+     * that fails validation is skipped and the P2 retry policy moves to
+     * the next ranked link / other engine — it is NEVER sent to the player.
+     * Fail-OPEN only when validation itself is unavailable (transport
+     * error/timeout): no verdict exists then, and ExoPlayer + the retry
+     * are the backstop. Non-manifest (direct video) links keep the old
+     * cheap ranged probe — there is no manifest to parse.
+     * (v1.0.13 P3-B) Signed URLs are never burned by a TTFB/2KB pre-fetch:
+     * the validator's single full-manifest fetch is the ONLY pre-play
+     * fetch of that URL, and its result is cached per URL instance, so a
+     * retry that re-probes the same URL does not fetch (or burn) it again.
      */
     private suspend fun probePlayable(link: ExtractorLink): Boolean {
+        val isManifest = link.type == ExtractorLinkType.M3U8 ||
+            link.type == ExtractorLinkType.DASH
+        if (isManifest) {
+            val validated = validateManifestLink(link)
+            if (validated == null) {
+                // Validation unavailable (transport error/timeout) — no
+                // verdict; fail open and let ExoPlayer decide.
+                EngineLogger.log("player", "probe ok (validation unavailable, fail-open) ${link.source} url=${redactUrlForLog(link.url)}${tokenAgeSuffix(link.url)}")
+                providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code validation-unavailable source=${link.source}")
+                return true
+            }
+            if (!validated.ok) {
+                EngineLogger.log("player", "probe skipped ${link.source} url=${redactUrlForLog(link.url)} (${validated.reason})")
+                return false
+            }
+            EngineLogger.log("player", "probe ok ${link.source} url=${redactUrlForLog(link.url)}${tokenAgeSuffix(link.url)}")
+            // (v1.0.13 P3-A) P6 VERIFIED — the real parser validated this
+            // manifest (type, multivariant yes/no, children checked).
+            providerDiag("P6", "Stream Validated", "VERIFIED type=${validated.manifestType} multivariant=${validated.isMultivariant} childrenChecked=${validated.childrenChecked} source=${link.source}")
+            return true
+        }
+        if (ZaynHeaderManager.isSignedUrl(link.url)) {
+            // (v1.0.13 P3-B) A signed direct-video URL gets NO pre-play
+            // fetch at all (no TTFB, no probe): the token is spent only by
+            // the player. There is no manifest to validate, so P6 stays
+            // UNVERIFIED-by-code for this link.
+            EngineLogger.log("player", "probe skipped signed URL (no pre-play fetch) ${link.source} url=${redactUrlForLog(link.url)}")
+            providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code signed-direct source=${link.source}")
+            return true
+        }
         return try {
             withTimeout(3000) {
-                val isManifest = link.type == ExtractorLinkType.M3U8 ||
-                    link.type == ExtractorLinkType.DASH
                 val req = Request.Builder().url(link.url)
-                    .apply { link.getAllHeaders().forEach { (k, v) -> header(k, v) } }
-                    // (v1.0.7) Manifest links fetch the first 2 KB so the
-                    // body can be validated below. The old bytes=0-0 range
-                    // returns exactly 1 byte — a literal "read the first
-                    // 2 KB" check on it would fail every manifest link.
-                    .header("Range", if (isManifest) "bytes=0-2047" else "bytes=0-0").build()
+                    .apply { ZaynHeaderManager.headersFor(link).forEach { (k, v) -> header(k, v) } }
+                    .header("Range", "bytes=0-0").build()
                 com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use { resp ->
-                    // (v1.0.7) Read the head of the body BEFORE closing it:
-                    // a malformed/empty/JSON-error manifest with a benign
-                    // content-type used to pass the probe and fail inside
-                    // ExoPlayer as PARSING_MANIFEST_MALFORMED. Read with a
-                    // manual loop so a short body (< 2 KB) is a short
-                    // read, not an exception; a real read error propagates
-                    // to the fail-open catch below.
                     val head = ByteArray(2048)
                     var headLen = 0
                     resp.body?.byteStream()?.use { stream ->
@@ -1975,9 +2457,6 @@ class ZaynEngine(
                         }
                     }
                     val ct = (resp.header("Content-Type") ?: "").lowercase()
-                    // Total length: Content-Range ("bytes 0-0/<total>") for
-                    // a 206, else Content-Length. (A 206's Content-Length
-                    // is the 1-byte range, not the file — never use it.)
                     val totalLen: Long? = if (resp.code == 206) {
                         resp.header("Content-Range")?.substringAfter('/', "")?.toLongOrNull()
                     } else {
@@ -1985,29 +2464,359 @@ class ZaynEngine(
                     }
                     val reason = when {
                         ct.startsWith("text/html") -> "content-type text/html"
-                        ct.startsWith("text/plain") &&
-                            link.type != ExtractorLinkType.M3U8 &&
-                            link.type != ExtractorLinkType.DASH -> "content-type text/plain"
+                        ct.startsWith("text/plain") -> "content-type text/plain"
                         totalLen != null && totalLen in 1..2 -> "stub body ($totalLen bytes)"
-                        isManifest && !isValidManifest(link.type, head, headLen) -> "not a valid M3U8/DASH manifest"
                         else -> null
                     }
                     if (reason != null) {
-                        EngineLogger.log("player", "probe skipped ${link.source} ${link.url} ($reason)")
+                        EngineLogger.log("player", "probe skipped ${link.source} url=${redactUrlForLog(link.url)} ($reason)")
                         false
                     } else {
-                        // (v1.0.10 L4) Log probe PASS: skip/fail were already
-                        // logged, so without this line "probe passed" and
-                        // "probe never ran" were indistinguishable in the log.
-                        EngineLogger.log("player", "probe ok ${link.source} ${link.url}")
+                        EngineLogger.log("player", "probe ok ${link.source} url=${redactUrlForLog(link.url)}${tokenAgeSuffix(link.url)}")
+                        providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code direct-video source=${link.source}")
                         true
                     }
                 }
             }
         } catch (e: Exception) {
-            EngineLogger.log("player", "probe failed (fail-open) ${link.source}: ${e.message}")
+            EngineLogger.log("player", "probe failed (fail-open) ${link.source}: ${redactUrlForLog(e.message)}")
             true
         }
+    }
+
+    /**
+     * (v1.0.13 P3-A) Full-manifest validator for the PICKED link. Fetches
+     * the FULL manifest (no Range) and validates it with a REAL parser:
+     * the vendored HlsPlaylistParser (the Media3 HLS parser port already
+     * in this codebase, used by M3u8Helper — no new parser library) for
+     * HLS, Media3's DashManifestParser (media3-exoplayer-dash, already a
+     * dependency) for DASH. Returns null ONLY when validation itself was
+     * unavailable (transport error/timeout) — the caller fails open
+     * then; any other outcome is a verdict (ok or not) and is cached per
+     * URL instance. A parse failure means the link is unplayable: the
+     * parser's message is logged (token-redacted) and the link is
+     * skipped — never sent to the player.
+     */
+    private suspend fun validateManifestLink(link: ExtractorLink): ManifestValidation? {
+        val url = link.url
+        manifestValidationCache[url]?.let { cached ->
+            EngineLogger.log("player", "manifest validation cached ok=${cached.ok} source=${link.source} url=${redactUrlForLog(url)}")
+            return cached
+        }
+        val headers = ZaynHeaderManager.headersFor(link)
+        // (v1.0.13 P3-C) Per-provider isolation check against the last
+        // link's headers (only across providers — same-provider links
+        // legitimately share headers). A violation is logged, never
+        // blocking: the headers sent are still built only from this link.
+        if (lastHeaderSource != null && lastHeaderSource != link.source &&
+            !ZaynHeaderManager.isIsolated(headers, lastHeaders)
+        ) {
+            EngineLogger.log("player", "header isolation WARNING source=${link.source} shares Referer/headers with $lastHeaderSource — headers still built only from this link")
+        }
+        lastHeaderSource = link.source
+        lastHeaders = headers
+        val result = try {
+            validateManifestFetch(link, headers)
+        } catch (e: TimeoutCancellationException) {
+            EngineLogger.log("player", "manifest validation timeout source=${link.source} url=${redactUrlForLog(url)}")
+            null
+        } catch (e: Exception) {
+            EngineLogger.log("player", "manifest validation unavailable source=${link.source}: ${redactUrlForLog(e.message)}")
+            null
+        }
+        if (result != null) {
+            if (manifestValidationCache.size >= 64) manifestValidationCache.clear()
+            manifestValidationCache[url] = result
+        }
+        return result
+    }
+
+    /**
+     * (v1.0.13 P3-A) Fetch the full manifest and run the verdict checks
+     * in order: size cap, HTTP status, HTML error page, head pre-filter,
+     * then the real parser. Throws on transport error (caller fails
+     * open); every other outcome is a ManifestValidation verdict.
+     * No Range header is sent here — the validator reads the FULL
+     * manifest, and a ranged fetch would be a second pre-play fetch
+     * that could burn a single-use token (P3-B).
+     */
+    private suspend fun validateManifestFetch(
+        link: ExtractorLink,
+        headers: Map<String, String>,
+    ): ManifestValidation {
+        val url = link.url
+        val typeName = if (link.type == ExtractorLinkType.DASH) "DASH" else "HLS"
+        val fetch = fetchManifestText(link, url, headers)
+        if (fetch.tooLarge) {
+            return ManifestValidation(false, typeName, false, 0, "manifest exceeds 2 MB")
+        }
+        if (fetch.status != 200) {
+            return ManifestValidation(false, typeName, false, 0, "manifest HTTP ${fetch.status} contentType=${fetch.contentType}")
+        }
+        val head = fetch.body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+        // (v1.0.13 P3-A) HTML error pages must NEVER reach the player:
+        // a text/html body (or an HTML document body) is a validation
+        // failure, logged with status + content type.
+        if (fetch.contentType.startsWith("text/html") ||
+            head.startsWith("<html", ignoreCase = true) ||
+            head.startsWith("<!doctype html", ignoreCase = true)
+        ) {
+            return ManifestValidation(false, typeName, false, 0, "HTML error page status=${fetch.status} contentType=${fetch.contentType}")
+        }
+        // The 2KB head check survives ONLY as a cheap pre-filter: a body
+        // that fails it is rejected before the real parser runs; a body
+        // that passes it is still fully parsed below.
+        val headBytes = fetch.body.toByteArray(Charsets.UTF_8)
+        if (!isValidManifest(link.type, headBytes, minOf(headBytes.size, 2048))) {
+            return ManifestValidation(false, typeName, false, 0, "not a valid M3U8/DASH manifest")
+        }
+        return when (link.type) {
+            ExtractorLinkType.DASH -> validateDash(link, url, fetch.body)
+            else -> validateHls(link, url, fetch.body, headers)
+        }
+    }
+
+    /**
+     * (v1.0.13 P3-A) Fetch one manifest URL in full (no Range), with the
+     * link's headers from the header manager and Cache-Control: no-store
+     * for signed URLs (P3-B). The body is capped at [maxManifestBytes].
+     */
+    private suspend fun fetchManifestText(
+        link: ExtractorLink,
+        url: String,
+        headers: Map<String, String>,
+        timeoutMs: Long = 10000,
+    ): ManifestFetch {
+        return withTimeout(timeoutMs) {
+            val req = Request.Builder().url(url)
+                .apply { headers.forEach { (k, v) -> header(k, v) } }
+                .apply {
+                    // (v1.0.13 P3-B) Signed URLs: never serve a manifest
+                    // fetch from cache, and never store one — a cacheable
+                    // error response must not be replayed to the player.
+                    ZaynHeaderManager.cacheControlFor(url)?.let { header("Cache-Control", it) }
+                }
+                .build()
+            com.lagradost.cloudstream3.app.baseClient.newCall(req).execute().use { resp ->
+                val ct = (resp.header("Content-Type") ?: "").lowercase()
+                val buf = ByteArray(maxManifestBytes + 1)
+                var len = 0
+                resp.body?.byteStream()?.use { stream ->
+                    while (len < buf.size) {
+                        val r = stream.read(buf, len, buf.size - len)
+                        if (r == -1) break
+                        len += r
+                    }
+                }
+                val tooLarge = len > maxManifestBytes
+                ManifestFetch(
+                    resp.code,
+                    ct,
+                    buf.copyOf(minOf(len, maxManifestBytes)).decodeToString(),
+                    tooLarge,
+                )
+            }
+        }
+    }
+
+    // (v1.0.13 P7 fix-forward D-1) EXTINF duration shape: digits with an
+    // optional decimal part, followed by a comma.
+    private val extinfLineRegex = Regex("^#EXTINF:\\d+(\\.\\d+)?,")
+
+    /**
+     * (v1.0.13 P7 fix-forward D-1) MINIMAL media-playlist structural
+     * check: every `#EXTINF:` line must be `#EXTINF:<number>,` — integer
+     * and float durations are both valid (`#EXTINF:10,` and
+     * `#EXTINF:10.0,` pass; `#EXTINF:abc,` fails). No other structural
+     * rule is checked here — no segment count, no ENDLIST, no
+     * duration-range check. HlsPlaylistParser.parse returns null for
+     * non-multivariant input (there is no media-playlist parse entry
+     * point in the vendored parser), so this line check is the coverage
+     * for media playlists. Used by the validateHls media branch and by
+     * checkChildPlaylists for media children. Returns the failure reason
+     * (naming the offending line), or null when every EXTINF line is
+     * well-formed.
+     */
+    private fun malformedExtinfLine(text: String): String? {
+        val bad = text.lines().firstOrNull { line ->
+            val t = line.trim()
+            t.startsWith("#EXTINF:") && !extinfLineRegex.containsMatchIn(t)
+        } ?: return null
+        return "media playlist has malformed EXTINF line: ${bad.trim()}"
+    }
+
+    /**
+     * (v1.0.13 P3-A) HLS validation with the REAL parser. A media
+     * playlist must carry segments; a multivariant playlist is parsed by
+     * HlsPlaylistParser (throws ParserException on a malformed tag — e.g.
+     * #EXT-X-STREAM-INF with no following line — exactly the shapes
+     * Media3 rejects as PARSING_MANIFEST_MALFORMED) and its variant +
+     * rendition child playlists are then probed too (L2).
+     */
+    private suspend fun validateHls(
+        link: ExtractorLink,
+        url: String,
+        body: String,
+        headers: Map<String, String>,
+    ): ManifestValidation {
+        val text = body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+        val isMultivariant = text.lines().any {
+            it.startsWith("#EXT-X-STREAM-INF") || it.startsWith("#EXT-X-I-FRAME-STREAM-INF")
+        }
+        if (!isMultivariant) {
+            if (!text.contains("#EXTINF") && !text.contains("#EXT-X-TARGETDURATION")) {
+                return ManifestValidation(false, "HLS", false, 0, "media playlist has no segments")
+            }
+            // (v1.0.13 P7 fix-forward D-1) The presence check above cannot
+            // see a malformed EXTINF line late in the playlist — run the
+            // minimal structural check before passing the link.
+            malformedExtinfLine(text)?.let { reason ->
+                return ManifestValidation(false, "HLS", false, 0, reason)
+            }
+            return ManifestValidation(true, "HLS", false, 0)
+        }
+        val parsed = try {
+            HlsPlaylistParser.parse(url, body)
+        } catch (e: Exception) {
+            // The parser's message names the failing tag/line — log it
+            // (token-redacted) so the next failure is self-diagnosing.
+            return ManifestValidation(false, "HLS", true, 0, "parser: ${redactUrlForLog(e.message)}")
+        }
+        if (parsed == null) {
+            return ManifestValidation(false, "HLS", true, 0, "parser returned no multivariant playlist")
+        }
+        if (parsed.variants.isEmpty()) {
+            return ManifestValidation(false, "HLS", true, 0, "multivariant playlist has no variants")
+        }
+        // Child playlists: variant URLs + audio/subtitle/video rendition
+        // URLs, with the top-level token re-attached (L2) — relative
+        // resolution drops the query, so a child fetched without the
+        // token would 404 on a CDN that requires it.
+        val childUrls = LinkedHashSet<String>()
+        parsed.variants.forEach { childUrls += reattachToken(url, it.url.toString()) }
+        (parsed.audios + parsed.subtitles + parsed.videos).forEach { rendition ->
+            rendition.url?.let { childUrls += reattachToken(url, it.toString()) }
+        }
+        val checked = checkChildPlaylists(link, headers, childUrls.toList())
+        if (checked.failure != null) {
+            return ManifestValidation(false, "HLS", true, checked.checked, checked.failure)
+        }
+        return ManifestValidation(true, "HLS", true, checked.checked)
+    }
+
+    /**
+     * (v1.0.13 P3-A) DASH validation with Media3's real parser
+     * (media3-exoplayer-dash, already a dependency — no new library):
+     * DashManifestParser throws ParserException on a malformed MPD,
+     * exactly the error ExoPlayer would raise at play time.
+     */
+    @OptIn(UnstableApi::class)
+    private fun validateDash(link: ExtractorLink, url: String, body: String): ManifestValidation {
+        return try {
+            DashManifestParser().parse(
+                Uri.parse(url),
+                ByteArrayInputStream(body.toByteArray(Charsets.UTF_8)),
+            )
+            ManifestValidation(true, "DASH", false, 0)
+        } catch (e: Exception) {
+            ManifestValidation(false, "DASH", false, 0, "parser: ${redactUrlForLog(e.message)}")
+        }
+    }
+
+    /**
+     * (v1.0.13 P3-A/L2) Re-attach the top-level URL's query (the signed
+     * token) to a resolved child URL that carries none. RFC 3986 drops
+     * the query on relative resolution, so a child resolved from a
+     * signed master URL loses `?in=...` unless it is put back here —
+     * before fetch AND before play (ExoPlayer resolves the same way, so
+     * the played manifest's children need the token too; that is a
+     * Phase 4 MediaSource concern, logged here for the next phase).
+     * NOTE (v1.0.13 P4-A): ZaynHeaderManager.reattachToken is the SAME
+     * rule, verbatim, for ExoPlayer's own child/segment requests at
+     * play time — the two MUST stay identical.
+     */
+    private fun reattachToken(topUrl: String, childUrl: String): String {
+        if (childUrl.contains("?")) return childUrl
+        val query = topUrl.substringAfter("?", "").substringBefore("#")
+        if (query.isEmpty()) return childUrl
+        val hashIdx = childUrl.indexOf('#')
+        return if (hashIdx >= 0) {
+            childUrl.substring(0, hashIdx) + "?" + query + childUrl.substring(hashIdx)
+        } else {
+            "$childUrl?$query"
+        }
+    }
+
+    /**
+     * (v1.0.13 P3-A/L2) Probe every child playlist of a multivariant
+     * manifest (fetched in parallel, 5 s each, at most 8 — a master
+     * playlist rarely declares more). A child that 404s, returns HTML,
+     * is not an M3U8 manifest, or has no segments makes the whole link
+     * unplayable: the link is skipped and the P2 retry moves on. (P7
+     * fix-forward D-2) A child that declares variants is ALSO run through
+     * HlsPlaylistParser, and a media child through the minimal EXTINF
+     * check (D-1) — the status/head/segment checks alone let a malformed
+     * child through to ExoPlayer. The child URI is logged token-redacted,
+     * with its status.
+     */
+    private suspend fun checkChildPlaylists(
+        link: ExtractorLink,
+        headers: Map<String, String>,
+        childUrls: List<String>,
+    ): ChildCheckResult = coroutineScope {
+        val toCheck = childUrls.take(8)
+        if (childUrls.size > toCheck.size) {
+            EngineLogger.log("player", "manifest children capped source=${link.source} checked=${toCheck.size} total=${childUrls.size}")
+        }
+        val results = toCheck.map { childUrl ->
+            async {
+                try {
+                    val fetch = fetchManifestText(link, childUrl, headers, timeoutMs = 5000)
+                    val basicFailure = when {
+                        fetch.status != 200 ->
+                            "child ${redactUrlForLog(childUrl)} HTTP ${fetch.status} contentType=${fetch.contentType}"
+                        fetch.contentType.startsWith("text/html") ->
+                            "child ${redactUrlForLog(childUrl)} HTML error page status=${fetch.status}"
+                        !fetch.body.trimStart('\uFEFF', ' ', '\t', '\r', '\n').startsWith("#EXTM3U") ->
+                            "child ${redactUrlForLog(childUrl)} not an M3U8 manifest"
+                        !fetch.body.contains("#EXTINF") && !fetch.body.contains("#EXT-X-TARGETDURATION") ->
+                            "child ${redactUrlForLog(childUrl)} media playlist has no segments"
+                        else -> null
+                    }
+                    if (basicFailure != null) return@async basicFailure
+                    // (v1.0.13 P7 fix-forward D-2) The checks above never
+                    // parse the child body — a master + malformed child
+                    // passed validation while ExoPlayer rejected it. Parse
+                    // children that declare variants with the real parser;
+                    // a throw fails the child (parser message, redacted).
+                    // Media children get the same minimal structural check
+                    // as the validateHls media branch (D-1).
+                    val body = fetch.body
+                    if (body.lines().any {
+                            it.trim().startsWith("#EXT-X-STREAM-INF") ||
+                                it.trim().startsWith("#EXT-X-I-FRAME-STREAM-INF")
+                        }
+                    ) {
+                        try {
+                            HlsPlaylistParser.parse(childUrl, body)
+                        } catch (e: Exception) {
+                            return@async "child ${redactUrlForLog(childUrl)} parser: ${redactUrlForLog(e.message)}"
+                        }
+                        // parse() returns null only for non-multivariant
+                        // input, which the STREAM-INF check above excludes;
+                        // a null here is not a failure.
+                        null
+                    } else {
+                        malformedExtinfLine(body)?.let { reason ->
+                            "child ${redactUrlForLog(childUrl)} $reason"
+                        }
+                    }
+                } catch (e: Exception) {
+                    "child ${redactUrlForLog(childUrl)} fetch failed: ${redactUrlForLog(e.message)}"
+                }
+            }
+        }.awaitAll()
+        ChildCheckResult(toCheck.size, results.firstOrNull { it != null })
     }
 
     /**
@@ -2132,7 +2941,7 @@ class ZaynEngine(
                     pickedIdx = i
                     break
                 }
-                EngineLogger.log("player", "play skipped unplayable pick ${c.link.source} ${c.link.url}")
+                EngineLogger.log("player", "play skipped unplayable pick ${c.link.source} ${redactUrlForLog(c.link.url)}")
             }
             if (pickedIdx < 0) {
                 return reject("playback_error", "No playable link found — the best links look like web pages, not video", requestId)
@@ -2201,9 +3010,15 @@ class ZaynEngine(
             qualityLabel = qualityLabel(link.quality),
             audio = picked.audio,
             referer = link.referer,
-            headers = link.getAllHeaders(),
+            headers = ZaynHeaderManager.headersFor(link),
             type = link.type,
         )
+        // (v1.0.13 P2-B T1) Log PlayLink.url (token-redacted) at construction:
+        // the V1.0.12 log showed the probe validating one token and the player
+        // preparing another (INVESTIGATION-4 §3.6 T1) — with the URL logged at
+        // construction, buildMediaItem and prepare, a second play path (if one
+        // exists) becomes visible.
+        EngineLogger.log("player", "playLink constructed url=${redactUrlForLog(link.url)} source=${link.source}${tokenAgeSuffix(link.url)}")
         // (v1.0.12 §7/§8) The session id is fixed BEFORE playActive so the
         // players' diagnostics carry it, and so the session the retry guard
         // reads is the one that just started.
@@ -2212,10 +3027,15 @@ class ZaynEngine(
         player.diagSessionId = session
         mpvPlayer.setDiagSessionId(session)
         playActive(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
+        // (v1.0.13 P2-C P7) Player Selected.
+        providerDiag("P7", "Player Selected", "engine=$lastActiveEngine")
         // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
         // name the picked link (URL + type + quality) in the log.
+        // (v1.0.13 P6-C) A new play clears the dead-session latch from any
+        // earlier failed session — the new session owns the controls now.
+        playbackFailed = false
         activePlay = ActivePlay(ranked, pickedIdx, 1, session, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title, params)
-        EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${link.url} session=$session")
+        EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${redactUrlForLog(link.url)} session=$session${tokenAgeSuffix(link.url)}")
         if (title.isNotBlank()) {
             store.putMapEntry(
                 EngineStore.KEY_LAST_LINK,
@@ -2285,6 +3105,15 @@ class ZaynEngine(
         // playerControl ids only, so whether the 4x "first frame rendered"
         // re-fires were seeks or surface re-attachment was unknowable.
         EngineLogger.log("player", "playerControl $action")
+        // (v1.0.13 P6-C) Dead-session latch (INVESTIGATION-4 §7.3): after a
+        // fatal error the session is over — seek/resume/toggle/rate would
+        // silently no-op on the dead player, so refuse them with
+        // playback_error until the next play() clears the flag.
+        // Volume/mute stay live (harmless on a dead session).
+        if (playbackFailed && (action == "seek" || action == "resume" || action == "toggle" || action == "rate")) {
+            EngineLogger.log("player", "playerControl $action rejected — dead session (playback_error)")
+            return err("playback_error", "Video could not be played")
+        }
         return when (action) {
             "toggle", "pause", "resume", "seek", "rate", "volume", "mute" -> {
                 val value = if (params.has("value") && !params.isNull("value")) params.optDouble("value") else null
