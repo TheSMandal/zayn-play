@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -325,25 +324,12 @@ class MainActivity : AppCompatActivity() {
         // Phase C: the headless player + downloads, owned here. Their
         // events flow back into the page via pushEngineEvent.
         playerSurface = findViewById(R.id.player_surface)
-        // (v1.0.8) Own the SurfaceTexture lifecycle: the app observes the
-        // texture directly and hands the Surface to the player itself.
-        // V1.0.7 proved Media3's setVideoTextureView cannot CREATE a
-        // SurfaceTexture — the TextureView had none at all — so the app
-        // must see the callback itself. setVideoSurface (used below) does
-        // NOT replace this listener, unlike setVideoTextureView.
-        playerSurface.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-                EngineLogger.log("player", "surfaceTexture available ${w}x${h}")
-                if (::zaynPlayer.isInitialized) zaynPlayer.setVideoSurfaceFromTexture(st)
-            }
-            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
-            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                EngineLogger.log("player", "surfaceTexture destroyed")
-                if (::zaynPlayer.isInitialized) zaynPlayer.clearVideoSurface()
-                return true
-            }
-            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
-        }
+        // (v1.0.9) NO app-owned SurfaceTextureListener: Media3's
+        // componentListener (registered via setVideoTextureView in
+        // ZaynPlayer.ensurePlayer) is the observer now. The V1.0.8
+        // listener is deleted because setVideoTextureView replaces
+        // whatever listener is set, and the raw-Surface attach it drove
+        // could only ever report size (-1,-1) to the sink.
         // (v1.0.5 A3) Re-assert the video hole on every playerState event
         // while the player is open, so one visible=false report — or a
         // missed report — cannot leave the surface GONE for the session.
@@ -574,14 +560,9 @@ class MainActivity : AppCompatActivity() {
             // Transparent WebView background while the surface shows, so
             // the page's transparent stage hole reveals the video below.
             if (::webView.isInitialized) setWebViewBackground(Color.TRANSPARENT)
-            // (v1.0.8) Attach the SurfaceTexture if one already exists.
-            // setVideoSurface does NOT replace the app's own
-            // SurfaceTextureListener (set in onCreate), unlike
-            // setVideoTextureView, which re-registers Media3's listener
-            // and cannot create a SurfaceTexture (V1.0.7 black screen).
-            playerSurface.surfaceTexture?.let { st ->
-                if (::zaynPlayer.isInitialized) zaynPlayer.setVideoSurfaceFromTexture(st)
-            }
+            // (v1.0.9) No raw-Surface attach here: the view is attached
+            // via setVideoTextureView in ZaynPlayer.ensurePlayer; a
+            // setVideoSurface call would remove Media3's listener.
             // (v1.0.4) The surface must be VISIBLE whenever the page says
             // the player is open, even if this report's rect is degenerate
             // (a 0-size rect used to leave it GONE while the page showed
@@ -666,6 +647,7 @@ class MainActivity : AppCompatActivity() {
             EngineLogger.log(
                 "playerStage",
                 "surface check surfaceTexture=${playerSurface.surfaceTexture != null} " +
+                    "surfaceSize=${if (::zaynPlayer.isInitialized) zaynPlayer.surfaceSizeText() else "n/a"} " +
                     "textureView=${playerSurface.width}x${playerSurface.height} visibility=$vis",
             )
         }, 200)
