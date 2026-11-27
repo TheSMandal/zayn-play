@@ -287,7 +287,7 @@ class MainActivity : AppCompatActivity() {
         zaynPlayer = ZaynPlayer(this) { type, data -> pushEngineEvent(type, data) }
         zaynPlayer.setSurface(playerSurface)
         zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
-        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope) { rect ->
+        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }) { rect ->
             onPlayerStageRect(rect)
         }
         engineScope.launch {
@@ -487,6 +487,11 @@ class MainActivity : AppCompatActivity() {
             if (::webView.isInitialized) webView.setBackgroundColor(Color.TRANSPARENT)
             val vw = rect.optDouble("vw", 0.0)
             val vh = rect.optDouble("vh", 0.0)
+            // (v1.0.4) The surface must be VISIBLE whenever the page says
+            // the player is open, even if this report's rect is degenerate
+            // (a 0-size rect used to leave it GONE while the page showed
+            // the player as open). Positioning follows on the next report.
+            playerSurface.visibility = View.VISIBLE
             if (vw <= 0 || vh <= 0 || webView.width <= 0) return@runOnUiThread
             val scale = webView.width / vw
             val x = (rect.optDouble("x", 0.0) * scale).toInt()
@@ -499,7 +504,6 @@ class MainActivity : AppCompatActivity() {
             params.leftMargin = x
             params.topMargin = y
             playerSurface.layoutParams = params
-            playerSurface.visibility = View.VISIBLE
         }
     }
 
