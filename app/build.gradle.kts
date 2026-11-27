@@ -122,6 +122,17 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // (v1.0.10) The libmpv 1.4.0 AAR's Kotlin metadata is mv 2.2.0, which
+        // kotlinc 1.9.24 refuses to read ("Module was compiled with an
+        // incompatible version of Kotlin", CI 46044585085) — even though no
+        // Kotlin code calls MPVLib (all MPVLib calls are from Java). Every
+        // published libmpv version is mv 2.2.0 (jdtech 1.0.0 verified the
+        // same), so downgrading the AAR cannot fix it and upgrading the
+        // Kotlin plugin would unfreeze the toolchain. This flag tells
+        // kotlinc to load the module anyway; MPVLib's API is plain classes
+        // with no 2.2-only metadata features, and the Java calls need no
+        // Kotlin metadata at all (javac ignores @Metadata).
+        freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 
     buildFeatures {
