@@ -326,7 +326,19 @@ class MainActivity : AppCompatActivity() {
                         return@launch
                     }
                     EngineLogger.log("bridge", "$method id=$id")
-                    val response = zaynEngine.call(method, params)
+                    // (v1.0.2) The native side must ALWAYS reply. A native
+                    // timeout used to cancel this coroutine (homeFeed
+                    // rethrows CancellationException) and skip engineReply,
+                    // so JS heard nothing until its own 150 s timer — the
+                    // Home skeleton spun with no error for up to 150 s.
+                    // A cancelled call now replies "timeout"; a JS side
+                    // that already timed out ignores the late reply
+                    // (__zaynReply is a no-op once pending is deleted).
+                    val response = try {
+                        zaynEngine.call(method, params)
+                    } catch (e: CancellationException) {
+                        engineError("timeout", "Engine timed out — try again")
+                    }
                     engineJobs.remove(id)
                     engineReply(id, response)
                 }
