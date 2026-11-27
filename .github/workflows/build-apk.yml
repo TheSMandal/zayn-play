@@ -55,6 +55,11 @@ jobs:
           m = re.search(r'CATALOGUE_REPOS.*?listOf\((.*?)\)', src, re.S)
           urls = re.findall(r'"(https?://[^"]+)"', m.group(1))
           print(f"{len(urls)} catalogue URLs")
+          if not urls:
+              # (v0.2.11) Target 15: the baked catalogue is removed — no
+              # repos by default, so there is nothing to check here.
+              print("catalogue empty by design (target 15); skipping URL check")
+              sys.exit(0)
           bad = []
           for u in urls:
               try:
@@ -71,6 +76,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: zayn-play-ui-0.2.10
+          name: zayn-play-ui-0.2.11
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
