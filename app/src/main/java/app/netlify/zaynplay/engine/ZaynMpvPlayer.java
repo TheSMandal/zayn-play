@@ -164,6 +164,13 @@ public class ZaynMpvPlayer {
                         + (note != null && !note.isEmpty() ? " " + note : ""));
     }
 
+    // (v1.0.12 CI fix, run 46061529038) Two-arg overload: 8 call sites
+    // (L1/L2/L3/L4/L5/L6/L7/L11) pass (code, name) only; javac rejected
+    // them against the 3-arg diag above. Delegates with an empty note.
+    private void diag(String code, String name) {
+        diag(code, name, "");
+    }
+
     // (v1.0.10) JSONObject.put throws checked JSONException, so every put
     // in this file must go through this helper (CI 46046097780: "unreported
     // exception JSONException" at 18 call sites). A put can only fail on a
