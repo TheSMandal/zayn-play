@@ -13,10 +13,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Decode fixed signing keystore
+        # (v0.2.10) Every build signs with ONE fixed keystore (the
+        # release keystore) so APKs update-install over each other.
+        # The build FAILS (requireFixedSigning) if this is missing
+        # rather than falling back to a fresh debug keystore.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
+          ls -l keystore.jks
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+          ./gradlew :app:assembleDebug --stacktrace \
+            -PfixedKeystoreFile="$PWD/keystore.jks" \
+            -PfixedKeystorePassword="${{ secrets.KEYSTORE_PASSWORD }}" \
+            -PfixedKeyAlias="${{ secrets.KEY_ALIAS }}" \
+            -PfixedKeyPassword="${{ secrets.KEY_PASSWORD }}" \
+            -PrequireFixedSigning=true
       - name: APK size and contents
         run: |
           APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
@@ -29,7 +44,10 @@ jobs:
         # (v0.2.2) The native CATALOGUE_REPOS map went stale in v0.2.1
         # (404 / malformed URLs) with nothing catching it. Every URL in
         # the map must answer HEAD 200, except turkish (known manifest
-        # 404, kept deliberately as manifestDead in the UI catalogue).
+        # 404, kept deliberately as manifestDead in the UI catalogue)
+        # and eclipsia (its dpdns.org host answers 403 to CI networks;
+        # listed on the CloudStream wiki as maintained, kept with its
+        # wiki plugin list — install may still work from a phone).
         run: |
           python3 - <<'EOF'
           import re, sys, urllib.request
@@ -45,7 +63,7 @@ jobs:
               except Exception as e:
                   code = getattr(e, 'code', None)
               print(u, '->', code)
-              if code != 200 and 'cs-kraptor' not in u:
+              if code != 200 and 'cs-kraptor' not in u and 'eclipsia' not in u:
                   bad.append((u, code))
           if bad:
               print('BAD URLS:', bad); sys.exit(1)
@@ -53,6 +71,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: zayn-play-ui-0.2.9
+          name: zayn-play-ui-0.2.10
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
