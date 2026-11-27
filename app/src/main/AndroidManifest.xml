@@ -10,6 +10,10 @@
          download notifications (best-effort; no runtime request in 0.2.0). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- (v1.0.2) In-app updater: Android refuses installs from apps that
+         have not declared this (targetSdk 34); without it the system
+         installer never opens after an update download. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Phase C: external-player launch (VLC / MX Player / JustPlayer)
          needs package visibility on Android 11+. -->
