@@ -690,7 +690,15 @@ class MainActivity : AppCompatActivity() {
                 "surface check surfaceTexture=${playerSurface.surfaceTexture != null} " +
                     "texId=${System.identityHashCode(playerSurface.surfaceTexture)} " +
                     "surfaceSize=${if (::zaynPlayer.isInitialized) zaynPlayer.surfaceSizeText() else "n/a"} " +
-                    "textureView=${playerSurface.width}x${playerSurface.height} visibility=$vis",
+                    "textureView=${playerSurface.width}x${playerSurface.height} visibility=$vis " +
+                    // (v1.0.10, faint-picture evidence 2026-11-27 ~23:09) Log the
+                    // TextureView's alpha too: a faint picture could be the view
+                    // drawing with low alpha, or a semi-opaque cover above it.
+                    // Code check: the layout sets NO alpha (default 1.0), no
+                    // setAlpha call exists anywhere, and the only persistent
+                    // stage dim is .vshade (top .36 / bottom .46 gradient,
+                    // middle transparent) — it dims, it cannot black out.
+                    "alpha=${playerSurface.alpha}",
             )
         }, 200)
     }
