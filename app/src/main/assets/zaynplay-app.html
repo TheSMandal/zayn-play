@@ -259,7 +259,30 @@
       }
       .prov-row button.on .pdot{ background:#fff !important; }
 
-      .hero{ position:relative; margin:10px 14px 0; border-radius:20px; overflow:hidden; }
+      .hero{ position:relative; margin:10px 14px 0; border-radius:20px; overflow:hidden; touch-action:pan-y; }
+      /* (v1.0.4) Home update banner + install dialog + compact player pop-ups */
+      .upd-banner{ margin:10px 14px 0; padding:10px 12px; border-radius:16px; background:linear-gradient(90deg,#e8261c,#b3000c); color:#fff; display:flex; flex-wrap:wrap; align-items:center; gap:8px; box-shadow:0 10px 22px -10px rgba(232,38,28,.7); }
+      .upd-banner[hidden]{ display:none; }
+      .upd-banner span{ flex:1 1 140px; font-size:13.5px; font-weight:700; }
+      .upd-banner button{ border:0; border-radius:99px; min-height:34px; padding:6px 14px; font-size:13px; font-weight:700; cursor:pointer; }
+      .upd-banner .upd-go{ background:#fff; color:#b3000c; }
+      .upd-banner .upd-re{ background:rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.5); }
+      .upd-prog{ flex:1 1 100%; height:6px; border-radius:99px; background:rgba(255,255,255,.3); overflow:hidden; }
+      .upd-prog[hidden]{ display:none; }
+      .upd-prog i{ display:block; height:100%; width:0%; background:#fff; border-radius:99px; }
+      .upd-pct{ flex:1 1 100%; font-size:12px; font-weight:600; margin:0; }
+      .upd-pct[hidden]{ display:none; }
+      .upd-card p{ margin:6px 0; font-size:13px; }
+      .upd-card .upd-prog{ background:rgba(128,128,128,.25); }
+      .upd-card .upd-prog i{ background:var(--app-accent); }
+      .repo-err{ color:#f87171; font-size:12.5px; margin:6px 14px 0; }
+      .zp-dlg{ position:fixed; inset:0; z-index:9999; display:none; align-items:flex-end; justify-content:center; background:rgba(0,0,0,.55); padding:16px; }
+      .zp-dlg.open{ display:flex; }
+      .zp-dlg-card{ width:min(360px,100%); background:var(--app-panel); color:var(--app-ink); border:1px solid var(--app-line); border-radius:20px; padding:18px; box-shadow:0 24px 48px -16px rgba(0,0,0,.7); }
+      .zp-dlg-card b{ font-size:16px; font-family:"Sora",sans-serif; }
+      .zp-dlg-card p{ font-size:13.5px; color:var(--app-ink-2); margin:8px 0 14px; line-height:1.5; }
+      .zp-dlg-card .upd-actions{ display:flex; gap:8px; }
+      .zp-dlg-card .btn-play{ flex:1; }
       .hero img{ width:100%; height:238px; object-fit:cover; display:block; }
       .hero .shade{
         position:absolute; inset:0;
@@ -460,6 +483,9 @@
 .stage-video.native-video #stage-img{ visibility:hidden; }
 #scr-player.native-video{ background:transparent; }
 body.native-video{ background:transparent !important; }
+body.native-video .phone-screen{ background:transparent; }
+body.native-video #phone{ background:transparent; }
+.stage-video.native-video{ box-shadow:none; }
       .stage-video img{ width:100%; aspect-ratio:16/9.4; object-fit:cover; display:block; opacity:.92; }
       .stage-video video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
       .stage-video .vshade{ position:absolute; inset:0; background:linear-gradient(180deg, rgba(0,0,0,.36), rgba(0,0,0,0) 30%, rgba(0,0,0,0) 62%, rgba(0,0,0,.46)); }
@@ -478,7 +504,7 @@ body.native-video{ background:transparent !important; }
       .v-center .big svg{ width:27px; height:27px; }
       .v-bottom{ position:absolute; left:0; right:0; bottom:0; padding:0 12px 10px; z-index:3; }
       .v-times{ display:flex; justify-content:space-between; font-size:11.5px; color:#dfe5ec; margin-bottom:5px; }
-      .v-progress{ height:6px; border-radius:99px; background:rgba(255,255,255,.18); position:relative; }
+      .v-progress{ height:6px; border-radius:99px; background:rgba(255,255,255,.18); position:relative; cursor:pointer; touch-action:none; }
       .v-progress em{ position:absolute; left:0; top:0; bottom:0; width:58%; border-radius:99px; background:rgba(255,255,255,.30); display:block; }
       .v-progress i{ position:absolute; left:0; top:0; bottom:0; width:34%; border-radius:99px; background:linear-gradient(90deg,var(--app-accent),var(--app-accent-2)); display:block; }
       .v-progress b{
@@ -920,7 +946,7 @@ body.native-video{ background:transparent !important; }
       .vol-slot input[type="range"]::-moz-range-thumb{ width:15px; height:15px; border:0; border-radius:50%; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.55); }
       /* player menus become glass sheets over the video */
       #scr-player .quality-menu{
-        position:absolute; left:8px; right:8px; bottom:8px; z-index:9; margin:0;
+        position:absolute; left:50%; right:auto; transform:translateX(-50%); width:min(340px, calc(100% - 32px)); bottom:12px; z-index:9; margin:0;
         max-height:88%; overflow-y:auto; scrollbar-width:none; padding:6px;
         background:rgba(16,20,28,.40); border:1px solid rgba(255,255,255,.22); border-radius:18px;
         backdrop-filter:blur(20px) saturate(1.5); -webkit-backdrop-filter:blur(20px) saturate(1.5);
@@ -933,7 +959,7 @@ body.native-video{ background:transparent !important; }
       #scr-player .quality-menu button.on{ background:rgba(232,38,28,.22); color:#ffb4a8; }
       /* glass settings sheet (gear) */
       .glass-sheet{
-        position:absolute; left:8px; right:8px; bottom:8px; z-index:9; display:none;
+        position:absolute; left:50%; right:auto; transform:translateX(-50%); width:min(360px, calc(100% - 24px)); bottom:12px; z-index:9; display:none;
         max-height:calc(100% - 8px); overflow-y:auto; scrollbar-width:none;
         background:rgba(16,20,28,.40); border:1px solid rgba(255,255,255,.22); border-radius:18px;
         backdrop-filter:blur(20px) saturate(1.5); -webkit-backdrop-filter:blur(20px) saturate(1.5);
@@ -1544,8 +1570,21 @@ body.native-video{ background:transparent !important; }
     /* zoom pulse — when a seek lands, the picture dips ~2% smaller and grows back in ~300ms */
     @keyframes seekZoom{ 0%{ transform:scale(1); } 30%{ transform:scale(.98); } 100%{ transform:scale(1); } }
     .stage-video img.zoom-pulse, .stage-video video.zoom-pulse{ animation:seekZoom .3s ease-out; }
-    /* loading — ONLY a thin white rotating ring (C-shaped arc) in the centre; no text, no %, no card */
+    /* loading — thin white rotating ring (C-shaped arc) in the centre; while sources load, "Server Loading" shows below it (v1.0.4) */
+    .buf-load-txt{ display:none; color:#fff; font-family:"Sora",sans-serif; font-size:14px; font-weight:700; letter-spacing:.02em; text-shadow:0 1px 8px rgba(0,0,0,.6); }
+    .buf-overlay.srv-loading .buf-load-txt{ display:block; }
     .buf-overlay{ background:transparent; }
+    /* (v1.0.4) Full-screen Server Loading animation: Play click -> this -> player. Red accent, app design. */
+    #srv-load-screen{ position:fixed; inset:0; z-index:9998; display:none; align-items:center; justify-content:center; flex-direction:column; gap:18px; background:radial-gradient(900px 500px at 50% 0%, rgba(232,38,28,.16), rgba(232,38,28,0) 60%), #0a0a0f; color:#fff; text-align:center; }
+    #srv-load-screen.on{ display:flex; }
+    #srv-load-screen .srv-load-ring{ width:64px; height:64px; border-radius:50%; border:5px solid rgba(255,255,255,.18); border-top-color:#e8261c; animation:srv-spin 1s linear infinite; }
+    @keyframes srv-spin{ to{ transform:rotate(360deg); } }
+    #srv-load-screen .srv-load-txt{ font-family:"Sora",sans-serif; font-size:18px; font-weight:700; letter-spacing:.02em; }
+    #srv-load-screen .srv-load-sub{ font-size:13px; color:rgba(255,255,255,.65); max-width:78%; }
+    #srv-load-screen .srv-load-dots span{ display:inline-block; width:8px; height:8px; margin:0 3px; border-radius:50%; background:#e8261c; animation:srv-bounce 1.2s ease-in-out infinite; }
+    #srv-load-screen .srv-load-dots span:nth-child(2){ animation-delay:.15s; }
+    #srv-load-screen .srv-load-dots span:nth-child(3){ animation-delay:.3s; }
+    @keyframes srv-bounce{ 0%,100%{ transform:translateY(0); opacity:.5; } 50%{ transform:translateY(-6px); opacity:1; } }
     .buf-ring{
       width:44px; height:44px; border-radius:50%; display:block;
       background:transparent; border:3px solid rgba(255,255,255,.16);
@@ -1877,7 +1916,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.3</p>
+                  <p class="splash-ver">Zayn Play v1.0.4</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2099,20 +2138,22 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     </div>
                   </div>
                   <div class="dots" id="h-dots" role="group" aria-label="Featured titles"></div>
+                  <div class="upd-banner" id="upd-banner" hidden><span id="upd-banner-text"></span><button class="upd-go" data-upd="download">Update</button><button class="upd-re" data-upd="reinstall">Reinstall</button><div class="upd-prog" id="upd-banner-prog" hidden><i id="upd-banner-fill"></i></div><p class="upd-pct" id="upd-banner-pct" hidden></p></div>
 
-                  <div class="row-head"><h3>Trending Now</h3><button data-toast="Full trending list — আসল অ্যাপে আলাদা পেজ হবে">See All</button></div>
+                  <div class="row-head" id="h-trending-head"><h3>Trending Now</h3><button data-list="trending">See All</button></div>
                   <div class="rail" id="h-trending"></div>
 
-                  <div class="row-head" id="h-cw-head"><h3>Continue Watching</h3><button data-toast="History — আসল অ্যাপে পুরো লিস্ট থাকবে">See All</button></div>
+                  <div class="row-head" id="h-cw-head"><h3>Continue Watching</h3><button data-list="cw">See All</button></div>
                   <div class="rail" id="h-cw"></div>
 
                   <div id="h-series-wrap">
-                    <div class="row-head"><h3>Popular Series</h3><button data-toast="Series list — আসল অ্যাপে আলাদা পেজ হবে">See All</button></div>
+                    <div class="row-head"><h3>Popular Series</h3><button data-list="series">See All</button></div>
                     <div class="rail" id="h-series"></div>
                   </div>
 
-                  <div class="row-head"><h3>Movies You May Like</h3><button data-toast="Movie list — আসল অ্যাপে আলাদা পেজ হবে">See All</button></div>
+                  <div class="row-head" id="h-movies-head"><h3>Movies You May Like</h3><button data-list="movies">See All</button></div>
                   <div class="rail" id="h-movies"></div>
+                  <div id="h-sections"></div>
                   </div>
                 </section>
 
@@ -2150,6 +2191,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <h3 class="sec-title" id="ps-sec">Provider-এর কনটেন্ট</h3>
                   <div class="grid" id="psearch-grid"></div>
                   <p class="no-result" id="psearch-none">এই প্রোভাইডারে কিছু পাওয়া যায়নি — Global Search-এ খুঁজে দেখুন।</p>
+                </section>
+
+                <!-- ============ LIST (See All) ============ -->
+                <section class="screen" id="scr-list" aria-label="Category list">
+                  <div class="set-head"><button class="back-btn" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 5l-7 7 7 7"/></svg></button><h2 id="list-title">List</h2></div>
+                  <div class="grid" id="list-grid"></div>
+                  <p class="no-result" id="list-none">এই ক্যাটাগরিতে কিছু পাওয়া যায়নি।</p>
                 </section>
 
                 <!-- ============ DETAILS ============ -->
@@ -2244,11 +2292,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     <button data-set="subs" data-val="Malayalam" data-short="മ"><span>മലയാളം</span><small>Malayalam</small></button>
                     <button data-subdl-open><span>Download subtitles</span><small>OpenSubtitles • SubDL</small></button>
                   </div>
-                  <div class="quality-menu" id="audio-menu" role="menu" aria-label="Audio track">
-                    <button data-set="audio" data-val="English (Original)" data-short="EN" class="on"><span>English</span><small>Original</small></button>
-                    <button data-set="audio" data-val="Hindi (Dubbed)" data-short="HI"><span>Hindi</span><small>Dubbed</small></button>
-                    <button data-set="audio" data-val="বাংলা (Dubbed)" data-short="বাং"><span>বাংলা</span><small>Dubbed</small></button>
-                  </div>
+                  <div class="quality-menu" id="audio-menu" role="menu" aria-label="Audio track"><!-- (v1.0.4) filled by renderAudioMenu() from the video's actual audio languages --></div>
                   <div class="quality-menu" id="speed-menu" role="menu" aria-label="Playback speed">
                     <button data-set="speed" data-val="0.5x" data-short="0.5x"><span>0.5x</span><small>Slow</small></button>
                     <button data-set="speed" data-val="0.75x" data-short="0.75x"><span>0.75x</span><small></small></button>
@@ -2265,6 +2309,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     <button data-set="quality" data-val="720p" data-short="720p"><span>720p</span><small>HD</small></button>
                     <button data-set="quality" data-val="480p" data-short="480p"><span>480p</span><small>SD</small></button>
                     <button data-set="quality" data-val="360p" data-short="360p"><span>360p</span><small>Data saver</small></button>
+                  </div>
+                  <div class="quality-menu" id="ratio-menu" role="menu" aria-label="Aspect ratio">
+                    <button data-set="ratio" data-val="Fit" data-short="Fit"><span>Fit</span><small>Whole video</small></button>
+                    <button data-set="ratio" data-val="Fill" data-short="Fill" class="on"><span>Fill</span><small>Fill screen</small></button>
+                    <button data-set="ratio" data-val="16:9" data-short="16:9"><span>16:9</span><small>Widescreen</small></button>
+                    <button data-set="ratio" data-val="4:3" data-short="4:3"><span>4:3</span><small>Classic</small></button>
                   </div>
                   <div class="glass-sheet" id="set-sheet" role="dialog" aria-label="Player settings">
                     <div class="gs-head"><b>Player Settings</b><button class="gs-x" id="sheet-close" aria-label="Close settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
@@ -2284,6 +2334,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   </div>
                   <div class="buf-overlay" id="buf-overlay" aria-hidden="true">
                     <div class="buf-ring"><svg viewBox="0 0 50 50" aria-hidden="true"><circle class="buf-track" cx="25" cy="25" r="21"></circle><circle class="buf-arc" id="buf-arc" cx="25" cy="25" r="21"></circle></svg><span class="buf-pct" id="buf-pct">0%</span></div>
+                    <div class="buf-load-txt" id="buf-load-txt">Server Loading</div>
                     <div class="buf-txt"><b id="buf-server">Connecting…</b><small id="buf-speed">Fast engine</small></div>
                   </div>
                     <button class="skip-intro" id="skip-intro" hidden>Skip Intro</button>
@@ -2369,6 +2420,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               </div>
               <div class="toast" id="toast" role="status"></div>
       </div>
+    </div>
+    <div class="zp-dlg" id="upd-dlg" role="dialog" aria-label="Install update">
+      <div class="zp-dlg-card"><b>আপডেট ইনস্টল করবেন?</b><p id="upd-dlg-ver"></p><div class="upd-actions"><button class="btn-play" id="upd-dlg-install">Install Now</button><button class="btn-ghost" id="upd-dlg-later">Later</button></div></div>
     </div>
     <script>
       var PALETTE = ['#e8365d','#f97316','#8b5cf6','#0ea5e9','#10b981','#f43f5e','#d97706','#06b6d4','#ec4899','#65a30d'];
@@ -2530,7 +2584,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         });
       }
 
-      var TAB_FOR = { home:'home', search:'search', psearch:'home', details:'home', player:'home',
+      var TAB_FOR = { home:'home', search:'search', psearch:'home', details:'home', player:'home', list:'home',
                       library:'library', downloads:'downloads', settings:'settings' };
       function go(name){
         /* leaving the player restores everything it took over: exit
@@ -2688,7 +2742,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('h-hero-meta').innerHTML =
           '<span class="match">' + hero.match + '</span><span>' + hero.year + '</span><span>' + hero.genre + '</span><span class="star">' + hero.star + '</span><span>' + hero.dur + '</span>';
         document.getElementById('h-hero-play').setAttribute('data-open-player', hero.title);
-        var hrp = resumePos(hero.title);
+        document.getElementById('h-hero-play').setAttribute('data-open-id', heroList[heroIdx]);
+        var hrp = resumePos(hero.title, heroList[heroIdx]);
         var hpl = document.getElementById('h-hero-play-label');
         if (hpl) hpl.textContent = hrp > 0 ? 'Resume • ' + fmtT(hrp) : 'Watch Now';
         var dots = document.querySelectorAll('#h-dots button');
@@ -2699,9 +2754,71 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
         heroTimer = setInterval(function(){ showHero(heroIdx + 1); }, 5000);
       }
+      /* (v1.0.4) F2: hero swipe — left = next, right = previous, same showHero + startHeroTimer the dots use. Pure function so the Node gate can test it. */
+      function heroSwipeDelta(dx, dy){
+        if (heroList.length < 2) return 0;
+        if (Math.abs(dx) <= 40 || Math.abs(dx) <= Math.abs(dy) * 1.2) return 0;
+        return dx < 0 ? 1 : -1;
+      }
+      (function initHeroSwipe(){
+        var heroEl = document.querySelector('.hero'); if (!heroEl) return;
+        var sx = 0, sy = 0, pid = null;
+        heroEl.addEventListener('pointerdown', function(e){
+          if (e.target && e.target.closest && e.target.closest('button')) return;
+          sx = e.clientX; sy = e.clientY; pid = e.pointerId;
+        });
+        heroEl.addEventListener('pointerup', function(e){
+          if (pid === null || e.pointerId !== pid) return; pid = null;
+          var d = heroSwipeDelta(e.clientX - sx, e.clientY - sy);
+          if (d){ showHero(heroIdx + d); startHeroTimer(); }
+        });
+        heroEl.addEventListener('pointercancel', function(){ pid = null; });
+      })();
+      /* (v1.0.4) F3: See All list — one grid screen for every section, filled from the already-loaded feed (no new bridge call). */
+      function fillGrid(el, keys){
+        el.innerHTML = '';
+        keys.forEach(function(key){
+          var t = TITLES[key]; if (!t) return;
+          var b = document.createElement('button'); b.className = 'card';
+          b.setAttribute('data-open', key);
+          b.innerHTML = cardHTML(key, t.star + ' • ' + t.genre, 0);
+          el.appendChild(b);
+        });
+      }
+      async function openListSection(idx){
+        var p = PROVIDERS[currentProvider]; if (!p) return;
+        var g = document.getElementById('list-grid'), t = document.getElementById('list-title'), n = document.getElementById('list-none');
+        if (!g || !t) return;
+        var title = '', keys = [];
+        if (idx === 'cw'){
+          title = 'Continue Watching';
+          try {
+            var d = await engineCall('library', {});
+            ((d && d.items) || []).forEach(function(it){
+              if (it.progressSec > 0 && it.status === 'watching'){
+                var key = 'lib-' + it.id;
+                if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: it.url || '' };
+                keys.push(key);
+              }
+            });
+          } catch (e) { keys = []; }
+        } else if (idx === 'trending'){ title = 'Trending Now'; keys = p.trending || []; }
+        else if (idx === 'series'){ title = 'Popular Series'; keys = p.series || []; }
+        else if (idx === 'movies'){ title = 'Movies You May Like'; keys = p.movies || []; }
+        else {
+          var sec = (p.homeSections || [])[parseInt(idx, 10)];
+          if (!sec) return;
+          title = sec.name; keys = sec.keys || [];
+        }
+        t.textContent = title;
+        fillGrid(g, keys);
+        if (n) n.style.display = keys.length ? 'none' : 'block';
+      }
       async function renderProvider(key){
         var p = PROVIDERS[key]; if (!p){ showHomeEmpty(); return; }
         currentProvider = key;
+        /* (v1.0.4) F4: persist the selection — the single choke point for every selection change. */
+        try{ localStorage.setItem('zayn-provider', key); }catch(e){}
         document.getElementById('home-empty').hidden = true;
         document.getElementById('home-feed').style.display = '';
         var chips = document.querySelectorAll('#prov-row button');
@@ -2746,6 +2863,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var reason = (feedErr && feedErr.code === 'no_content')
             ? 'কনটেন্ট পাওয়া যায়নি — সাইটটি হয়তো ব্লক করছে (Cloudflare)।'
             : (feedErr ? engineErrText(feedErr) : 'কনটেন্ট লোড হয়নি');
+          setHomeShells(false);
           document.getElementById('h-trending').innerHTML = '<div class="home-err"><p>' + esc(reason) + '</p><button class="btn-play" onclick="renderProvider(\'' + key.replace(/'/g, "\\'") + '\')">আবার চেষ্টা করুন</button></div>';
           document.getElementById('h-series').innerHTML = '';
           document.getElementById('h-movies').innerHTML = '';
@@ -2760,16 +2878,29 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         }
         p._coldRetried = false;
         renderFeedInto(p, feed);
+        scheduleBootPluginCheck();
+      }
+      function isEroticSection(name){ return /erotic/i.test(String(name || '')); }
+      function setHomeShells(dynamic){
+        /* (v1.0.4) F1: dynamic provider sections on, fixed shells off — or the reverse for the nameless-feed fallback / error states. */
+        var hide = dynamic ? 'none' : '';
+        ['h-trending-head', 'h-trending', 'h-movies-head', 'h-movies'].forEach(function(id){ var el = document.getElementById(id); if (el) el.style.display = hide; });
+        var sw = document.getElementById('h-series-wrap'); if (sw) sw.style.display = hide;
+        var sec = document.getElementById('h-sections'); if (sec) sec.style.display = dynamic ? '' : 'none';
       }
       function renderFeedInto(p, feed){
         var keys = [], trending = [], series = [], movies = [];
         var mainUrl = (feed.provider && feed.provider.mainUrl) || p.url;
+        var named = [];
         feed.sections.forEach(function(sec){
+          var sk = [];
           (sec.items || []).forEach(function(it){
             var t = engineItemToTitle(it, p.name, mainUrl);
-            TITLES[it.id] = t; keys.push(it.id);
+            TITLES[it.id] = t; keys.push(it.id); sk.push(it.id);
             if (t.type === 'series') series.push(it.id); else movies.push(it.id);
           });
+          var nm = (sec && sec.name) ? String(sec.name).trim() : '';
+          if (nm) named.push({ name: nm, keys: sk });
         });
         trending = keys.slice(0, 5);
         p.trending = trending; p.series = series; p.movies = movies;
@@ -2788,13 +2919,34 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         });
         if (p.hero){ showHero(0); startHeroTimer(); }
         renderPSearch();
-        var swrap = document.getElementById('h-series-wrap');
-        swrap.style.display = p.series.length ? '' : 'none';
-        fillRail(document.getElementById('h-trending'), p.trending, 'rank');
-        /* (v1.0.2) Always clear the series rail too: the old conditional
-           left stale skeleton cards in #h-series on an empty feed. */
-        fillRail(document.getElementById('h-series'), p.series, 'series');
-        fillRail(document.getElementById('h-movies'), p.movies, 'movie');
+        /* (v1.0.4) F1: one headed rail per provider section, in the provider's own order. "Erotic movies" shows only when NSFW is on (D1). Fixed shells are the fallback for nameless sections only. */
+        var dyn = named.filter(function(s){ return !(isEroticSection(s.name) && !nsfwOn()); });
+        p.homeSections = dyn;
+        setHomeShells(dyn.length > 0);
+        if (dyn.length){
+          var wrap = document.getElementById('h-sections');
+          wrap.innerHTML = '';
+          dyn.forEach(function(s, i){
+            var head = document.createElement('div'); head.className = 'row-head';
+            var h = document.createElement('h3'); h.textContent = s.name; head.appendChild(h);
+            var b = document.createElement('button'); b.textContent = 'See All'; b.setAttribute('data-list', String(i)); head.appendChild(b);
+            var rail = document.createElement('div'); rail.className = 'rail';
+            wrap.appendChild(head); wrap.appendChild(rail);
+            fillRail(rail, s.keys, 'movie');
+          });
+          /* (v1.0.2) Always clear the fixed rails too, so a provider switch never leaves stale cards behind the hidden shells. */
+          fillRail(document.getElementById('h-trending'), [], 'rank');
+          fillRail(document.getElementById('h-series'), [], 'series');
+          fillRail(document.getElementById('h-movies'), [], 'movie');
+        } else {
+          var swrap = document.getElementById('h-series-wrap');
+          swrap.style.display = p.series.length ? '' : 'none';
+          fillRail(document.getElementById('h-trending'), p.trending, 'rank');
+          /* (v1.0.2) Always clear the series rail too: the old conditional
+             left stale skeleton cards in #h-series on an empty feed. */
+          fillRail(document.getElementById('h-series'), p.series, 'series');
+          fillRail(document.getElementById('h-movies'), p.movies, 'movie');
+        }
       }
       var feedToken = 0;
       function skelCards(n){
@@ -2803,6 +2955,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return h;
       }
       function skeletonRails(){
+        setHomeShells(false);
         document.getElementById('h-trending').innerHTML = skelCards(5);
         document.getElementById('h-series').innerHTML = skelCards(4);
         document.getElementById('h-movies').innerHTML = skelCards(5);
@@ -2854,7 +3007,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('d-syn').textContent = t.syn;
         var dp = document.getElementById('d-prov');
         if (dp) dp.innerHTML = logoHTML(t.parent || t.prov, 'sm') + '<span>' + t.prov + (t.siteUrl ? ' • ' + t.siteUrl : '') + '</span>';
-        var rp = resumePos(t.title);
+        var rp = resumePos(t.title, current);
         document.getElementById('d-play-label').textContent = rp > 0 ? 'Resume • ' + fmtT(rp) : (t.type === 'series' ? 'Play • S1 E1' : 'Play');
         var cast = document.getElementById('d-cast');
         cast.innerHTML = '';
@@ -2875,6 +3028,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           eps.forEach(function(ep){
             var b = document.createElement('button'); b.className = 'ep';
             b.setAttribute('data-open-player', t.title);
+            b.setAttribute('data-open-id', id);
             var epTitle, epSub, epData = '';
             if (ep.data){ epData = ep.data; epTitle = (ep.season != null ? 'S' + ep.season + ' ' : '') + (ep.episode != null ? 'E' + ep.episode + ' ' : '') + (ep.name || ''); epSub = ep.description || ''; }
             else { epTitle = ep.n + ' • ' + ep.t; epSub = ep.d; }
@@ -2914,8 +3068,24 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         for (var i=0;i<keys.length;i++) if (TITLES[keys[i]].title === name) return TITLES[keys[i]];
         return null;
       }
-      function populatePlayer(title){
-        var t = titleByName(title);
+      /* (v1.0.4) Provider-switch playback fix: the play path used to resolve
+         by TITLE NAME only (titleByName = first match in global TITLES), so
+         after switching provider, Play kept resolving to the FIRST provider's
+         same-name video. The id (provider-scoped "apiName|url") is now
+         threaded from the tapped card/details through to the play call, and
+         the resolved id is remembered in curTitleId for every later lookup
+         (servers, next episode, download, external play). Name lookup stays
+         only as the fallback for callers that have no id. */
+      function titleEntryFor(title, id){
+        if (id && TITLES[id]) return TITLES[id];
+        return titleByName(title) || TITLES[keyByTitle(title)];
+      }
+      function curTitleEntry(){
+        if (typeof curTitleId !== 'undefined' && curTitleId && TITLES[curTitleId]) return TITLES[curTitleId];
+        return titleByName(curTitle) || TITLES[keyByTitle(curTitle)];
+      }
+      function populatePlayer(title, id){
+        var t = titleEntryFor(title, id);
         document.getElementById('p-title').textContent = title;
         document.getElementById('p-info-title').textContent = title;
         if (!t) return;
@@ -2950,6 +3120,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           EPISODES.forEach(function(ep){
             var b = document.createElement('button'); b.className = 'ep';
             b.setAttribute('data-ep-play', t.title);
+            b.setAttribute('data-ep-id', (id && TITLES[id]) ? id : keyByTitle(title));
             b.setAttribute('data-ep-label', 'S1 ' + ep.n + ' • ' + ep.t);
             b.innerHTML = '<img src="' + t.poster + '" alt="" /><span><span class="ep-t">' + ep.n + ' • ' + ep.t + '</span><br /><small>' + ep.d + '</small></span><span class="ep-play"><svg viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12z"/></svg></span>';
             epList.appendChild(b);
@@ -2967,18 +3138,18 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           more.appendChild(b);
         });
       }
-      function openPlayer(title, startAt){
-        if (startAt > 0) resumeSeek = startAt;
-        populatePlayer(title);
-        startStream(title);
-        go('player');
-        /* controls start visible on every new title */
-        var stg0 = document.querySelector('#scr-player .stage-video');
-        if (stg0) stg0.classList.remove('controls-hidden');
-        /* play always opens directly in fullscreen landscape — no separate
-           fullscreen tap needed (user rule, 2026-11-25) */
-        if (!fsOn) setFS(true);
-        reportStageRect();
+      function openPlayer(title, startAt, id){
+        /* (v1.0.4) Fresh resume state for THIS title only — a stale
+           resumeSeek from an abandoned Manual/external play must never
+           leak into the next title. */
+        resumeSeek = -1; resumeSeekFor = '';
+        if (startAt > 0){ resumeSeek = startAt; resumeSeekFor = progKey(title, id); }
+        /* (v1.0.4) Beautiful "Server Loading" animation FIRST — the player
+           screen opens only once the server is ready (enterPlayerNow,
+           called from playFromServer / the Manual branch below). */
+        showSrvLoadScreen(title);
+        populatePlayer(title, id);
+        startStream(title, id);
       }
 
       var playing = true;
@@ -3008,6 +3179,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          visibly, never silently. If the native object is absent (desktop
          preview), calls reject locally with the same visible failure. ===== */
       var resumeSeek = -1; /* Resume: seconds to seek to on this play, -1 = play from start */
+      var resumeSeekFor = ''; /* progKey() of the title resumeSeek belongs to — never reuse it for another title */
       var curRate = 1; /* current playback rate (Speed menu); hold-to-2x restores it */
       var engineMuted = false; /* mute state tracked here now the <video> element is gone */
       window.ZaynEngine = {
@@ -3056,7 +3228,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             toast((data && data.name ? data.name : 'প্রোভাইডার') + ' কাজ করছে না — নিজে থেকে বন্ধ হয়েছে');
             rebuildCatalog(); return;
           }
-          if (name === 'updateAvailable'){ toast('নতুন আপডেট এসেছে — v' + (data && data.version ? data.version : '')); return; }
+          if (name === 'updateDownloadProgress'){ setUpdProgress(data && data.pct, data && data.downloadedBytes, data && data.totalBytes); return; }
+          if (name === 'updateAvailable'){ if (data && data.version) saveAppUpdate({ version: data.version, url: data.url || '', changelog: data.changelog || '', at: Date.now() }); toast('নতুন আপডেট এসেছে — v' + (data && data.version ? data.version : '')); return; }
           if (name === 'authRedirect'){
             if (data && data.provider) engineCall('accountLoginComplete', { provider: data.provider, redirectUrl: data.redirectUrl || '' }).catch(function(e){ toast(engineErrText(e)); });
             return;
@@ -3071,11 +3244,19 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var playingNow = !!s.playing;
         if (playingNow !== playing) setPlaying(playingNow);
         if (!s.buffering && playingNow) hideBuffer();
+        /* (v1.0.4) Surface re-assert: playback is running and the player
+           is open in fullscreen, but the transparent hole never opened
+           (a missed/stale stage report) — re-report so the native surface
+           becomes visible. */
+        if (playingNow && typeof fsOn !== 'undefined' && fsOn){
+          var _scr = document.querySelector('#phone .screen.on');
+          if (_scr && _scr.id === 'scr-player' && !document.body.classList.contains('native-video')) reportStageRect();
+        }
         if (playingNow && s.posSec > 0){
           var now = Date.now();
           if (!onEnginePlayerState._last || now - onEnginePlayerState._last > 5000){
             onEnginePlayerState._last = now;
-            saveProgress(curTitle, s.posSec, s.durSec || 0);
+            saveProgress(curTitle, s.posSec, s.durSec || 0, curTitleId);
           }
         }
       }
@@ -3087,7 +3268,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       function onEnginePlayerEnded(){
         hideBuffer();
         setPlaying(false);
-        clearProgress(curTitle);
+        clearProgress(curTitle, curTitleId);
         cur = TOTAL; renderTime();
         if (typeof buildCW === 'function') buildCW();
         var libId = (typeof LIB_IDS !== 'undefined') ? LIB_IDS[curTitle] : null;
@@ -3206,6 +3387,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (set.timeout) PB.timeout = set.timeout;
           if (typeof set.reuse === 'boolean') PB.reuse = set.reuse;
           if (set.reuseDur) PB.reuseDur = set.reuseDur;
+          if (set.buffer) PB.buffer = set.buffer;
           if (set.audio1){ var c1 = null; (typeof AUDIO_LANGS !== 'undefined' ? AUDIO_LANGS : []).forEach(function(a){ if (a.nat === set.audio1) c1 = a.c; }); if (c1) PB.audio1 = c1; }
           if (set.audio2){ if (set.audio2 === 'none') PB.audio2 = 'none'; else { var c2 = null; (typeof AUDIO_LANGS !== 'undefined' ? AUDIO_LANGS : []).forEach(function(a){ if (a.nat === set.audio2) c2 = a.c; }); if (c2) PB.audio2 = c2; } }
           if (typeof syncPBUI === 'function') syncPBUI();
@@ -3288,25 +3470,37 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          offers Resume (from the exact stopped second) instead of Play. */
       /* Phase C: progress lives in the native engine (DataStore) — PROGRESS
          is only the in-memory read cache; boot syncs it from progressAll. */
+      /* (v1.0.4) Resume is keyed by the provider-scoped entry key
+         (TITLES key, e.g. "AllMovieLand|https://..."), never by the bare
+         title name — same-name titles on different providers (or in the
+         library) must never share one resume position. The native library
+         store stays title-keyed (its E21 contract); only this in-memory
+         map is re-keyed. */
+      function progKey(title, id){
+        if (id && typeof TITLES !== 'undefined' && TITLES[id]) return id;
+        if (id) return 'lib:' + id;
+        return title;
+      }
       var PROGRESS = {};
       var lastProgSave = 0;
-      function saveProgress(title, pos, dur){
+      function saveProgress(title, pos, dur, id){
         if (!title) return;
+        var k = progKey(title, id);
         var keep = pos > 10 && (!isFinite(dur) || dur <= 0 || pos < dur - 30);
-        if (keep) PROGRESS[title] = { t: Math.round(pos), d: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 };
-        else delete PROGRESS[title];
+        if (keep) PROGRESS[k] = { t: Math.round(pos), d: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 };
+        else delete PROGRESS[k];
         engineCall('progressSet', { title: title, posSec: keep ? Math.round(pos) : 0, durSec: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 }).catch(function(){});
       }
-      function clearProgress(title){ if (!title) return; delete PROGRESS[title]; engineCall('progressSet', { title: title, posSec: 0, durSec: 0 }).catch(function(){}); }
-      function resumePos(title){
-        var p = PROGRESS[title]; if (!p) return 0;
+      function clearProgress(title, id){ if (!title) return; delete PROGRESS[progKey(title, id)]; engineCall('progressSet', { title: title, posSec: 0, durSec: 0 }).catch(function(){}); }
+      function resumePos(title, id){
+        var p = PROGRESS[progKey(title, id)]; if (!p) return 0;
         if (p.t <= 10) return 0;
         if (p.d > 0 && p.t >= p.d - 30) return 0;
         return p.t;
       }
       function saveCurProgress(){
         if (!curTitle) return;
-        saveProgress(curTitle, cur, TOTAL);
+        saveProgress(curTitle, cur, TOTAL, curTitleId);
       }
       /* search grid — searches across ALL providers */
       var GENRES = { neon:["Action"], dragon:["Drama"], space:["Drama"], noir:["Drama"],
@@ -3342,12 +3536,47 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       var searchInput = document.getElementById('search-input');
       var searchGenre = 'all';
+      /* (v1.0.4) Smart search matching: normalise both query and title
+         (lowercase, punctuation stripped) so "Om" finds "O.M: Operation
+         Mole"; a query word also matches a title word it starts, or a
+         close spelling of it (edit distance 1-2). Same matcher for the
+         provider search, the global grid and the engine fan-out. */
+      function normSearchWords(s){
+        return String(s || '').toLowerCase().replace(/[^a-z0-9\u0980-\u09ff]+/g, ' ').replace(/\s+/g, ' ').replace(/^ | $/g, '').split(' ').filter(function(w){ return !!w; });
+      }
+      function searchLev(a, b){
+        if (a === b) return 0;
+        var m = a.length, n = b.length;
+        if (!m) return n; if (!n) return m;
+        var prev = [], cur = [], i, j;
+        for (j = 0; j <= n; j++) prev[j] = j;
+        for (i = 1; i <= m; i++){
+          cur[0] = i;
+          for (j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1));
+          var tmp = prev; prev = cur; cur = tmp;
+        }
+        return prev[n];
+      }
+      function searchMatch(query, title){
+        var qw = normSearchWords(query); if (!qw.length) return true;
+        var tw = normSearchWords(title);
+        var qsquash = qw.join(''), tsquash = tw.join('');
+        if (tsquash.indexOf(qsquash) !== -1) return true;
+        return qw.every(function(w){
+          for (var i = 0; i < tw.length; i++){
+            var t = tw[i];
+            if (t.indexOf(w) === 0) return true;
+            if (w.length >= 4 && searchLev(w, t) <= (w.length >= 7 ? 2 : 1)) return true;
+          }
+          return false;
+        });
+      }
       function applySearch(){
         var q = searchInput.value.trim().toLowerCase();
         var visible = 0;
         var cards = document.querySelectorAll('#search-grid .card');
         for (var i=0;i<cards.length;i++){
-          var okQ = !q || cards[i].getAttribute('data-name').indexOf(q) !== -1;
+          var okQ = !q || searchMatch(q, cards[i].getAttribute('data-name'));
           var okG = searchGenre === 'all' || (',' + cards[i].getAttribute('data-genres') + ',').indexOf(',' + searchGenre + ',') !== -1;
           var show = okQ && okG;
           cards[i].style.display = show ? '' : 'none';
@@ -3367,6 +3596,17 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           engineSearch(q).then(function(d){
             if (searchInput.value.trim() !== q) return;
             var items = (d && d.results) || [];
+            /* (v1.0.4) Smart fan-out: the engine's provider search is
+               literal, so merge in local catalogue titles that match
+               smartly ("Om" ~ "O.M"), then keep only smart matches. */
+            var _seen = {};
+            items.forEach(function(it){ _seen[it.id] = 1; });
+            Object.keys(TITLES).forEach(function(k){
+              if (_seen[k]) return;
+              var _t = TITLES[k];
+              if (_t && searchMatch(q, _t.title + ' ' + (_t.prov || ''))){ items.push({ id:k, title:_t.title, apiName:_t.prov, poster:_t.poster, rating:null, type:_t.type, url:_t.url }); _seen[k] = 1; }
+            });
+            items = items.filter(function(it){ return searchMatch(q, it.title + ' ' + (it.apiName || '')); });
             var grid = document.getElementById('search-grid');
             grid.innerHTML = '';
             items.forEach(function(it){
@@ -3426,7 +3666,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var cards = document.querySelectorAll('#psearch-grid .card');
         var visible = 0;
         for (var i=0;i<cards.length;i++){
-          var show = !q || cards[i].getAttribute('data-name').indexOf(q) !== -1;
+          var show = !q || searchMatch(q, cards[i].getAttribute('data-name'));
           cards[i].style.display = show ? '' : 'none';
           if (show) visible++;
         }
@@ -3447,6 +3687,16 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             if (document.getElementById('psearch-input').value.trim() !== q) return;
             if (currentProvider !== key) return;
             var items = (d && d.results) || [];
+            /* (v1.0.4) Smart provider search: merge local provider titles
+               that match smartly, then keep only smart matches. */
+            var _seen2 = {};
+            items.forEach(function(it){ _seen2[it.id] = 1; });
+            providerKeys(key).forEach(function(k){
+              if (_seen2[k]) return;
+              var _t2 = TITLES[k];
+              if (_t2 && searchMatch(q, _t2.title)){ items.push({ id:k, title:_t2.title, apiName:p.name, poster:_t2.poster, rating:null, type:_t2.type, url:_t2.url }); _seen2[k] = 1; }
+            });
+            items = items.filter(function(it){ return searchMatch(q, it.title + ' ' + (it.apiName || '')); });
             var g = document.getElementById('psearch-grid');
             g.innerHTML = '';
             items.forEach(function(it){
@@ -3559,6 +3809,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (srp){ playSetup(); return; }
         var dot = e.target.closest('[data-hero-dot]');
         if (dot){ showHero(parseInt(dot.getAttribute('data-hero-dot'), 10)); startHeroTimer(); return; }
+        var dl = e.target.closest('[data-list]');
+        if (dl){ openListSection(dl.getAttribute('data-list')); go('list'); return; }
+        var ub = e.target.closest('[data-upd]');
+        if (ub){ if (ub.getAttribute('data-upd') === 'download') startAppUpdateDownload(); else startAppUpdateReinstall(); return; }
+        var udi = e.target.closest('#upd-dlg-install');
+        if (udi){ hideUpdInstallDlg(); startAppUpdateReinstall(); return; }
+        var udl = e.target.closest('#upd-dlg-later');
+        if (udl){ hideUpdInstallDlg(); return; }
         var pkc = e.target.closest('[data-pkchip]');
         if (pkc){ pkFilter = pkc.getAttribute('data-pkchip'); renderPicker(); return; }
         var ab = e.target.closest('#prov-arrange-btn');
@@ -3601,12 +3859,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           curBaseSub = epp.getAttribute('data-ep-label');
           cur = 0; renderTime();
           document.getElementById('scr-player').scrollTop = 0;
-          startStream(epp.getAttribute('data-ep-play'));
+          startStream(epp.getAttribute('data-ep-play'), epp.getAttribute('data-ep-id'));
           if (!fsOn) setFS(true);
           return;
         }
         var op = e.target.closest('[data-open-player]');
-        if (op){ var ot = op.getAttribute('data-open-player'); openPlayer(ot, resumePos(ot)); return; }
+        if (op){ var ot = op.getAttribute('data-open-player'); openPlayer(ot, resumePos(ot, op.getAttribute('data-open-id')), op.getAttribute('data-open-id')); return; }
         var od = e.target.closest('[data-open]');
         if (od){ openDetails(od.getAttribute('data-open')); return; }
         var g = e.target.closest('[data-go]');
@@ -3673,7 +3931,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (osr){ openSrvSheet(); return; }
         var exp = e.target.closest('[data-ext-play]');
         if (exp){
-          var tt2 = titleByName(curTitle) || TITLES[keyByTitle(curTitle)];
+          var tt2 = curTitleEntry();
           engineCall('externalPlay', playParamsFor(curTitle, tt2), 60000).then(function(d){
             if (d && d.launched) toast(PB.extApp + ' দিয়ে খুলছে');
           }).catch(function(e){ toast(engineErrText(e)); });
@@ -3725,7 +3983,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 
       /* player controls */
       document.getElementById('p-toggle').addEventListener('click', function(){ setPlaying(!playing, true); });
-      document.getElementById('d-play').addEventListener('click', function(){ openPlayer(TITLES[current].title, resumePos(TITLES[current].title)); });
+      document.getElementById('d-play').addEventListener('click', function(){ openPlayer(TITLES[current].title, resumePos(TITLES[current].title, current), current); });
       /* player menus: subtitles / audio / quality / speed — one system for all four */
       var SET_LABEL = { subs:'subs-label', audio:'audio-label', quality:'quality-label', speed:'speed-label', ratio:'ratio-label' };
       var SET_NAME = { subs:'Subtitle', audio:'Audio track', quality:'Resolution', speed:'Speed', ratio:'Aspect ratio' };
@@ -3736,9 +3994,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           else menus[i].classList.remove('open');
         }
       }
-      ['subs-btn','audio-btn','speed-btn','quality-btn'].forEach(function(bid){
+      ['subs-btn','audio-btn','speed-btn','quality-btn','ratio-btn'].forEach(function(bid){
         var b = document.getElementById(bid);
-        if (b) b.addEventListener('click', function(){ toggleMenu(bid.replace('-btn', '-menu')); });
+        if (b) b.addEventListener('click', function(){ if (bid === 'audio-btn') renderAudioMenu(); toggleMenu(bid.replace('-btn', '-menu')); });
       });
       /* Aspect ratio: tap the Aspect button to cycle directly — Fit → Fill →
          16:9 → 4:3 → Fit … No menu opens for aspect ratio (tap only the
@@ -3750,7 +4008,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         { ratio:'43', val:'4:3', short:'4:3' }
       ];
       var curRatioIdx = 1; /* default Fill — matches the pill label + no stage class */
-      function applyRatioOpt(opt){
+      function applyRatioOpt(opt, silent){
         var stg = document.querySelector('#scr-player .stage-video');
         stg.classList.remove('r-fit'); stg.classList.remove('r-169'); stg.classList.remove('r-43');
         if (opt.ratio === 'fit') stg.classList.add('r-fit');
@@ -3758,13 +4016,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         else if (opt.ratio === '43') stg.classList.add('r-43');
         var lbl = document.getElementById('ratio-label');
         if (lbl) lbl.textContent = opt.short;
-        toast(SET_NAME.ratio + ': ' + opt.val);
+        if (!silent) toast(SET_NAME.ratio + ': ' + opt.val);
       }
-      var ratioBtn = document.getElementById('ratio-btn');
-      if (ratioBtn) ratioBtn.addEventListener('click', function(){
-        curRatioIdx = (curRatioIdx + 1) % RATIO_OPTS.length;
-        applyRatioOpt(RATIO_OPTS[curRatioIdx]);
-      });
+      /* (v1.0.4) Aspect ratio now opens its own small pop-up menu (#ratio-menu) via the button loop above — tap-to-cycle is gone; the menu click applies it (see the allMenus handler). */
       /* Source button (replaces the old in-player Resolution/quality picker):
          quality auto-picks from the Settings preferred resolution; here the
          viewer only picks the source (server) to play from */
@@ -3783,6 +4037,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var sv = document.getElementById('sheet-val-' + set);
           if (sv) sv.textContent = b.getAttribute('data-short');
           if (set === 'speed'){ var r = parseFloat(b.getAttribute('data-val')); if (isFinite(r) && r > 0){ curRate = r; playerSetRate(r); } }
+          if (set === 'ratio'){ for (var ri = 0; ri < RATIO_OPTS.length; ri++) if (RATIO_OPTS[ri].val === b.getAttribute('data-val')){ curRatioIdx = ri; applyRatioOpt(RATIO_OPTS[ri], true); break; } }
+          if (set === 'audio'){ var ac = audioCodeForVal(b.getAttribute('data-val')); if (ac){ PB.audio1 = ac; curAudioCode = ac; try{ enginePersistSetting('audio1', langOf(ac).nat); }catch(e){} try{ syncPBUI(); }catch(e){} if (curTitle) playFromServer(-1); } }
           b.closest('.quality-menu').classList.remove('open');
           toast(SET_NAME[set] + ': ' + b.getAttribute('data-val'));
         });
@@ -4011,6 +4267,44 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       document.getElementById('seek-back').addEventListener('click', function(){ doSeek(-10); });
       document.getElementById('seek-fwd').addEventListener('click', function(){ doSeek(10); });
+      /* (v1.0.4) Seek bar seeks: the bar was display-only (renderTime just
+         moved the fill/knob) — click jumps to that point, drag scrubs with
+         the knob following live, engine seek on release. stopPropagation
+         keeps the bar out of the stage's tap (toggle controls) and hold-2x
+         handling; suppressTapUntil blocks the tap that follows a drag. */
+      var progBar = document.querySelector('#scr-player .v-progress');
+      function progBarFrac(e){
+        if (!progBar || !TOTAL) return 0;
+        var r = progBar.getBoundingClientRect();
+        if (!r || !r.width) return 0;
+        return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      }
+      function progBarSeekTo(frac, commit){
+        cur = Math.round(frac * TOTAL);
+        renderTime();
+        if (commit) playerSeek(cur);
+      }
+      var progScrub = null;
+      if (progBar){
+        progBar.addEventListener('pointerdown', function(e){
+          e.stopPropagation();
+          try{ progBar.setPointerCapture(e.pointerId); }catch(err){}
+          progScrub = { pid: e.pointerId };
+          progBarSeekTo(progBarFrac(e), false);
+        });
+        progBar.addEventListener('pointermove', function(e){
+          if (!progScrub || e.pointerId !== progScrub.pid) return;
+          progBarSeekTo(progBarFrac(e), false);
+        });
+        progBar.addEventListener('pointerup', function(e){
+          if (!progScrub || (e.pointerId != null && e.pointerId !== progScrub.pid)) return;
+          progScrub = null;
+          progBarSeekTo(progBarFrac(e), true);
+          suppressTapUntil = Date.now() + 400;
+        });
+        progBar.addEventListener('pointercancel', function(){ progScrub = null; });
+        progBar.addEventListener('click', function(e){ e.stopPropagation(); });
+      }
       var suppressTapUntil = 0;
       /* single tap = show / hide the controls (never seeks); double-tap =
          ±10s seek. A tap waits ~280ms: a second tap on the same side turns
@@ -4276,6 +4570,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          orientation + system bars, clears lock/menus/sheets. */
       var pipActive = false;
       function exitPlayerCleanup(){
+        resumeSeek = -1; resumeSeekFor = ''; hideSrvLoadScreen();
         saveCurProgress();
         if (typeof buildCW === 'function') buildCW();
         if (typeof showHero === 'function' && typeof heroList !== 'undefined' && heroList.length && typeof heroIdx !== 'undefined') showHero(heroIdx);
@@ -4395,7 +4690,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       ];
       function langOf(code){ for (var i=0;i<AUDIO_LANGS.length;i++) if (AUDIO_LANGS[i].c === code) return AUDIO_LANGS[i]; return AUDIO_LANGS[0]; }
       var PB = { mode:'auto', res:'Auto', audio1:'en', audio2:'bn', player:'internal',
-                 engine:'exoplayer', extApp:'VLC', timeout:'10s', reuse:true, reuseDur:'24h' };
+                 engine:'exoplayer', extApp:'VLC', timeout:'10s', reuse:true, reuseDur:'24h', buffer:'normal' };
       var SRV_NAMES = ['VidCloud','StreamWish','FileMoon','Voe','DoodStream','MixDrop','StreamTape','VidHide','UpCloud','MegaPlay','FastServe','TurboVid'];
       var SRV_AUDS = ['en','hi','bn','en','hi','ta','te','bn','ml','en'];
       /* Phase C: servers come from the engine (links E12) — the old fake
@@ -4423,17 +4718,31 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (extra) for (var k in extra) p[k] = extra[k];
         return p;
       }
-      /* Smart-Streams ranking: preferred resolution first, then 1st audio, then 2nd audio, then raw speed */
+      /* (v1.0.4) FINAL ranking (17:33, supersedes 17:30 and 17:32):
+         1st language, 2nd quality/resolution, 3rd fastest among the
+         survivors. The language tier dominates the score (audio1 +10000,
+         audio2 +5000); quality match adds +100; speed (ping) is only a
+         tiebreak below, never a score — a faster Tamil link must never
+         beat a Hindi link again. NO-SWITCH: nothing re-picks mid-play;
+         the audio language is pinned by the native track selector. */
       function srvScore(s, pb){
-        var sc = (typeof s.speed === 'number') ? s.speed : 0;
+        var sc = 0;
+        if (s.audio && s.audio === pb.audio1) sc += 10000;
+        else if (pb.audio2 !== 'none' && s.audio && s.audio === pb.audio2) sc += 5000;
         if (pb.res !== 'Auto' && s.quality === pb.res) sc += 100;
-        if (s.audio && s.audio === pb.audio1) sc += 40;
-        else if (pb.audio2 !== 'none' && s.audio && s.audio === pb.audio2) sc += 20;
         return sc;
       }
+      function srvCmp(a, b, pb){
+        var d = srvScore(b, pb) - srvScore(a, pb);
+        if (d) return d;
+        var pa = (typeof a.ping === 'number') ? a.ping : Infinity, pb2 = (typeof b.ping === 'number') ? b.ping : Infinity;
+        if (pa !== pb2) return pa - pb2;
+        var sa = (typeof a.speed === 'number') ? a.speed : -1, sb = (typeof b.speed === 'number') ? b.speed : -1;
+        return sb - sa;
+      }
       function pickServerIdx(servers, pb){
-        var best = 0, bs = -1;
-        servers.forEach(function(s, i){ var sc = srvScore(s, pb); if (sc > bs){ bs = sc; best = i; } });
+        var best = 0;
+        servers.forEach(function(s, i){ if (srvCmp(s, servers[best], pb) < 0) best = i; });
         return best;
       }
       function fastestIdx(servers){
@@ -4441,7 +4750,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         servers.forEach(function(s, i){ if (typeof s.speed === 'number' && (best < 0 || s.speed > servers[best].speed)) best = i; });
         return best;
       }
-      var curTitle = '', curBaseSub = '', curServers = [], curServerIdx = -1, lastLinks = {}, bufTimer = null;
+      var curTitle = '', curBaseSub = '', curServers = [], curServerIdx = -1, lastLinks = {}, bufTimer = null, curAudioCode = 'en', curTitleId = null;
       function pbValText(key){
         if (key === 'mode') return PB.mode === 'auto' ? 'Auto — Fastest' : 'Manual';
         if (key === 'res') return PB.res;
@@ -4450,6 +4759,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (key === 'engine') return PB.engine === 'exoplayer' ? 'ExoPlayer' : 'libmpv';
         if (key === 'extApp') return PB.extApp;
         if (key === 'timeout') return PB.timeout;
+        if (key === 'buffer') return { verylow:'Very low', low:'Low', normal:'Normal', high:'High', veryhigh:'Very high' }[PB.buffer] || PB.buffer;
         return '';
       }
       function pbToastFor(pk){
@@ -4460,6 +4770,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (pk === 'engine') return 'Playback engine: ' + pbValText('engine');
         if (pk === 'extApp') return 'External player: ' + PB.extApp;
         if (pk === 'timeout') return 'Stream timeout: ' + PB.timeout;
+        if (pk === 'buffer') return 'Buffering: ' + pbValText('buffer') + ' — পরের ভিডিও থেকে এটাই লাগবে';
         if (pk === 'reuseDur') return 'Last link cache: ' + PB.reuseDur;
         return 'সেটিংস বদলানো হয়েছে';
       }
@@ -4491,18 +4802,44 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       function setAudioFromServer(code){
         var l = langOf(code);
+        curAudioCode = code;
         var lbl = document.getElementById('audio-label');
         if (lbl) lbl.textContent = l.s;
-        var menuVal = { en:'English (Original)', hi:'Hindi (Dubbed)', bn:'বাংলা (Dubbed)' }[code];
-        var btns = document.querySelectorAll('#audio-menu button');
-        for (var i=0;i<btns.length;i++) btns[i].classList.toggle('on', btns[i].getAttribute('data-val') === menuVal);
+        renderAudioMenu();
+      }
+      function availableAudioCodes(){
+        /* (v1.0.4) The video's actual audio languages: the per-link audio codes of the loaded servers. No servers yet → the preferred audio only, so the menu is never empty. */
+        var out = [], seen = {};
+        (curServers || []).forEach(function(s){ var c = s && s.audio; if (c && !seen[c]){ seen[c] = 1; out.push(c); } });
+        if (!out.length && typeof PB !== 'undefined' && PB && PB.audio1) out.push(PB.audio1);
+        return out;
+      }
+      function audioCodeForVal(val){
+        var name = String(val || '').split(' (')[0];
+        if (typeof AUDIO_LANGS === 'undefined') return null;
+        for (var i = 0; i < AUDIO_LANGS.length; i++) if (AUDIO_LANGS[i].n === name) return AUDIO_LANGS[i].c;
+        return null;
+      }
+      function renderAudioMenu(){
+        /* (v1.0.4) Build the Audio menu from the video's actual audio languages — a video with only Hindi shows only Hindi. */
+        var m = document.getElementById('audio-menu'); if (!m) return;
+        if (typeof AUDIO_LANGS === 'undefined') return;
+        var cur = curAudioCode || (typeof PB !== 'undefined' && PB && PB.audio1) || 'en';
+        var html = '';
+        availableAudioCodes().forEach(function(code){
+          var l = langOf(code);
+          var val = l.n + (code === 'en' ? ' (Original)' : ' (Dubbed)');
+          html += '<button data-set="audio" data-val="' + val + '" data-short="' + l.s + '"' + (code === cur ? ' class="on"' : '') + '><span>' + l.n + '</span><small>' + (code === 'en' ? 'Original' : 'Dubbed') + '</small></button>';
+        });
+        m.innerHTML = html;
       }
       function renderSrvSheet(){
         var list = document.getElementById('srv-list'); if (!list) return;
+        renderAudioMenu();
         var pick = pickServerIdx(curServers, PB), fast = fastestIdx(curServers);
-        var order = curServers.map(function(s, i){ return i; }).sort(function(a, b){ return srvScore(curServers[b], PB) - srvScore(curServers[a], PB); });
+        var order = curServers.map(function(s, i){ return i; }).sort(function(a, b){ return srvCmp(curServers[a], curServers[b], PB); });
         document.getElementById('srv-note').textContent = PB.mode === 'auto'
-          ? 'Auto মোড: ★ Auto pick সার্ভারটাই নিজে থেকে প্লে হয় — আপনার Resolution আর Audio পছন্দ মিলিয়ে, তারপর সবচেয়ে ফাস্টটা। যেকোনো সার্ভারে ট্যাপ করলেও সেটা থেকেই প্লে হবে।'
+          ? 'Auto মোড: ★ Auto pick সার্ভারটাই নিজে থেকে প্লে হয় — ভাষা আগে, তারপর আপনার Resolution, তারপর সবচেয়ে ফাস্টটা। যেকোনো সার্ভারে ট্যাপ করলেও সেটা থেকেই প্লে হবে।'
           : 'Manual মোড: পছন্দের সার্ভারে ট্যাপ করুন — সেটা থেকেই প্লে হবে। ★ হলো আপনার সেটিংস অনুযায়ী সেরা মিল।';
         list.innerHTML = order.map(function(i){
           var s = curServers[i];
@@ -4516,11 +4853,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       async function openSrvSheet(){
         closeMenus(); sheetEl.classList.remove('open');
         if (!curServers.length){
+          showServerLoading();
           try {
-            var d = await engineCall('links', playParamsFor(curTitle, titleByName(curTitle)), 60000);
+            var d = await engineCall('links', playParamsFor(curTitle, curTitleEntry()), 60000);
             BRIDGE_SERVERS = ((d && d.links) || []).map(bridgeLinkToServer);
             curServers = BRIDGE_SERVERS;
-          } catch (e) { toast(engineErrText(e)); return; }
+            hideServerLoading();
+          } catch (e) { hideServerLoading(); toast(engineErrText(e)); return; }
         }
         renderSrvSheet();
         document.getElementById('srv-sheet').classList.add('open');
@@ -4530,6 +4869,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          timers, no invented speeds. */
       function showBuffer(s, instant){
         var ov = document.getElementById('buf-overlay');
+        if (ov) ov.classList.remove('srv-loading');
         var pctEl = document.getElementById('buf-pct'), arc = document.getElementById('buf-arc');
         document.getElementById('buf-server').textContent = s.name + ' • ' + s.quality + ' • ' + (s.audio ? langOf(s.audio).n + ' audio' : 'audio —');
         document.getElementById('buf-speed').textContent = instant
@@ -4540,7 +4880,33 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (arc) arc.style.strokeDashoffset = '33';
         setPlaying(false);
       }
-      function hideBuffer(){ var ov = document.getElementById('buf-overlay'); if (ov) ov.classList.remove('show'); }
+      function hideBuffer(){ var ov = document.getElementById('buf-overlay'); if (ov){ ov.classList.remove('show'); ov.classList.remove('srv-loading'); } }
+      function showServerLoading(){
+        /* (v1.0.4) While the sources load: spinning ring + "Server Loading" text below it. */
+        var ov = document.getElementById('buf-overlay'); if (!ov) return;
+        ov.classList.add('show'); ov.classList.add('srv-loading');
+      }
+      function hideServerLoading(){
+        var ov = document.getElementById('buf-overlay'); if (!ov) return;
+        ov.classList.remove('srv-loading'); ov.classList.remove('show');
+      }
+      /* (v1.0.4) Full-screen Server Loading animation (Play click -> player).
+         The player screen opens ONLY once the server is ready. */
+      function showSrvLoadScreen(title){
+        var s = document.getElementById('srv-load-screen'); if (!s) return;
+        var t = document.getElementById('srv-load-title'); if (t) t.textContent = title || '';
+        s.classList.add('on');
+      }
+      function hideSrvLoadScreen(){ var s = document.getElementById('srv-load-screen'); if (s) s.classList.remove('on'); }
+      function enterPlayerNow(){
+        hideSrvLoadScreen();
+        var curScr = document.querySelector('#phone .screen.on');
+        if (!curScr || curScr.id !== 'scr-player') go('player');
+        var stg0 = document.querySelector('#scr-player .stage-video');
+        if (stg0) stg0.classList.remove('controls-hidden');
+        if (!fsOn) setFS(true);
+        reportStageRect();
+      }
       function showBufferForLink(link, reused){
         if (!link){ hideBuffer(); return; }
         showBuffer({ name: link.source, quality: link.qualityLabel || '', audio: link.audio || null, ping: (typeof link.ttfbMs === 'number') ? link.ttfbMs : null }, !!reused);
@@ -4548,18 +4914,27 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* Phase C: play goes through the engine (E13). idx >= 0 plays the picked
          bridge link; idx -1 lets the engine rank (Smart-Streams) itself. */
       async function playFromServer(idx){
-        var t = titleByName(curTitle) || TITLES[keyByTitle(curTitle)];
+        var t = curTitleEntry();
         var params = playParamsFor(curTitle, t);
         if (idx >= 0){
           var s = curServers[idx]; if (!s) return;
           curServerIdx = idx;
           params.linkIndex = (typeof s._linkIndex === 'number' && s._linkIndex >= 0) ? s._linkIndex : idx;
         } else curServerIdx = -1;
-        var rp = (typeof resumeSeek === 'number' && resumeSeek >= 0) ? resumeSeek : resumePos(curTitle);
-        resumeSeek = -1;
+        /* (v1.0.4) Resume belongs to ONE title only: a stale resumeSeek
+           (abandoned Manual/external play) is ignored unless it was set
+           for this exact title; a resume past this title's saved end is
+           dropped instead of seeking past the end (which ends the video
+           at once — "starts at 23 min then cuts"). */
+        var rp = (typeof resumeSeek === 'number' && resumeSeek >= 0 && resumeSeekFor === progKey(curTitle, curTitleId)) ? resumeSeek : resumePos(curTitle, curTitleId);
+        resumeSeek = -1; resumeSeekFor = '';
+        var _pk = PROGRESS[progKey(curTitle, curTitleId)];
+        if (rp > 0 && _pk && _pk.d > 0 && rp >= _pk.d - 30) rp = 0;
         if (rp > 0) params.startAtSec = rp;
+        showServerLoading();
         try {
           var d = await engineCall('play', params, 90000);
+          enterPlayerNow();
           var link = d && d.link;
           if (link){
             setQualityFromServer(link.qualityLabel || '');
@@ -4569,23 +4944,34 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             showBufferForLink(link, d.reused);
           }
           renderSrvSheet();
-        } catch (e) { toast(engineErrText(e)); }
+        } catch (e) { hideServerLoading(); hideSrvLoadScreen(); toast(engineErrText(e)); }
       }
-      async function startStream(title){
+      async function startStream(title, id){
         curTitle = title;
         curServers = [];
         curServerIdx = -1;
-        var t = titleByName(title) || TITLES[keyByTitle(title)];
+        var t = titleEntryFor(title, id);
+        curTitleId = (id && TITLES[id]) ? id : keyByTitle(title);
         if (PB.player === 'external'){
           try {
             var d0 = await engineCall('externalPlay', playParamsFor(title, t), 60000);
-            if (d0 && d0.launched){ toast(PB.extApp + ' দিয়ে খুলছে'); return; }
+            if (d0 && d0.launched){ hideSrvLoadScreen(); toast(PB.extApp + ' দিয়ে খুলছে'); return; }
           } catch (e) { toast(engineErrText(e)); /* fall through to the internal player */ }
         }
         if (PB.mode === 'manual'){
+          /* (v1.0.4) Manual: the loading animation stays up while the
+             links load; then the FULL server list is shown in front of
+             him and he picks — never auto-play. */
           setPlaying(false);
+          showServerLoading();
+          try {
+            var d = await engineCall('links', playParamsFor(title, t), 60000);
+            BRIDGE_SERVERS = ((d && d.links) || []).map(bridgeLinkToServer);
+            curServers = BRIDGE_SERVERS;
+          } catch (e) { hideServerLoading(); hideSrvLoadScreen(); toast(engineErrText(e)); return; }
+          hideServerLoading();
+          enterPlayerNow();
           openSrvSheet();
-          toast('Manual মোড — সার্ভার বেছে নিন');
           return;
         }
         playFromServer(-1);
@@ -4699,7 +5085,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var t = TITLES[entry.key], it = entry.it;
           var rp = it.progressSec || 0;
           var b = document.createElement('button'); b.className = 'card wide';
-          if (rp > 0) b.setAttribute('data-open-player', t.title);
+          if (rp > 0){ b.setAttribute('data-open-player', t.title); b.setAttribute('data-open-id', entry.key); }
           else b.setAttribute('data-open', entry.key);
           var pct = (rp > 0 && it.durationSec > 0) ? Math.min(95, Math.round(rp / it.durationSec * 100)) : 0;
           b.innerHTML = '<span class="cw-thumb"><img class="poster" src="' + t.poster + '" alt="' + t.title + ' still" /><span class="bar"><i style="width:' + pct + '%"></i></span></span><p>' + t.title + (t.type === 'series' ? ' • S1 E1' : '') + '</p>';
@@ -4822,15 +5208,44 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         }
         document.getElementById('home-empty').hidden = true;
         document.getElementById('home-feed').style.display = '';
-        if (!currentProvider || !PROVIDERS[currentProvider]) currentProvider = Object.keys(PROVIDERS)[0];
+        /* (v1.0.4) F4: restore the saved provider; fall back to the first ON provider when it is gone. */
+        if (!currentProvider || !PROVIDERS[currentProvider]){
+          var _savedProv = null;
+          try{ _savedProv = localStorage.getItem('zayn-provider'); }catch(e){}
+          currentProvider = (_savedProv && PROVIDERS[_savedProv]) ? _savedProv : Object.keys(PROVIDERS)[0];
+        }
         renderRepoUI();
         renderProvider(currentProvider);
+        if (typeof renderUpdBanner === 'function') renderUpdBanner();
       }
       /* (v0.2.11) Mega: a plugin-only test (Load ✓, no video by design)
          renders Content/Video as —, never ✗. */
       function testStatHtml(pt){
         if (pt.error === 'plugin_only') return '<small class="rp-ok">' + trWord('Test') + ': ' + trWord('Load') + ' ✓ • ' + trWord('Content') + ' — • ' + trWord('Video') + ' —' + testReasonText(pt.error) + '</small>';
         return '<small class="' + ((pt.load && pt.content && pt.video) ? 'rp-ok' : 'rp-bad') + '">' + trWord('Test') + ': ' + trWord('Load') + ' ' + (pt.load ? '✓' : '✗') + ' • ' + trWord('Content') + ' ' + (pt.content ? '✓' : '✗') + ' • ' + trWord('Video') + ' ' + (pt.video ? '✓' : '✗') + ((pt.load && pt.content && pt.video) ? '' : testReasonText(pt.error) + (pt.detail ? ' — ' + esc(pt.detail) : '')) + '</small>';
+      }
+      /* (v1.0.4) Global copies: bnNum / provCountTxt / provCountTxt2 /
+         repoPlugCount / repoCountTxtEn lived ONLY inside the v31 settings
+         IIFE, so the global repoCard/renderRepoList below threw
+         "repoCountTxtEn is not defined" on every render (Setup Step 3 +
+         Settings Extensions). Same bodies, global scope now; the IIFE
+         keeps its own copies for its internal use. */
+      function bnNum(n){ if (window.ZP_LANG && window.ZP_LANG !== 'bn') return String(n); return String(n).replace(/[0-9]/g, function(d){ return '০১২৩৪৫৬৭৮৯'[+d]; }); }
+      function provCountTxt(n){
+        if (n === 0) return 'কোনো প্রোভাইডার নেই';
+        return bnNum(n) + 'টি প্রোভাইডার';
+      }
+      function repoPlugCount(r){ return (r.pluginCount > 0) ? r.pluginCount : (r.plugins || []).length; }
+      function provCountTxt2(rows, plugs){
+        if (plugs > 0 && rows !== plugs) return bnNum(rows) + 'টি রো • ' + bnNum(plugs) + 'টি প্লাগইন';
+        return provCountTxt(rows);
+      }
+      function repoCountTxtEn(r){
+        var rows = (r.plugins || []).length, plugs = repoPlugCount(r);
+        if (plugs > 0 && rows > 0 && rows !== plugs) return rows + ' rows • ' + plugs + ' plugins';
+        if (rows > 0) return rows + (rows === 1 ? ' provider' : ' providers');
+        if (plugs > 0) return plugs + (plugs === 1 ? ' provider' : ' providers');
+        return 'no providers';
       }
       function repoCard(r){
         var inst = !!ST.installed[r.id];
@@ -4895,7 +5310,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (which === 'settings' && ST.filter !== 'all' && r.tags.indexOf(ST.filter) === -1) return false;
           return repoMatches(r, q);
         });
-        box.innerHTML = list.length ? list.map(repoCard).join('') : '<p class="repo-none">' + (ST.list.length ? 'কিছু পাওয়া যায়নি — অন্য নামে খুঁজে দেখুন।' : 'কোনো রিপো যোগ করা নেই — শর্টকোড বা URL দিয়ে যোগ করুন।') + '</p>';
+        var plugErr = (which === 'settings' && typeof ST !== 'undefined' && ST.lastPlugCheckErr) ? '<p class="repo-err">প্লাগিন আপডেট চেক হয়নি — ' + esc(ST.lastPlugCheckErr) + '</p>' : '';
+        box.innerHTML = plugErr + (list.length ? list.map(repoCard).join('') : '<p class="repo-none">' + (ST.list.length ? 'কিছু পাওয়া যায়নি — অন্য নামে খুঁজে দেখুন।' : 'কোনো রিপো যোগ করা নেই — শর্টকোড বা URL দিয়ে যোগ করুন।') + '</p>');
       }
       function renderRepoChips(){
         /* (v0.2.11) Target 14: tag chips removed — with no catalogue the
@@ -5040,14 +5456,105 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             try{ last = parseInt(localStorage.getItem('zp_upd_last') || '0', 10) || 0; }catch(e2){}
             if (now - last < 86400000) return;
             try{ localStorage.setItem('zp_upd_last', String(now)); }catch(e2){}
+          } else if (kind === 'fg'){
+            /* (v1.0.4) F4: foreground / periodic re-check, at most once per 6 h — a release that lands while the app is open appears without a restart. */
+            var lastFg = 0;
+            try{ lastFg = parseInt(localStorage.getItem('zp_upd_fg_last') || '0', 10) || 0; }catch(e2){}
+            if (now - lastFg < 21600000) return;
+            try{ localStorage.setItem('zp_upd_fg_last', String(now)); }catch(e2){}
           } else {
             if (now - _zpUpdPageAt < 300000) return;
             _zpUpdPageAt = now;
           }
           engineCall('appUpdateCheck', { manual: false }, 60000).then(function(d){
-            if (d && d.updateAvailable) toast('নতুন আপডেট এসেছে — v' + (d.version || ''));
+            /* (v1.0.4) F1: persist the result — the banner + Updates card render from it, so the update stays visible after the toast is gone. A failed check keeps the old state. */
+            if (d && d.updateAvailable){ saveAppUpdate({ version: d.version || '', url: d.url || '', changelog: d.changelog || '', at: Date.now() }); toast('নতুন আপডেট এসেছে — v' + (d.version || '')); }
+            else if (d && !d.error){ saveAppUpdate(null); }
           }).catch(function(){});
         }catch(e){}
+      }
+      /* (v1.0.4) Updater F1–F4: persistent update state + Home banner + install dialog. */
+      function loadStoredAppUpdate(){ try{ var s = localStorage.getItem('zp_app_update'); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
+      function saveAppUpdate(u){
+        try{ if (typeof ST !== 'undefined') ST.appUpdate = u || null; }catch(e){}
+        try{ if (u) localStorage.setItem('zp_app_update', JSON.stringify(u)); else localStorage.removeItem('zp_app_update'); }catch(e){}
+        renderUpdBanner();
+      }
+      function renderUpdBanner(){
+        var u = null;
+        try{ if (typeof ST !== 'undefined' && ST.appUpdate) u = ST.appUpdate; }catch(e){}
+        if (!u) u = loadStoredAppUpdate();
+        if (u){ try{ if (typeof ST !== 'undefined') ST.appUpdate = u; }catch(e){} }
+        var b = document.getElementById('upd-banner'); if (!b) return;
+        if (!u){ b.hidden = true; return; }
+        b.hidden = false;
+        var t = document.getElementById('upd-banner-text'); if (t) t.textContent = 'নতুন আপডেট এসেছে — v' + (u.version || '');
+      }
+      function setUpdProgress(pct, downloadedBytes, totalBytes){
+        /* pct: 0–100, or null to hide. Updates the Home banner + Updates-card bars, whichever are on screen. */
+        var show = (typeof pct === 'number');
+        [['upd-banner-prog', 'upd-banner-fill', 'upd-banner-pct'], ['upd-card-prog', 'upd-card-fill', 'upd-card-pct']].forEach(function(ids){
+          var bar = document.getElementById(ids[0]), fill = document.getElementById(ids[1]), txt = document.getElementById(ids[2]);
+          if (bar) bar.hidden = !show;
+          if (txt) txt.hidden = !show;
+          if (!show) return;
+          if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+          if (txt){
+            var mb = function(b){ return (b / 1048576).toFixed(1) + ' MB'; };
+            txt.textContent = (typeof totalBytes === 'number' && totalBytes > 0)
+              ? 'ডাউনলোড হচ্ছে… ' + mb(downloadedBytes || 0) + ' / ' + mb(totalBytes) + ' (' + Math.round(pct) + '%)'
+              : 'ডাউনলোড হচ্ছে… ' + Math.round(pct) + '%';
+          }
+        });
+      }
+      function showUpdInstallDlg(version){
+        var d = document.getElementById('upd-dlg'); if (!d) return;
+        var t = document.getElementById('upd-dlg-ver'); if (t) t.textContent = 'Zayn Play v' + (version || '') + ' ডাউনলোড হয়েছে — এখন ইনস্টল করবেন?';
+        d.classList.add('open');
+      }
+      function hideUpdInstallDlg(){ var d = document.getElementById('upd-dlg'); if (d) d.classList.remove('open'); }
+      function startAppUpdateDownload(){
+        var u = null;
+        try{ if (typeof ST !== 'undefined' && ST.appUpdate) u = ST.appUpdate; }catch(e){}
+        if (!u) u = loadStoredAppUpdate();
+        if (!u || !u.url){ toast('আগে আপডেট দেখুন — Settings → আপডেট'); return; }
+        setUpdProgress(0, 0, -1);
+        /* (v1.0.4) F3: 6-hour wait, not 30 s — a ~26 MB APK on a slow link must never false-timeout while still downloading. autoInstall:false so the in-app Install pop-up asks first. */
+        engineCall('appUpdateDownload', { url: u.url, autoInstall: false }, 6*60*60*1000).then(function(r){
+          if (r && r.started){ setUpdProgress(100, -1, -1); showUpdInstallDlg(u.version || ''); }
+          else if (r && r.error === 'download_empty'){ setUpdProgress(null); toast('ডাউনলোড অসম্পূর্ণ হয়েছে — আবার চেষ্টা করুন'); }
+          else if (r && r.error === 'install_permission'){ setUpdProgress(null); toast('ইনস্টল করার অনুমতি দিন — সেটিংস খুলেছে, অনুমতি দিয়ে আবার চেষ্টা করুন'); }
+          else { setUpdProgress(null); toast('ডাউনলোড হয়নি — আবার চেষ্টা করুন'); }
+        }).catch(function(e){ setUpdProgress(null); toast(engineErrText(e)); });
+      }
+      function startAppUpdateReinstall(){
+        /* (v1.0.4) F1: Reinstall = install the downloaded update. No downloaded APK yet → download it first. */
+        engineCall('appUpdateInstall', {}, 30000).then(function(r){
+          if (r && r.started){ toast('ইনস্টল হচ্ছে…'); }
+          else if (r && r.error === 'no_apk'){ startAppUpdateDownload(); }
+          else if (r && r.error === 'install_permission'){ toast('ইনস্টল করার অনুমতি দিন — সেটিংস খুলেছে, অনুমতি দিয়ে আবার চেষ্টা করুন'); }
+          else toast('ইনস্টল শুরু হয়নি — আবার চেষ্টা করুন');
+        }).catch(function(e){ toast(engineErrText(e)); });
+      }
+      function scheduleUpdRecheck(){
+        /* (v1.0.4) F4: re-check when the app comes back to the foreground + every 6 h while open. */
+        try{
+          if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', function(){ if (!document.hidden) runAppUpdateCheck('fg'); });
+        }catch(e){}
+        try{ setInterval(function(){ runAppUpdateCheck('fg'); }, 6*60*60*1000); }catch(e){}
+      }
+      scheduleUpdRecheck();
+      var _zpBootPlugDone = false;
+      function scheduleBootPluginCheck(){
+        /* (v1.0.4) F5: lightweight boot plugin check, once a day, 15 s AFTER the first home feed settles — the C-11 concern (manifest fetches racing the first feed) is avoided by the delay + cached manifests. */
+        if (_zpBootPlugDone) return; _zpBootPlugDone = true;
+        try{
+          if (!autoUpdateOn()) return;
+          var last = parseInt(localStorage.getItem('zp_plug_boot_last') || '0', 10) || 0;
+          if (Date.now() - last < 86400000) return;
+          localStorage.setItem('zp_plug_boot_last', String(Date.now()));
+        }catch(e){ return; }
+        setTimeout(function(){ try{ runUpdateCheck(false); }catch(e){} }, 15000);
       }
       async function runUpdateCheck(manual){
         if (manual) ST.uround++;
@@ -5059,7 +5566,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             var r = repoById(u.repoId);
             if (r){ var uu = updOf(r); uu.ver = u.toVersion; uu.last = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); uu.fresh = true; }
           });
-        } catch (e) { if (manual) toast(engineErrText(e)); renderRepoUI(); return 0; }
+        } catch (e) { if (manual) toast(engineErrText(e)); else { try{ ST.lastPlugCheckErr = engineErrText(e); }catch(e2){} } renderRepoUI(); return 0; }
+        try{ ST.lastPlugCheckErr = ''; }catch(e){}
         renderRepoUI();
         if (manual) toast(n ? 'আপডেট শেষ — ' + n + 'টি রিপো/প্লাগিন্স আপডেট হয়েছে ✓' : 'সব রিপো আপ টু ডেট আছে ✓');
         else if (n) toast(n + 'টি রিপো অটো-আপডেট হয়েছে ✓');
@@ -5363,13 +5871,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return true; /* old Settings toggle removed; its default was ON */
       }
       function nextEp(){
-        var t = titleByName(curTitle);
+        var t = curTitleEntry();
         var eps = (t && t.episodes) || [];
         var next = null;
         for (var i = 0; i < eps.length; i++){ if (eps[i].episode === FEAT.ep + 1){ next = eps[i]; break; } }
         if (!next && eps.length > FEAT.ep) next = eps[FEAT.ep];
         if (!next){ toast('আর কোনো পর্ব নেই'); return; }
-        clearProgress(curTitle);
+        clearProgress(curTitle, curTitleId);
         FEAT.ep++; cur = 0; renderTime(); setPlaying(true);
         var params = playParamsFor(curTitle, t);
         params.episodeData = next.data;
@@ -5384,7 +5892,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       if (upBtn) upBtn.addEventListener('click', nextEp);
       setInterval(function(){
         if (!curTitle) { if (skipBtn) skipBtn.hidden = true; if (upBtn) upBtn.hidden = true; return; }
-        var t = titleByName(curTitle);
+        var t = curTitleEntry();
         var isSeries = !!t && t.type === 'series';
         if (FEAT.introFor !== curTitle){ FEAT.introFor = curTitle; FEAT.ep = 1; }
         if (skipBtn) skipBtn.hidden = !(isSeries && cur < 1500);
@@ -5414,7 +5922,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!e.target.closest) return;
         var dlb = e.target.closest('[data-dl]');
         if (dlb){
-          var key = dlb.closest('.player-info') ? keyByTitle(curTitle) : current;
+          var key = dlb.closest('.player-info') ? ((curTitleId && TITLES[curTitleId]) ? curTitleId : keyByTitle(curTitle)) : current;
           if (key) startDownload(key);
           return;
         }
@@ -5878,6 +6386,12 @@ var PICK = {
     ['32 MB','32 MB',''], ['64 MB','64 MB',''], ['128 MB','128 MB',''], ['256 MB','256 MB',''] ] },
   bufLen: { title:'বাফারের লম্বা', desc:'ভিডিও কত সেকেন্ড আগে থেকে লোড হয়ে থাকবে।', opts:[
     ['30s','৩০ সেকেন্ড',''], ['50s','৫০ সেকেন্ড',''], ['90s','৯০ সেকেন্ড',''], ['120s','১২০ সেকেন্ড',''] ] },
+buffer: { title:'বাফারিং', desc:'ভিডিও কতটা আগে থেকে লোড হয়ে থাকবে। কম হলে তাড়াতাড়ি শুরু হয়, বেশি হলে মসৃণ চলে।', opts:[
+    ['verylow','Very low','সবচেয়ে কম বাফার — সাথে সাথে শুরু'],
+    ['low','Low','কম বাফার — তাড়াতাড়ি শুরু'],
+    ['normal','Normal','সাধারণ বাফার'],
+    ['high','High','বেশি বাফার — মসৃণ চলবে'],
+    ['veryhigh','Very high','সবচেয়ে বেশি বাফার — সবচেয়ে মসৃণ'] ] },
   theme: { title:'থিম', desc:'অ্যাপটা ডার্ক, লাইট, নাকি ফোনের সিস্টেম অনুযায়ী চলবে।', opts:[
     ['system','System','ফোনের সেটিংস অনুযায়ী নিজে থেকে বদলায়'],
     ['dark','Dark','সবসময় ডার্ক'], ['light','Light','সবসময় লাইট'] ] },
@@ -5890,8 +6404,6 @@ var PICK = {
     ['both','দুটোই','ডাব আর সাব — দুটোই'], ['dub','শুধু ডাব','শুধু ডাব করা'], ['sub','শুধু সাব','শুধু সাব করা'] ] },
   dns: { title:'নিরাপদ DNS', desc:'ব্লক থাকা সাইট খুলতে সাহায্য করে (DNS over HTTPS)।', opts:[
     ['off','বন্ধ',''], ['cloudflare','Cloudflare',''], ['google','Google',''], ['quad9','Quad9',''] ] },
-  apkInstaller: { title:'APK ইনস্টলার', desc:'আপডেট কোন ইনস্টলার দিয়ে বসবে।', opts:[
-    ['system','সিস্টেম ইনস্টলার','ফোনের নিজের ইনস্টলার'], ['session','Session ইনস্টলার',''], ['legacy','Legacy ইনস্টলার','পুরনো পদ্ধতি'] ] },
   backupFreq: { title:'নিজে থেকে ব্যাকআপ', desc:'কতদিন পরপর নিজে থেকে ব্যাকআপ হবে।', opts:[
     ['never','কখনো না','শুধু হাতে নিলে'], ['daily','প্রতিদিন',''], ['weekly','প্রতি সপ্তাহে',''], ['monthly','প্রতি মাসে',''] ] },
   dlQuality: { title:'ডাউনলোডের মান', desc:'নামানোর সময় এই মানের ভিডিও নামবে।', opts:[
@@ -5972,13 +6484,13 @@ function defaults(){
       subLang:'বাংলা', subFilter:'All', subColor:'সাদা', subStyle:'outline', subPosV:'bottom', subPosH:'center', subSize:'medium',
       castStyle:'outline', castColor:'সাদা', castSize:'medium',
       gSwipeSeek:true, gSwipeBV:true, gDtSeek:false, gDtPause:false, gHold2x:true, seekAmt:10,
-      bufDisk:'250 MB', bufSize:'64 MB', bufLen:'50s', tvSeekShown:30, tvSeekHidden:10,
+      bufDisk:'250 MB', bufSize:'64 MB', bufLen:'50s', buffer:'normal', tvSeekShown:30, tvSeekHidden:10,
       theme:'system', layout:'phone', bottomTitles:true, hideQual:'none', confirmExit:false,
       posterUI:['রেটিং','কোয়ালিটি'], rowTrend:true, rowCW:true, rowTop10:true,
       appLang:'English', provLang:['English','Bengali','Hindi'],
       media: readSetupMedia(), dubsub:'both',
       bioLock:false,
-      updNotify:true, plugAutoUpd:true, apkInstaller:'system', backupFreq:'weekly', backupFolder:'/Zayn Play/Backup',
+      updNotify:true, plugAutoUpd:true, backupFreq:'weekly', backupFolder:'/Zayn Play/Backup',
       dlPath:'/Download/Zayn Play', dlQuality:'Auto', wifiOnly:false, autoNextEp:false, dns:'cloudflare',
       swDec:false
     };
@@ -6107,6 +6619,7 @@ function rPlay(inst){
       rPick(inst, 'audio1', 'প্রথম পছন্দের অডিও ভাষা', 'এই ভাষার অডিও থাকলে সেটাই আগে চলবে', IC.chat, '#059669') +
       rPick(inst, 'audio2', 'দ্বিতীয় পছন্দের অডিও ভাষা', 'প্রথম ভাষা না থাকলে এই ভাষার অডিও চলবে', IC.chat, '#0891b2') +
       rPick(inst, 'timeout', 'সার্ভারের জন্য অপেক্ষা', 'সার্ভার উত্তর না দিলে কতক্ষণ চেষ্টা করবে', IC.clock, '#d97706') +
+      rPick(inst, 'buffer', 'বাফারিং', 'কতটা আগে থেকে লোড হবে — কম হলে তাড়াতাড়ি শুরু, বেশি হলে মসৃণ চলবে', IC.clock, '#e8261c') +
       rTog(inst, 'reuse', 'আগের লিংক আবার ব্যবহার', 'একই ভিডিও আবার খুললে আগের লিংকেই সাথে সাথে চলে', IC.link, '#059669') +
       rPick(inst, 'reuseDur', 'লিংক কতক্ষণ মনে রাখবে', 'আগের লিংকটা কতক্ষণ পর্যন্ত আবার ব্যবহার হবে', IC.clock, '#7c3aed') +
       rPick(inst, 'srcPrio', 'সোর্সের অগ্রাধিকার', 'কোন ধরনের সোর্স আগে লোড হবে', IC.sliders, '#db2777') +
@@ -6149,6 +6662,7 @@ function rGesture(inst){
 function rCache(inst){
   return head('ক্যাশে ও বাফার', 'ভিডিও আগে থেকে লোড রাখা') +
     secT('বাফার') + card(
+      rPick(inst, 'buffer', 'বাফারিং', 'কতটা আগে থেকে লোড হবে — কম হলে তাড়াতাড়ি শুরু, বেশি হলে মসৃণ চলবে', IC.clock, '#e8261c') +
       rPick(inst, 'bufDisk', 'ডিস্কে বাফারের জায়গা', 'ভিডিও আগে থেকে নামিয়ে রাখতে কত জায়গা ব্যবহার হবে', IC.db, '#475569') +
       rPick(inst, 'bufSize', 'মেমোরিতে বাফার (RAM)', 'চলমান ভিডিওর জন্য মেমোরিতে কতটা বাফার থাকবে', IC.db, '#0891b2') +
       rPick(inst, 'bufLen', 'বাফারের লম্বা', 'ভিডিও কত সেকেন্ড আগে থেকে লোড হয়ে থাকবে', IC.clock, '#7c3aed')
@@ -6250,14 +6764,27 @@ function rAccountPage(inst, id){
     '<button class="v31-btn" data-v31-act="accLogin" data-v31-k="' + a.id + '">' + (on ? 'লগআউট করুন' : 'লগইন করুন') + '</button>' +
     '</div></div>';
 }
-function rUpd(inst){
+ function updCardHtml(){
+  /* (v1.0.4) F1: the persistent update card — Update + Reinstall, with the download progress bar. Empty when no update is stored. */
+  var u = null;
+  try{ if (typeof ST !== 'undefined' && ST.appUpdate) u = ST.appUpdate; }catch(e){}
+  if (!u){ try{ var s = localStorage.getItem('zp_app_update'); if (s) u = JSON.parse(s); }catch(e){} }
+  if (!u) return '';
+  return secT('নতুন আপডেট') + card(
+    '<div class="upd-card"><b>Zayn Play v' + esc(u.version || '') + '</b><p>নতুন ভার্সন এসেছে।</p>' +
+    '<div class="upd-prog" id="upd-card-prog" hidden><i id="upd-card-fill"></i></div><p class="upd-pct" id="upd-card-pct" hidden></p></div>' +
+    rAct('updInstall', 'আপডেট বসান', 'নতুন ভার্সন ডাউনলোড হবে — তারপর Install-এর পপ-আপ আসবে', IC.down, '#e8261c') +
+    rAct('updReinstall', 'আবার বসান (Reinstall)', 'ডাউনলোড করা আপডেটটি আবার ইনস্টল করবে', IC.refresh, '#475569')
+  );
+}
+ function rUpd(inst){
   return head('আপডেট ও ব্যাকআপ', 'নতুন ভার্সন আর সবকিছু সেভ রাখা') +
     secT('অ্যাপের আপডেট') + card(
       rAct('checkUpdate', 'নতুন আপডেট আছে কিনা দেখুন', 'নতুন ভার্সন এলে এখান থেকে বসানো যাবে', IC.down, '#0891b2', '') +
-      rTog(inst, 'updNotify', 'আপডেট এলে জানানো', 'নতুন ভার্সন এলে নোটিফিকেশন আসবে', IC.chat, '#2563eb') +
-      rAct('preRelease', 'পরীক্ষামূলক ভার্সন বসান', 'সবার আগের নতুন (pre-release) ভার্সন — মাঝে মাঝে সমস্যা থাকতে পারে', IC.bolt, '#d97706') +
-      rPick(inst, 'apkInstaller', 'APK ইনস্টলার', 'আপডেট কোন ইনস্টলার দিয়ে বসবে', IC.down, '#059669')
+      rTog(inst, 'updNotify', 'আপডেট এলে জানানো', 'নতুন ভার্সন এলে হোমে ব্যানার আর এখানে কার্ড দেখাবে', IC.chat, '#2563eb') +
+      rAct('preRelease', 'পরীক্ষামূলক ভার্সন বসান', 'সবার আগের নতুন (pre-release) ভার্সন — মাঝে মাঝে সমস্যা থাকতে পারে', IC.bolt, '#d97706')
     ) +
+    updCardHtml() +
     secT('ব্যাকআপ') + card(
       rAct('backupNow', 'এখনই ব্যাকআপ নিন', 'সব সেটিংস, তালিকা আর হিসাব সেভ করে রাখুন', IC.save, '#7c3aed', inst.lastBackup ? inst.lastBackup : '') +
       rPick(inst, 'backupFreq', 'নিজে থেকে ব্যাকআপ', 'কতদিন পরপর নিজে থেকে ব্যাকআপ হবে', IC.hist, '#7c3aed') +
@@ -6311,7 +6838,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.3</span></div>' +
+      '<span class="v31-val">Version 1.0.4</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
@@ -6872,17 +7399,14 @@ function doAct(inst, act, el){
       if (d && d.error === 'network_error'){ toast(inst, 'ইন্টারনেট সমস্যা — আবার চেষ্টা করুন'); return; }
       if (d && d.error === 'rate_limited'){ toast(inst, 'অনেকবার চেষ্টা হয়েছে — একটু পরে চেষ্টা করুন'); return; }
       if (d && d.updateAvailable){
-        toast(inst, 'নতুন ভার্সন এসেছে — v' + (d.version || ''));
-        engineCall('appUpdateDownload', { url: d.url || '' }).then(function(r){
-          /* (v1.0.2) Surface the download result — a failed download
-             used to fail silently after the "নতুন ভার্সন এসেছে" toast. */
-          if (r && r.started){ toast(inst, 'ডাউনলোড হয়েছে — ইনস্টল করুন'); }
-          else if (r && r.error === 'download_empty'){ toast(inst, 'ডাউনলোড অসম্পূর্ণ হয়েছে — আবার চেষ্টা করুন'); }
-          else if (r && r.error === 'install_permission'){ toast(inst, 'ইনস্টল করার অনুমতি দিন — সেটিংস খুলেছে, অনুমতি দিয়ে আবার চেষ্টা করুন'); }
-          else toast(inst, 'ডাউনলোড হয়নি — আবার চেষ্টা করুন');
-        }).catch(function(e){ toast(inst, engineErrText(e)); });
+        /* (v1.0.4) F1: store the update + show the card/banner — do NOT download yet. The user taps Update; the download then shows full progress and ends in the Install pop-up. */
+        if (typeof saveAppUpdate === 'function') saveAppUpdate({ version: d.version || '', url: d.url || '', changelog: d.changelog || '', at: Date.now() });
+        toast(inst, 'নতুন ভার্সন এসেছে — v' + (d.version || '') + ' — Update চাপুন');
+        render(inst, true);
       } else toast(inst, 'আপনার অ্যাপ হালনাগাদ আছে ✓');
     }).catch(function(e){ toast(inst, engineErrText(e)); });
+  } else if (act === 'updInstall'){ if (typeof startAppUpdateDownload === 'function') startAppUpdateDownload();
+  } else if (act === 'updReinstall'){ if (typeof startAppUpdateReinstall === 'function') startAppUpdateReinstall();
   } else if (act === 'preRelease'){ toast(inst, 'পরীক্ষামূলক ভার্সন এই মুহূর্তে নেই');
   } else if (act === 'backupNow'){
     engineCall('backupExport', {}, 60000).then(function(d){
@@ -6914,10 +7438,18 @@ function doAct(inst, act, el){
     inp.click();
   } else if (act === 'updPlugins'){
     var n = allRepos(inst).filter(function(r){ return inst.installed[r.id]; }).length;
-    if (n){ try{ if (typeof runUpdateCheck === 'function') runUpdateCheck(true); }catch(e){} }
-    syncUpdAtFromST(inst);
-    allRepos(inst).forEach(function(r){ if (inst.installed[r.id] && !inst.updAt[r.id]) inst.updAt[r.id] = todayBN(); });
-    toast(inst, n ? 'সব প্লাগিন হালনাগাদ হয়েছে ✓' : 'আগে একটি রিপো যোগ করুন');
+    if (!n){ toast(inst, 'আগে একটি রিপো যোগ করুন'); }
+    else {
+      /* (v1.0.4) F6: await the check BEFORE claiming success — the old code toasted success immediately. */
+      try{
+        if (typeof runUpdateCheck === 'function') runUpdateCheck(true).then(function(cnt){
+          syncUpdAtFromST(inst);
+          allRepos(inst).forEach(function(r){ if (inst.installed[r.id] && !inst.updAt[r.id]) inst.updAt[r.id] = todayBN(); });
+          toast(inst, cnt ? 'সব প্লাগিন হালনাগাদ হয়েছে ✓ — ' + cnt + 'টি' : 'সব রিপো আপ টু ডেট আছে ✓');
+          render(inst, true);
+        }).catch(function(e){ toast(inst, engineErrText(e)); });
+      }catch(e){ toast(inst, engineErrText(e)); }
+    }
   } else if (act === 'logcat'){ nav(inst, 'logcat'); refreshLogcat(inst);
   } else if (act === 'copyLog'){
     engineCall('logcat', {}).then(function(d){
@@ -7681,5 +8213,6 @@ if (window.ZP_setAppLang && !window.ZP_setAppLang.__v31){
 })();
 </script>
 
+  <div id="srv-load-screen" aria-label="Server Loading"><div class="srv-load-ring"></div><div class="srv-load-txt">Server Loading</div><div class="srv-load-sub" id="srv-load-title"></div><div class="srv-load-dots"><span></span><span></span><span></span></div></div>
   </body>
 </html>
