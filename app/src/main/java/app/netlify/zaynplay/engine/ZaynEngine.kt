@@ -761,6 +761,7 @@ class ZaynEngine(
                 "progressAll" -> ok(library.progressAll())
                 // ---- Phase C: downloads (E22–E25) ----
                 "downloads" -> ok(downloads.downloads())
+                "storageInfo" -> ok(downloads.storageInfo())
                 "downloadStart" -> downloadStart(params)
                 "downloadControl" -> ok(
                     downloads.control(
@@ -835,7 +836,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.15")
+        .put("version", "1.0.16")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -3426,14 +3427,10 @@ class ZaynEngine(
                 title,
                 JSONObject().put("linkIndex", pickedIdx).put("atMs", System.currentTimeMillis()),
             )
-            val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
-            library.markWatching(
-                pageUrl,
-                params.optString("providerName", ""),
-                title,
-                params.optString("type", "movie"),
-                params.optString("poster", ""),
-            )
+            // (v1.0.16 P11-01) Playing NEVER auto-adds to the Library:
+            // the master prompt's rule is explicit-bookmark ONLY. The old
+            // library.markWatching call here is deleted; Continue Watching
+            // is built from the progress store instead (JS buildCW).
         }
         // extractorVerifierJob while playing, where the provider implements it.
         val extractorData = link.extractorData
@@ -3620,6 +3617,7 @@ class ZaynEngine(
                 params.optString("title", ""),
                 params.optString("type", "movie"),
                 params.optString("poster", ""),
+                params.optString("year", ""),
             ),
         )
     }
@@ -3650,7 +3648,15 @@ class ZaynEngine(
         if (link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET) {
             return err("no_links", "Torrent downloads are not supported")
         }
-        val id = "dl-" + (title + "|" + url).hashCode().toString().replace("-", "n")
+        // (v1.0.16 P10-13) Stronger download id: SHA-256 of title + page
+        // URL + episode data (when a series episode is chosen), first 16
+        // hex chars, keeping the "dl-" prefix. The old 32-bit hashCode id
+        // could collide across different title+URL pairs and silently
+        // overwrite the other download's entry/file.
+        val idInput = title + "|" + url + "|" + params.optString("episodeData", "")
+        val idDigest = MessageDigest.getInstance("SHA-256").digest(idInput.toByteArray(Charsets.UTF_8))
+        val idHex = idDigest.joinToString("") { "%02x".format(it) }.take(16)
+        val id = "dl-$idHex"
         val started = downloads.start(
             id,
             link,
@@ -3667,6 +3673,7 @@ class ZaynEngine(
     }
 
     private fun downloadOpen(id: String): JSONObject {
+        val entry = downloads.downloadEntry(id)
         val path = downloads.localPath(id) ?: return err("download_failed", "Download not found")
         val isM3u8 = path.endsWith(".m3u8")
         val link = ZaynPlayer.PlayLink(
@@ -3684,7 +3691,17 @@ class ZaynEngine(
         player.diagSessionId = playSessionCounter
         mpvPlayer.setDiagSessionId(playSessionCounter)
         playActive(link, 0, null, null, null, cacheSizeBytes())
-        return ok(JSONObject().put("launched", true))
+        // (v1.0.16 P10-01) The old reply ({launched:true} only) made the
+        // JS handler wait for a `playing` flag that was never sent, so the
+        // tap did nothing visible while playback had already started
+        // behind the Downloads screen. Reply playing:true + the title so
+        // the UI can navigate to the player and name the title.
+        return ok(
+            JSONObject()
+                .put("launched", true)
+                .put("playing", true)
+                .put("title", entry?.optString("title", "") ?: ""),
+        )
     }
 
     // ---- E31–E34: accounts ----
@@ -3821,7 +3838,7 @@ class ZaynEngine(
             .put("apiName", r.apiName)
     }
 
-    private fun episodeJson(e: Episode): JSONObject = JSONObject()
+    private fun episodeJson(e: Episode, dub: String? = null): JSONObject = JSONObject()
         .put("data", e.data)
         .put("name", e.name ?: JSONObject.NULL)
         .put("season", e.season ?: JSONObject.NULL)
@@ -3831,9 +3848,13 @@ class ZaynEngine(
         .put("description", e.description ?: JSONObject.NULL)
         .put("date", e.date ?: JSONObject.NULL)
         .put("runTime", e.runTime ?: JSONObject.NULL)
+        // (v1.0.16 P12-07) Anime dub status, carried per episode instead
+        // of flattened away: "subbed" | "dubbed" | absent (unknown).
+        .put("dub", dub ?: JSONObject.NULL)
 
     private fun detailsJson(resp: LoadResponse): JSONObject {
         val episodes = JSONArray()
+        val seasonNames = JSONArray()
         var data: Any? = JSONObject.NULL
         when (resp) {
             is MovieLoadResponse -> data = resp.dataUrl
@@ -3841,11 +3862,26 @@ class ZaynEngine(
             is TvSeriesLoadResponse -> {
                 data = resp.url
                 for (e in resp.episodes) episodes.put(episodeJson(e))
+                // (v1.0.16 P12-01) Season display names, when the provider
+                // supplies them (MainAPI TvSeriesLoadResponse.seasonNames).
+                for (s in resp.seasonNames ?: emptyList()) {
+                    seasonNames.put(
+                        JSONObject()
+                            .put("season", s.season)
+                            .put("name", s.name ?: JSONObject.NULL)
+                            .put("displaySeason", s.displaySeason ?: JSONObject.NULL),
+                    )
+                }
             }
             is AnimeLoadResponse -> {
                 data = resp.url
-                for (list in resp.episodes.values) {
-                    for (e in list) episodes.put(episodeJson(e))
+                for ((dubStatus, list) in resp.episodes) {
+                    val dub = when (dubStatus.name) {
+                        "Dubbed" -> "dubbed"
+                        "Subbed" -> "subbed"
+                        else -> null
+                    }
+                    for (e in list) episodes.put(episodeJson(e, dub))
                 }
             }
             else -> data = resp.url
@@ -3853,7 +3889,17 @@ class ZaynEngine(
         val recs = JSONArray()
         for (r in resp.recommendations ?: emptyList()) recs.put(searchItemJson(r))
         val cast = JSONArray()
-        for (a in resp.actors ?: emptyList()) cast.put(a.actor.name)
+        // (v1.0.16 P12-06) Cast photos + roles were dropped by the old
+        // names-only bridge; carry them (null image = initials placeholder
+        // in the UI, never a broken image or an invented face).
+        for (a in resp.actors ?: emptyList()) {
+            cast.put(
+                JSONObject()
+                    .put("name", a.actor.name)
+                    .put("image", a.actor.image ?: JSONObject.NULL)
+                    .put("role", a.roleString ?: a.role?.name ?: JSONObject.NULL),
+            )
+        }
         return JSONObject()
             .put("title", resp.name)
             .put("type", resp.type.name)
@@ -3865,6 +3911,7 @@ class ZaynEngine(
             .put("tags", JSONArray(resp.tags ?: emptyList<String>()))
             .put("cast", cast)
             .put("episodes", episodes)
+            .put("seasonNames", seasonNames)
             .put("recommendations", recs)
             .put("trailer", resp.trailers.firstOrNull()?.extractorUrl ?: JSONObject.NULL)
             .put("data", data ?: JSONObject.NULL)
