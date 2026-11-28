@@ -59,6 +59,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.Deferred
@@ -110,9 +111,6 @@ class ZaynEngine(
     private val activity: Activity,
     private val store: EngineStore,
     private val player: ZaynPlayer,
-    // (v1.0.10) The libmpv player, owned by MainActivity like ZaynPlayer.
-    // Both players share the one TextureView; only the active engine plays.
-    private val mpvPlayer: ZaynMpvPlayer,
     private val downloads: ZaynDownloads,
     private val bridgeScope: CoroutineScope,
     private val onEvent: (String, JSONObject) -> Unit = { _, _ -> },
@@ -162,16 +160,9 @@ class ZaynEngine(
         // (v1.0.6 R1) The original play() params, so a retry can re-resolve
         // links (fresh loadLinks) when the ranked list is exhausted.
         val params: JSONObject,
-        // (v1.0.13 P2-B) The other engine has already been tried once for a
-        // MALFORMED manifest in this session — never try it twice.
-        var malformedEngineSwitched: Boolean = false,
         // (v1.0.13 P4-B) A fresh re-resolve has already been spent once
         // for a MANIFEST_AUTH failure in this session — never spend it twice.
         var authReresolved: Boolean = false,
-        // (v1.0.13 P6-B) The other engine has already been tried once for a
-        // DECODE_ERROR / UNSUPPORTED_FORMAT failure in this session — never
-        // try it twice.
-        var decodeEngineSwitched: Boolean = false,
         // (v1.0.13 P6-B) A fresh re-resolve has already been spent once
         // for a SOURCE_NOT_FOUND / LINK_EXPIRED failure in this session —
         // never spend it twice (never replay the failed URL).
@@ -196,16 +187,24 @@ class ZaynEngine(
     // links found" — and so the log names the failing link's verdict.
     private var lastProbeSkipReason: String? = null
 
-    // (v1.0.13 P2-B) One-shot engine override for the MALFORMED retry
-    // (retryOtherEngine): set just before the retry's playActive call and
-    // cleared right after it returns. Only that one play is affected.
-    private var oneShotEngineOverride: String? = null
 
     // (v1.0.12 §7) Duplicate-play guard: one play() at a time (a new user
     // play supersedes the old one — the old one's activePlay is replaced
     // anyway), plus request-id dedup (a repeated bridge id returns the
     // cached reply) so the c31–c36 residue can never recur.
     private val playMutex = Mutex()
+    // (v1.0.23 D) Mirror-probe warming (TRACE-1.0.23-LOADLINKS §8.1):
+    // a background loadLinks on details open populates the provider's
+    // shared API-base cache (24 h prefs + process static) BEFORE the
+    // play tap, so the play path starts at the otp/player stages. One
+    // job per process at most (warmLinksActive single-flight) and one
+    // success per process (warmLinksDone); a later details open never
+    // launches a duplicate. Warming never holds playMutex and play
+    // never waits for it — a tap during warming behaves exactly as
+    // today (its own probe), only slower to benefit, never slower
+    // than today.
+    private val warmLinksActive = AtomicBoolean(false)
+    private val warmLinksDone = AtomicBoolean(false)
     private var lastPlayRequestId: String? = null
     private var lastPlayResult: JSONObject? = null
     // (v1.0.14 P4 rank 4) Play dedup is BOUNDED: a params hash (the same
@@ -222,13 +221,10 @@ class ZaynEngine(
     // must run again. Only ok replies are cached.
     private val readDedup = LinkedHashMap<String, Pair<Long, JSONObject>>()
     private val readDedupMethods = setOf("homeFeed", "homeFeedSection", "homeFeedSections", "search", "details", "repos", "library", "progressAll", "downloads")
-    // (v1.0.12 §6 step 2) The engine of the last playActive — MainActivity
-    // uses it to decide whether a stage-open/close may touch mpv's surface.
-    private var lastActiveEngine: String = "exoplayer"
 
     // (v1.0.20 P21-B3/B4) Playback-start timing: playInternal records
     // the request start + link-resolve duration; noteFirstFrame() (called
-    // from MainActivity when either engine fires playerFirstFrame) logs
+    // from MainActivity when the player fires playerFirstFrame) logs
     // request -> first frame with the resolve split. Logging only — no
     // behaviour change to playback.
     private var lastPlayT0Ms: Long = 0L
@@ -276,7 +272,7 @@ class ZaynEngine(
         val ms = if (lastPlayT0Ms > 0) System.currentTimeMillis() - lastPlayT0Ms else -1
         EngineLogger.logPerf(
             "perf",
-            "player firstFrame session=$session ms=$ms engine=$lastActiveEngine resolveMs=$lastPlayResolveMs title=$lastPlayTitle",
+            "player firstFrame session=$session ms=$ms engine=exoplayer resolveMs=$lastPlayResolveMs title=$lastPlayTitle",
         )
         logMemSample("player")
         val token = ++mem30sToken
@@ -295,8 +291,6 @@ class ZaynEngine(
         return ok(JSONObject().put("ms", ms))
     }
 
-    /** (v1.0.12 §6 step 2) True when libmpv played last. */
-    fun isMpvActive(): Boolean = lastActiveEngine == "libmpv"
 
     /** (v1.0.12 §8) Current diagnostics session id. */
     fun currentSession(): Int = playSessionCounter
@@ -328,8 +322,8 @@ class ZaynEngine(
             // and clamp it: within 30 s of the end restarts at 0, same
             // rule as the play-time safeStartSec guard.
             if (ap != null) {
-                val posMs = if (isMpv()) mpvPlayer.getPositionMs() else player.positionMs()
-                val durMs = if (isMpv()) mpvPlayer.getDurationMs() else player.durationMs()
+                val posMs = player.positionMs()
+                val durMs = player.durationMs()
                 val posSec = (posMs / 1000).toInt()
                 if (posSec > 0) {
                     ap.safeStartSec = if (durMs > 0 && posSec >= durMs / 1000 - 30) 0 else posSec
@@ -363,26 +357,22 @@ class ZaynEngine(
                 EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (attempts=${ap?.attempts ?: 0} ranked.size=${ap?.ranked?.size ?: 0})")
                 false
             } else if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED) {
-                // (v1.0.13 P2-B) MALFORMED: never re-resolve the same provider
+                // (v1.0.13 P2-B, v1.0.23) MALFORMED: never re-resolve the same provider
                 // for the same URL shape — the old loop re-probed and re-played
                 // the same class of failure 3x with fresh tokens and no new
                 // information (INVESTIGATION-4 §3.7). Spend the attempts on
-                // DIFFERENT links/engines instead: next ranked link if one
-                // exists, else the other engine once, else fail. The
-                // 3-attempt budget (maxPlayAttempts) still caps it all.
+                // DIFFERENT links instead: next ranked link if one exists,
+                // else fail. (v1.0.23: the other-engine resort is gone —
+                // ExoPlayer is the only player now.) The 3-attempt budget
+                // (maxPlayAttempts) still caps it all.
                 if (ap.index + 1 < ap.ranked.size) {
                     EngineLogger.log("player", "recovery errorClass=$errorClass action=next-link attempts=${ap.attempts} session=${ap.session}")
                     bridgeScope.launch { retryNextLink(ap) }
                     true
-                } else if (!ap.malformedEngineSwitched) {
-                    ap.malformedEngineSwitched = true
-                    EngineLogger.log("player", "recovery errorClass=$errorClass action=other-engine attempts=${ap.attempts} session=${ap.session}")
-                    bridgeScope.launch { retryOtherEngine(ap) }
-                    true
                 } else {
                     playbackFailed = true
                     EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap.attempts} session=${ap.session}")
-                    EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (MALFORMED: no next link, other engine already tried, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
+                    EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (MALFORMED: no next link, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
                     false
                 }
             } else if (errorClass == ZaynPlayer.PlaybackErrorClass.MANIFEST_AUTH) {
@@ -408,20 +398,20 @@ class ZaynEngine(
             } else if (errorClass == ZaynPlayer.PlaybackErrorClass.DECODE_ERROR ||
                 errorClass == ZaynPlayer.PlaybackErrorClass.UNSUPPORTED_FORMAT
             ) {
-                // (v1.0.13 P6-B) DECODE_ERROR / UNSUPPORTED_FORMAT: the
-                // failure is in THIS engine's decoder stack, so the retry is
-                // the OTHER engine once (a different decoder stack) — never
-                // the same engine on the same link, and never a re-resolve
-                // (a fresh token cannot fix a decoder). Then fail.
-                if (!ap.decodeEngineSwitched) {
-                    ap.decodeEngineSwitched = true
-                    EngineLogger.log("player", "recovery errorClass=$errorClass action=other-engine attempts=${ap.attempts} session=${ap.session}")
-                    bridgeScope.launch { retryOtherEngine(ap, "DECODE") }
+                // (v1.0.13 P6-B, v1.0.23) DECODE_ERROR / UNSUPPORTED_FORMAT:
+                // (v1.0.23) there is no other engine any more — ExoPlayer
+                // is the only player, so the retry is the NEXT ranked link
+                // (a different encode may decode) — never the same link,
+                // and never a re-resolve (a fresh token cannot fix a
+                // decoder). Then fail. The 3-attempt budget still caps it.
+                if (ap.index + 1 < ap.ranked.size) {
+                    EngineLogger.log("player", "recovery errorClass=$errorClass action=next-link attempts=${ap.attempts} session=${ap.session}")
+                    bridgeScope.launch { retryNextLink(ap) }
                     true
                 } else {
                     playbackFailed = true
                     EngineLogger.log("player", "recovery errorClass=$errorClass action=fail attempts=${ap.attempts} session=${ap.session}")
-                    EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (DECODE: other engine already tried, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
+                    EngineLogger.log("player", "error ${error.errorCodeName} — no retry left (DECODE: no next link, attempts=${ap.attempts} ranked.size=${ap.ranked.size})")
                     false
                 }
             } else if (errorClass == ZaynPlayer.PlaybackErrorClass.SOURCE_NOT_FOUND ||
@@ -472,33 +462,10 @@ class ZaynEngine(
             }
         }
 
-        // (v1.0.14 G7) libmpv fatal errors used to bypass the engine
-        // entirely (MP posted playerError straight to JS: no
-        // classification, no bounded retry, and E.playbackFailed was never
-        // set). Route them here: mpv failures map to OTHER and fail fast —
-        // MP has already posted the playerError event that latches JS, so
-        // failPlaySession must NOT re-fire it. A retry here would fight
-        // the JS banner (a retry does not clear the latch), so the engine
-        // side only latches + logs; the user retries from the banner.
-        mpvPlayer.setOnFatalError { reason ->
-            playbackFailed = true
-            val ap = activePlay
-            EngineLogger.log(
-                "player",
-                "mpv fatal error reason=$reason errorClass=OTHER action=fail attempts=${ap?.attempts ?: 0} session=${ap?.session ?: 0}",
-            )
-            if (ap != null) activePlay = null
-        }
     }
 
-    // (v1.0.10) Engine routing: every player call goes to the active
-    // engine (store setting "engine", default exoplayer). The ExoPlayer
-    // path is byte-identical for engine=exoplayer. If libmpv was selected
-    // but its native instance could not be created, fall back to ExoPlayer
-    // for this play instead of failing (mpvPlayer.ensureCreated() false).
-    private fun isMpv(): Boolean =
-        store.getSettingString("engine", "exoplayer") == "libmpv"
-
+    // (v1.0.23) ExoPlayer is the ONLY player: no engine setting, no
+    // switch, no fallback. playActive prepares the one player and plays.
     private fun playActive(
         link: ZaynPlayer.PlayLink,
         startAtMs: Long,
@@ -509,71 +476,16 @@ class ZaynEngine(
         bufferLevel: String = "normal",
         preferredAudioLang: String? = null,
     ) {
-        // (v1.0.12 §6 step 1) Switch-time DETACH first, both ways: the idle
-        // engine must release its hold on the shared TextureView's
-        // BufferQueue before the new engine connects — a paused decoder
-        // keeps the queue connected, which is what made mpv's
-        // eglCreateWindowSurface fail (INVESTIGATION-2 §2). F3's pause is
-        // kept; detach is added (F3's pause-only rule is superseded here).
-        // (v1.0.13 P2-B) One-shot engine override for the MALFORMED retry
-        // (retryOtherEngine): this play — and only this play — runs on the
-        // other engine. The override is read here, synchronously, and cleared
-        // by the caller right after this call returns (the mpv branch only
-        // posts a delayed play after this decision, so clearing is safe).
-        val engineForThisPlay = oneShotEngineOverride ?: if (isMpv()) "libmpv" else "exoplayer"
-        // (v1.0.18 P17-02) Subtitle style from Settings, for both
-        // engines: the ExoPlayer HTML overlay and libmpv's sub-* options.
+        // (v1.0.18 P17-02) Subtitle style from Settings, for the
+        // ExoPlayer HTML overlay.
         val subtitleStyle = subtitleStyleJson()
-        if (engineForThisPlay == "libmpv" && !mpvPlayer.isVoFailed() && mpvPlayer.ensureCreated()) {
-            lastActiveEngine = "libmpv"
-            // (v1.0.12 §7) Stop the previous engine outright (not just
-            // pause) before starting the new one — one ticker only.
-            player.pauseForBackground()
-            player.stopPlayback()
-            player.detachSurfaceForSwitch()
-            EngineLogger.log("player", "player: exo surface detached for mpv switch")
-            // 500 ms settle allowance (TUNABLE, not a measured value) for
-            // Media3's async decoder disconnect: the detach is posted to
-            // the main handler ahead of this delayed play, so FIFO ordering
-            // holds, but the decoder itself disconnects asynchronously on
-            // its playback thread. The §6 step-4 VO retry covers a
-            // too-short delay. No delay is needed if the surfaces were
-            // per-engine (they are shared — Arm 2).
-            Handler(Looper.getMainLooper()).postDelayed({
-                mpvPlayer.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang, subtitleStyle.toString())
-            }, 500)
-        } else {
-            // (v1.0.12 §6 step 6) Exclusion tripwire: a VO-init failure that
-            // survived detach+retry (mpvPlayer.isVoFailed()) routes the play
-            // to ExoPlayer instead of offering audio-only libmpv as video.
-            if (engineForThisPlay == "libmpv") {
-                if (mpvPlayer.isVoFailed()) {
-                    EngineLogger.log("player", "mpv: VO failed after detach+retry — falling back to ExoPlayer, libmpv excluded for this session")
-                } else {
-                    EngineLogger.log("player", "mpv unavailable — falling back to ExoPlayer for this play")
-                }
-            } else if (oneShotEngineOverride != null) {
-                EngineLogger.log("player", "player: one-shot engine override to ExoPlayer for this retry")
-            }
-            lastActiveEngine = "exoplayer"
-            mpvPlayer.pauseForBackground()
-            mpvPlayer.stop()
-            mpvPlayer.detachSurfaceForSwitch()
-            EngineLogger.log("player", "player: mpv surface detached for exo switch")
-            // MANDATORY on the way back: ensurePlayer early-returns when
-            // the player exists, so without this the ExoPlayer play would
-            // run with no surface after a switch-time detach.
-            player.reattachTextureView()
-            player.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang, subtitleStyle)
-        }
+        player.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang, subtitleStyle)
     }
 
-    private fun activeStateSnapshot(): JSONObject =
-        if (isMpv()) mpvPlayer.stateSnapshot() else player.stateSnapshot()
+    private fun activeStateSnapshot(): JSONObject = player.stateSnapshot()
 
-    /** (v1.0.22 B) The playing stream's REAL audio/subtitle tracks, from the active player (ExoPlayer currentTracks / libmpv track-list). The JS pickers show only these (+ link audio / provider subtitles as fallback) — never a hardcoded list. */
-    private fun playerTracks(): JSONObject =
-        if (isMpv()) mpvPlayer.tracksSnapshot() else player.tracksSnapshot()
+    /** (v1.0.22 B) The playing stream's REAL audio/subtitle tracks, from the player (ExoPlayer currentTracks). The JS pickers show only these (+ link audio / provider subtitles as fallback) — never a hardcoded list. */
+    private fun playerTracks(): JSONObject = player.tracksSnapshot()
 
     private fun subtitlesJson(subs: List<SubtitleFile>): JSONArray {
         val arr = JSONArray()
@@ -606,7 +518,6 @@ class ZaynEngine(
         }
         // (v1.0.12 §8) Retries keep the session id.
         player.diagSessionId = ap.session
-        mpvPlayer.setDiagSessionId(ap.session)
         playActive(
             ZaynPlayer.PlayLink(
                 url = link.url,
@@ -724,38 +635,6 @@ class ZaynEngine(
         playRetryLink(ap, ap.ranked, next, candidate)
     }
 
-    /**
-     * (v1.0.13 P2-B) MALFORMED retry, second resort: replay the SAME picked
-     * link on the OTHER engine once (libmpv's ffmpeg HLS parser is far more
-     * lenient than Media3's — if mpv plays it, the manifest is Media3-strict
-     * malformed rather than unfetchable; INVESTIGATION-4 §3.8). The attempt
-     * is counted by playRetryLink (the file's single attempts increment), so the
-     * 3-attempt budget still caps it all. Never re-resolves the provider.
-     * (v1.0.13 P6-B) The same one-shot other-engine retry serves
-     * DECODE_ERROR / UNSUPPORTED_FORMAT (label "DECODE"): the failure is in
-     * this engine's decoder stack, so the other engine is the retry.
-     */
-    private suspend fun retryOtherEngine(ap: ActivePlay, label: String = "MALFORMED") {
-        // A newer play() replaces the session — a late error must not
-        // restart an old title.
-        if (activePlay !== ap) return
-        val other = if (isMpv()) "exoplayer" else "libmpv"
-        EngineLogger.log("player", "retry $label — trying other engine $other once (attempts=${ap.attempts} session=${ap.session})")
-        if (other == "libmpv" && (mpvPlayer.isVoFailed() || !mpvPlayer.ensureCreated())) {
-            failPlaySession(ap, "retry MALFORMED — other engine libmpv unavailable, no retry left (attempts=${ap.attempts} session=${ap.session})")
-            return
-        }
-        val candidate = ap.ranked[ap.index]
-        // One-shot override: playRetryLink -> playActive reads it
-        // synchronously, and it is cleared right after that call returns.
-        oneShotEngineOverride = other
-        try {
-            playRetryLink(ap, ap.ranked, ap.index, candidate)
-        } finally {
-            oneShotEngineOverride = null
-        }
-    }
-
     fun markReady() {
         engineReady = true
     }
@@ -832,6 +711,9 @@ class ZaynEngine(
                 "pluginUpdateCheck" -> pluginUpdateCheck(params.optBoolean("manual", false))
                 // ---- Phase C: player (E12–E16) ----
                 "links" -> links(params)
+                // (v1.0.23 D) Background mirror-probe warming (see
+                // warmLinks): fire-and-forget, replies at once.
+                "warmLinks" -> warmLinks(params)
                 "play" -> play(params, requestId)
                 "playerControl" -> playerControl(params, requestId)
                 "playerTracks" -> ok(playerTracks())
@@ -987,7 +869,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.22")
+        .put("version", "1.0.23")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -2045,12 +1927,20 @@ class ZaynEngine(
         val arr = JSONArray()
         var hasNext = false
         var totalItems = 0
+        // (v1.0.23 D) Title diagnostic counters (see loop below).
+        var titledItems = 0
+        var firstTitleLen = -1
         for (resp in sections) {
             if (resp == null) continue
             hasNext = hasNext || resp.hasNext
             for (list in resp.items) {
                 val items = JSONArray()
                 for (item in list.list) {
+                    // (v1.0.23 D) Title diagnostic: count provider titles
+                    // that arrive non-blank (TRACE-1.0.23-TITLE §5.1) —
+                    // presence/length only, never the title text.
+                    if (firstTitleLen < 0) firstTitleLen = item.name.length
+                    if (item.name.isNotBlank()) titledItems++
                     items.put(searchItemJson(item))
                     totalItems++
                 }
@@ -2067,7 +1957,7 @@ class ZaynEngine(
             EngineLogger.log("bridge", "homeFeed no_content provider=$providerName ms=${hfMs()} sections=${arr.length()}")
             return err("no_content", "No homepage responses")
         }
-        EngineLogger.log("bridge", "homeFeed ok provider=$providerName ms=${hfMs()} sections=${arr.length()} items=$totalItems hasNext=$hasNext")
+        EngineLogger.log("bridge", "homeFeed ok provider=$providerName ms=${hfMs()} sections=${arr.length()} items=$totalItems titled=$titledItems firstTitleLen=$firstTitleLen hasNext=$hasNext")
         // (v1.0.20 P21-B4) Home settle = memory sample point; fetchMs is
         // returned so JS can log fetch + render separately (N1).
         logMemSample("home")
@@ -2118,12 +2008,20 @@ class ZaynEngine(
         val arr = JSONArray()
         var hasNext = false
         var totalItems = 0
+        // (v1.0.23 D) Title diagnostic counters (see loop below).
+        var titledItems = 0
+        var firstTitleLen = -1
         for (resp in sections) {
             if (resp == null) continue
             hasNext = hasNext || resp.hasNext
             for (list in resp.items) {
                 val items = JSONArray()
                 for (item in list.list) {
+                    // (v1.0.23 D) Title diagnostic: count provider titles
+                    // that arrive non-blank (TRACE-1.0.23-TITLE §5.1) —
+                    // presence/length only, never the title text.
+                    if (firstTitleLen < 0) firstTitleLen = item.name.length
+                    if (item.name.isNotBlank()) titledItems++
                     items.put(searchItemJson(item))
                     totalItems++
                 }
@@ -2134,7 +2032,7 @@ class ZaynEngine(
             EngineLogger.log("bridge", "homeFeedSection no_content provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex sections=${arr.length()}")
             return err("no_content", "No homepage responses")
         }
-        EngineLogger.log("bridge", "homeFeedSection ok provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex sections=${arr.length()} items=$totalItems hasNext=$hasNext")
+        EngineLogger.log("bridge", "homeFeedSection ok provider=$providerName ms=${hfMs()} sectionIndex=$sectionIndex sections=${arr.length()} items=$totalItems titled=$titledItems firstTitleLen=$firstTitleLen hasNext=$hasNext")
         return ok(
             JSONObject()
                 .put("provider", JSONObject().put("name", api.name).put("mainUrl", api.mainUrl).put("lang", api.lang))
@@ -2182,8 +2080,14 @@ class ZaynEngine(
             val list = (res as? Resource.Success<SearchResponseList>)?.value
                 ?: return err("network_error", "Search failed")
             val arr = JSONArray()
-            for (item in list.items) arr.put(searchItemJson(item))
-            EngineLogger.logPerf("perf", "search ok query=$query ms=${searchMs()} providers=1/1 timedOut=0 items=${arr.length()}")
+            var titledItems = 0
+            var firstTitleLen = -1
+            for (item in list.items) {
+                if (firstTitleLen < 0) firstTitleLen = item.name.length
+                if (item.name.isNotBlank()) titledItems++
+                arr.put(searchItemJson(item))
+            }
+            EngineLogger.logPerf("perf", "search ok query=$query ms=${searchMs()} providers=1/1 timedOut=0 items=${arr.length()} titled=$titledItems firstTitleLen=$firstTitleLen")
             return ok(
                 JSONObject()
                     .put("results", arr)
@@ -2286,6 +2190,16 @@ class ZaynEngine(
                 failures.put(JSONObject().put("provider", name).put("reason", "not_attempted"))
             }
         }
+        // (v1.0.23 D) Title diagnostic for fan-out search: count
+        // non-blank titles in the assembled results (presence and
+        // lengths only, never the title text).
+        var titledSearch = 0
+        var firstSearchTitleLen = -1
+        for (i in 0 until results.length()) {
+            val rt = results.optJSONObject(i)?.optString("title", "") ?: ""
+            if (firstSearchTitleLen < 0) firstSearchTitleLen = rt.length
+            if (rt.isNotBlank()) titledSearch++
+        }
         // (v1.0.20 P21-B2) Fan-out totals: settled providers, timed-out
         // count, item count — the numbers the on-phone report needs.
         var timedOut = 0
@@ -2294,7 +2208,7 @@ class ZaynEngine(
         }
         EngineLogger.logPerf(
             "perf",
-            "search ok query=$query ms=${searchMs()} providers=${perProvider.length()}/${ordered.size} timedOut=$timedOut items=${results.length()}",
+            "search ok query=$query ms=${searchMs()} providers=${perProvider.length()}/${ordered.size} timedOut=$timedOut items=${results.length()} titled=$titledSearch firstTitleLen=$firstSearchTitleLen",
         )
         return ok(
             JSONObject()
@@ -2326,6 +2240,10 @@ class ZaynEngine(
         }
         val resp = (loaded as? Resource.Success<LoadResponse>)?.value
             ?: return err("network_error", "Could not load details")
+        // (v1.0.23 D) Title diagnostic: does the provider's load()
+        // supply a real name (TRACE-1.0.23-TITLE §5.4)? Presence and
+        // length only — never the title text, never a URL.
+        EngineLogger.log("bridge", "details titleProbe provider=$providerName titlePresent=${resp.name.isNotBlank()} titleLen=${resp.name.length}")
         return ok(detailsJson(resp))
     }
 
@@ -2442,6 +2360,119 @@ class ZaynEngine(
         )
     }
 
+    // ---- (v1.0.23 D) CNC mirror-probe warming + cold-probe detection ----
+    // TRACE-1.0.23-LOADLINKS (Worker B, dex-verified v116): every CNC
+    // mirror provider's loadLinks starts with UtilsKt.resolveApiUrl(),
+    // a sequential probe of 25 hard-coded mobidetect* mirrors sharing
+    // ONE static + SharedPreferences cache ("NetflixMirrorPrefs" /
+    // "newtv_api_base", 24 h). Feeds/details never call it, so the
+    // first play after a fresh install pays the whole probe inside
+    // the 30 s play budget — and the V1.0.22 retry restarts it from
+    // candidate #1. Warming runs that same loadLinks in the background
+    // on details open, while the user reads, so the cache is populated
+    // before the play tap. The plugin gives no resume hook and no
+    // resolve-only entry point, so warming IS a background loadLinks
+    // (links discarded, never shown); the retry is left exactly as
+    // V1.0.22 wrote it and the warm cache is what makes it moot.
+
+    /** True when this api is one of the CNC mirror providers (dex v116:
+     * NetflixMirrorProvider / PrimeVideoMirrorProvider /
+     * HotStarMirrorProvider / DisneyStudioProvider, incl. the Marvel /
+     * Star Wars / Pixar studio instances, which are the same class).
+     * Plugin classes are loaded at runtime, so this matches on class
+     * names (walking superclasses for DisneyPlusProvider, which
+     * extends DisneyStudioProvider) instead of referencing them. */
+    private fun isMirrorProvider(api: MainAPI): Boolean {
+        var c: Class<*>? = api::class.java
+        while (c != null && c != Any::class.java) {
+            val n = c.name
+            if (n.contains("MirrorProvider") || n.contains("DisneyStudioProvider")) return true
+            c = c.superclass
+        }
+        return false
+    }
+
+    /** True when the provider's shared API-base cache is absent or
+     * stale (the same 24 h rule resolveApiUrl uses: fresh iff
+     * now - timestamp < 86_400_000). Reads the plugin's own
+     * SharedPreferences on the application context — the same store
+     * NetflixMirrorStorage.init() opens. Never throws into the play
+     * path: an unreadable store reads as cold. */
+    private fun isMirrorApiBaseCold(): Boolean {
+        return try {
+            val prefs = activity.applicationContext.getSharedPreferences("NetflixMirrorPrefs", Context.MODE_PRIVATE)
+            val base = prefs.getString("newtv_api_base", null)
+            val ts = prefs.getLong("newtv_api_base_timestamp", 0L)
+            base.isNullOrBlank() || System.currentTimeMillis() - ts >= 86_400_000L
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    /** Fire-and-forget mirror-probe warming for one details page.
+     * JS calls this once when the details reply lands, with the
+     * title's loadLinks data (first episode data for series, the
+     * details data for movies). Only mirror providers are warmed —
+     * any other provider has no probe to warm. Runs on bridgeScope,
+     * outside playMutex: it must never block a play, and a play tap
+     * mid-warm behaves exactly as today. The returned JSON only says
+     * whether a job was launched; the outcome is in the log. */
+    private fun warmLinks(params: JSONObject): JSONObject {
+        val providerName = params.optString("providerName", "")
+        if (providerName.isBlank()) return ok(JSONObject().put("warming", false))
+        if (warmLinksDone.get()) {
+            EngineLogger.log("bridge", "warmLinks already warmed this process provider=$providerName — skipping")
+            return ok(JSONObject().put("warming", false))
+        }
+        if (!warmLinksActive.compareAndSet(false, true)) {
+            EngineLogger.log("bridge", "warmLinks already warming provider=$providerName — skipping duplicate")
+            return ok(JSONObject().put("warming", false))
+        }
+        bridgeScope.launch {
+            val warmT0 = System.currentTimeMillis()
+            try {
+                val api = resolveApi(providerName, null)
+                if (api == null) {
+                    EngineLogger.log("bridge", "warmLinks provider_not_found provider=$providerName")
+                    return@launch
+                }
+                if (!isMirrorProvider(api)) {
+                    EngineLogger.log("bridge", "warmLinks skip provider=$providerName (not a mirror provider — no probe to warm)")
+                    return@launch
+                }
+                val data = resolveLinkData(params, api)
+                if (data.isNullOrBlank()) {
+                    EngineLogger.log("bridge", "warmLinks no_data provider=$providerName")
+                    return@launch
+                }
+                val warmDataForLinks = normalizeLoadData(data, params.optString("title", "")) ?: data
+                var warmLinksFound = 0
+                val result = APIRepository(api).loadLinks(warmDataForLinks, false, {}) { warmLinksFound++ }
+                val warmMs = System.currentTimeMillis() - warmT0
+                // A returned call means resolveApiUrl finished: ok, or a
+                // later-stage error (otp/player) — either way the base
+                // is cached. Only "Failed to resolve" means the probe
+                // itself found no base, so a later details open may
+                // retry warming.
+                val probeFailed = result.error?.contains("Failed to resolve") == true
+                if (!probeFailed) warmLinksDone.set(true)
+                EngineLogger.log("bridge", "warmLinks done provider=$providerName ms=$warmMs ok=${result.ok} links=$warmLinksFound error=${result.error ?: "-"} warmed=${!probeFailed}")
+            } catch (e: CancellationException) {
+                // Best-effort background job: a cancelled warm (its own
+                // 120 s vendored timeout, or a dying scope) is logged
+                // and dropped, never rethrown into the bridge — the
+                // play path has its own timeouts and never depends on
+                // this job.
+                EngineLogger.log("bridge", "warmLinks cancelled provider=$providerName ms=${System.currentTimeMillis() - warmT0}")
+            } catch (e: Exception) {
+                EngineLogger.log("bridge", "warmLinks threw provider=$providerName ${e.javaClass.simpleName}: ${e.message}")
+            } finally {
+                warmLinksActive.set(false)
+            }
+        }
+        return ok(JSONObject().put("warming", true))
+    }
+
     // ---- E12–E16: player ----
 
     /** Resolve the loadLinks input: explicit data/episodeData, else load(url) first. */
@@ -2465,6 +2496,9 @@ class ZaynEngine(
         val subtitles: List<SubtitleFile>,
         val partial: Boolean,
         val timedOut: Boolean = false,
+        // (v1.0.23 D) Timeout while the mirror probe was still cold:
+        // a distinct cause from a generic timeout (see resolveLinks).
+        val coldProbeTimeout: Boolean = false,
     )
 
     // (v0.2.11) C-6/C-7: resolveLinks now returns its failure REASON
@@ -2477,6 +2511,12 @@ class ZaynEngine(
         val resolveStartMs = System.currentTimeMillis()
         val providerName = params.optString("providerName", "")
         val api = resolveApi(providerName, null) ?: return null to "provider_not_found"
+        // (v1.0.23 D) Cold-probe classification (TRACE-1.0.23-LOADLINKS
+        // §2a/§8.3): for a CNC mirror provider with no fresh cached API
+        // base, a timeout means the play died inside the provider's
+        // mirror-probe loop before anything was cached — a distinct
+        // cause from a generic timeout. Read once, at play start.
+        val coldProbe = isMirrorProvider(api) && isMirrorApiBaseCold()
         // (v1.0.13 P2-C P1) Provider Loaded.
         providerDiag("P1", "Provider Loaded", "provider=$providerName", providerName)
         val data = resolveLinkData(params, api) ?: return null to "no_data"
@@ -2681,9 +2721,23 @@ class ZaynEngine(
         // extraction duration and the failure category, so "timed out
         // after N ms" is distinguishable from "completed with zero
         // links" without reading the log around it.
+        // (v1.0.23 D) A timeout with no error string is the
+        // TimeoutCancellationException path (APIRepository rethrows it,
+        // so linksError was never set and P4 printed errorClass=-).
+        // Record the honest cause: a cold mirror probe gets its own
+        // class, anything else the generic timeout class. This runs
+        // AFTER every attempt (direct + bounded retry + fallbacks), so
+        // a retry that returned a real error keeps that error, and a
+        // retry that succeeded clears it — the timeout / error /
+        // no_links categories stay distinct (playback-pipeline rule).
+        if (timedOut && linksError == null) {
+            linksError = if (coldProbe) "ProviderMirrorProbeTimeout: provider mirror probe timed out (no cached API base)"
+            else "TimeoutCancellationException: loadLinks timed out after ${timeoutSec}s"
+        }
         val resolveDurationMs = System.currentTimeMillis() - resolveStartMs
         val failCategory = when {
             loadLinksOk -> "ok"
+            timedOut && coldProbe -> "mirror_probe_timeout"
             timedOut -> "timeout"
             linksError != null -> "error"
             foundLinks.isEmpty() -> "no_links"
@@ -2697,7 +2751,7 @@ class ZaynEngine(
             if (foundLinks.isEmpty()) upd.put("lastError", linksError ?: "no_links")
             recordHealthByName(providerName, upd)
         }
-        return ResolvedLinks(api, foundLinks, foundSubs, partial, timedOut) to null
+        return ResolvedLinks(api, foundLinks, foundSubs, partial, timedOut, coldProbeTimeout = timedOut && coldProbe && foundLinks.isEmpty() && !loadLinksOk) to null
     }
 
     /** (v1.0.6 D1) loadLinks errors that mean the provided `data` JSON
@@ -2888,7 +2942,7 @@ class ZaynEngine(
     private fun providerDiag(code: String, name: String, note: String = "", providerName: String = "") {
         EngineLogger.log(
             "player",
-            "diag $code $name session=$playSessionCounter engine=${if (isMpv()) "libmpv" else "exoplayer"} " +
+            "diag $code $name session=$playSessionCounter engine=exoplayer " +
                 "ts=${System.currentTimeMillis()}" +
                 if (note.isNotEmpty()) " $note" else "",
         )
@@ -3666,7 +3720,12 @@ class ZaynEngine(
             else err("provider_not_found", "Provider not found")
         }
         if (resolved.links.isEmpty()) {
-            return if (resolved.timedOut) err("timeout", "Loading the links timed out — try again")
+            // (v1.0.23 D) Cold mirror probe: the provider was still
+            // finding its server when the play budget ran out — say so
+            // instead of the generic timeout, so a retry that would
+            // fail identically is not presented as "try again".
+            return if (resolved.coldProbeTimeout) err("mirror_probe_timeout", "The provider is still finding its server — try again in a moment")
+            else if (resolved.timedOut) err("timeout", "Loading the links timed out — try again")
             else err("no_links", "No playable links found")
         }
         val ranked = rankLinks(resolved.links, params.optString("providerName", ""))
@@ -3719,9 +3778,11 @@ class ZaynEngine(
     }
 
     private suspend fun playInternal(params: JSONObject, requestId: String? = null): JSONObject {
-        // (v1.0.10) The libmpv guard is GONE: libmpv is bundled now, so a
-        // persisted engine=libmpv is valid. Routing happens in playActive()
-        // below; link resolution, probe, ranking and auto-retry above it are
+        // (v1.0.23) No engine guard: ExoPlayer is the only player, so a
+        // persisted engine value naming the removed player is never read
+        // (the setting no longer exists — EngineStore rejects it as
+        // unknown_setting). Routing happens in playActive() below; link
+        // resolution, probe, ranking and auto-retry above it are
         // engine-independent and untouched.
         lastProbeSkipReason = null
         val mode = params.optString("mode", store.getSettingString("mode", "auto"))
@@ -3742,7 +3803,9 @@ class ZaynEngine(
             else reject("provider_not_found", "Provider not found", requestId)
         }
         if (resolved.links.isEmpty()) {
-            return if (resolved.timedOut) reject("timeout", "Loading the links timed out — try again", requestId)
+            // (v1.0.23 D) Cold mirror probe — distinct cause, see links().
+            return if (resolved.coldProbeTimeout) reject("mirror_probe_timeout", "The provider is still finding its server — try again in a moment", requestId)
+            else if (resolved.timedOut) reject("timeout", "Loading the links timed out — try again", requestId)
             else reject("no_links", "No playable links found", requestId)
         }
         val ranked = rankLinks(resolved.links, params.optString("providerName", ""))
@@ -3794,7 +3857,7 @@ class ZaynEngine(
         val title = params.optString("title", "")
         val ap0 = activePlay
         if (explicitIndex && ap0 != null && ap0.title == title && ap0.index == pickedIdx &&
-            (player.hasActiveMedia() || mpvPlayer.hasActiveMedia())
+            player.hasActiveMedia()
         ) {
             EngineLogger.log("player", "play dedup same title+link session=${ap0.session} request=${requestId ?: "?"} — returning existing session")
             val existing = ap0.ranked[ap0.index]
@@ -3899,10 +3962,9 @@ class ZaynEngine(
         playSessionCounter++
         val session = playSessionCounter
         player.diagSessionId = session
-        mpvPlayer.setDiagSessionId(session)
         playActive(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
         // (v1.0.13 P2-C P7) Player Selected.
-        providerDiag("P7", "Player Selected", "engine=$lastActiveEngine", params.optString("providerName", ""))
+        providerDiag("P7", "Player Selected", "engine=exoplayer", params.optString("providerName", ""))
         // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
         // name the picked link (URL + type + quality) in the log.
         // (v1.0.13 P6-C) A new play clears the dead-session latch from any
@@ -3967,9 +4029,9 @@ class ZaynEngine(
     }
 
     /**
-     * (v1.0.18 P17-02) Subtitle style as one JSON object for both
-     * players: ExoPlayer's HTML overlay and libmpv's sub-* options
-     * read the same values from the same source (Settings).
+     * (v1.0.18 P17-02) Subtitle style as one JSON object: the
+     * ExoPlayer HTML overlay reads the values from Settings.
+     * (v1.0.23) The removed player's sub-* options are gone with it.
      */
     private fun subtitleStyleJson(): JSONObject = JSONObject()
         .put("subColor", store.getSettingString("subColor", "সাদা"))
@@ -4040,31 +4102,31 @@ class ZaynEngine(
         return when (action) {
             "toggle", "pause", "resume", "seek", "rate", "volume", "mute" -> {
                 val value = if (params.has("value") && !params.isNull("value")) params.optDouble("value") else null
-                val state = if (isMpv()) mpvPlayer.control(action, value) else player.control(action, value)
+                val state = player.control(action, value)
                 ok(JSONObject().put("state", state))
             }
             "setSubtitle" -> {
                 val text = if (params.has("text") && !params.isNull("text")) params.optString("text") else null
-                if (isMpv()) mpvPlayer.setSubtitleText(text, params.optString("lang", "")) else player.setSubtitleText(text, params.optString("lang", ""))
+                player.setSubtitleText(text, params.optString("lang", ""))
                 ok(JSONObject().put("state", activeStateSnapshot()))
             }
             // (v1.0.22 B) In-player audio/subtitle picks, applied to the CURRENT stream (no re-play). setAudio/setSubtitleTrack select a manifest track by id (or language); setSubtitleUrl attaches a provider subtitle URL; setSubtitleOff clears every subtitle. A pick the KNOWN inventory contradicts is refused (invalid_input) instead of silently keeping the old track; with no inventory yet the pick is accepted and the JS confirm loop (playerTracks re-query) verifies the selected track.
             "setAudio" -> {
-                val ok2 = if (isMpv()) mpvPlayer.setAudioTrack(params.optString("trackId", ""), params.optString("lang", "")) else player.setAudioTrack(params.optString("trackId", ""), params.optString("lang", ""))
+                val ok2 = player.setAudioTrack(params.optString("trackId", ""), params.optString("lang", ""))
                 if (ok2) ok(JSONObject().put("state", activeStateSnapshot())) else err("invalid_input", "That audio track is not available")
             }
             "setSubtitleTrack" -> {
-                val ok2 = if (isMpv()) mpvPlayer.setSubtitleTrack(params.optString("trackId", ""), params.optString("lang", "")) else player.setSubtitleTrack(params.optString("trackId", ""), params.optString("lang", ""))
+                val ok2 = player.setSubtitleTrack(params.optString("trackId", ""), params.optString("lang", ""))
                 if (ok2) ok(JSONObject().put("state", activeStateSnapshot())) else err("invalid_input", "That subtitle track is not available")
             }
             "setSubtitleUrl" -> {
                 val url = params.optString("url", "")
                 if (url.isBlank()) return err("invalid_input", "No subtitle URL")
-                if (isMpv()) mpvPlayer.setSubtitleUrl(url, params.optString("lang", "")) else player.setSubtitleUrl(url, params.optString("lang", ""))
+                player.setSubtitleUrl(url, params.optString("lang", ""))
                 ok(JSONObject().put("state", activeStateSnapshot()))
             }
             "setSubtitleOff" -> {
-                if (isMpv()) mpvPlayer.setSubtitleOff() else player.setSubtitleOff()
+                player.setSubtitleOff()
                 ok(JSONObject().put("state", activeStateSnapshot()))
             }
             "nextEp", "prevEp" -> {
@@ -4083,14 +4145,14 @@ class ZaynEngine(
         }
     }
 
-    // (v1.0.22 C ITEM 7) Aspect ratio for the LIVE engine: the page's CSS
+    // (v1.0.22 C ITEM 7) Aspect ratio for the player: the page's CSS
     // classes only restyle the DOM poster/img — the native TextureView
-    // needs the engine to stretch/crop/fit the frame itself. The page
+    // needs the player to stretch/crop/fit the frame itself. The page
     // also re-reports the stage rect (playerStage) sized to the new
-    // frame, so the view and the engine agree on the target aspect.
+    // frame, so the view and the player agree on the target aspect.
     private fun playerAspect(params: JSONObject): JSONObject {
         val ratio = params.optString("ratio", "fit").ifBlank { "fit" }
-        val ok = if (isMpv()) mpvPlayer.setAspectRatio(ratio) else player.setAspectRatio(ratio)
+        val ok = player.setAspectRatio(ratio)
         return if (ok) ok(JSONObject().put("ratio", ratio))
         else err("invalid_input", "Unknown aspect ratio")
     }
@@ -4268,7 +4330,6 @@ class ZaynEngine(
         // (v1.0.12 §8) Attribute the download play to the current session
         // (no new session is armed for a download open).
         player.diagSessionId = playSessionCounter
-        mpvPlayer.setDiagSessionId(playSessionCounter)
         playActive(link, 0, null, null, null, cacheSizeBytes())
         // (v1.0.16 P10-01) The old reply ({launched:true} only) made the
         // JS handler wait for a `playing` flag that was never sent, so the
