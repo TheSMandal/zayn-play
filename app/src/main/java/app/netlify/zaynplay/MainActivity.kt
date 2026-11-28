@@ -26,6 +26,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.ActionMode
 import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
@@ -230,6 +231,16 @@ class MainActivity : AppCompatActivity() {
             textZoom = 100
             mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
+        // (v1.0.25 E) Long-press text selection OFF (native backstop; the
+        // primary layer is the global CSS user-select:none rule in
+        // zaynplay-app.html). Consuming the View long-click stops the
+        // WebView's built-in long-press -> selection path. Touch/pointer
+        // dispatch to JS is untouched, so the pointerdown-timer holds
+        // (provider pin, volume hold, hold-2x) and the long-press menus
+        // keep firing. If this ever proved to swallow a JS hold on the
+        // phone, delete this one line — the CSS layer still covers
+        // display text on its own.
+        webView.setOnLongClickListener { true }
         webView.webViewClient = object : WebViewClient() {
             // (v1.0.20 P20-B5) The page's scripts have run by now, so
             // window.__zaynEvent exists — flush any engine events queued
@@ -721,6 +732,16 @@ class MainActivity : AppCompatActivity() {
             // if it is gone (postSurfaceCheck does both, either engine).
             postSurfaceCheck()
         }
+    }
+
+    // (v1.0.25 E) Selection backstop: finish any floating text-selection
+    // ActionMode (Copy / Select all / Web search / Share) the moment it
+    // starts, so it can never appear over display text. OPEN POINT: this
+    // also finishes the ActionMode a text input raises for its own
+    // long-press paste menu — see the file header comment; if on-phone
+    // G17 proves that menu dead, delete ONLY this override.
+    override fun onActionModeStarted(mode: ActionMode?) {
+        mode?.finish()
     }
 
     override fun onPause() {
