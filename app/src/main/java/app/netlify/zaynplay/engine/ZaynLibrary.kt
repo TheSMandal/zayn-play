@@ -213,16 +213,38 @@ class ZaynLibrary(private val store: EngineStore) {
         durSec: Int,
         url: String = "",
         providerName: String = "",
+        poster: String = "",
         ep: String = "",
     ): JSONObject {
         if (title.isBlank()) return JSONObject().put("saved", false)
         // (v1.0.14 G1) Store under the content key when the caller sent
         // an identity; title-only callers keep the legacy title key.
         val key = progressKey(url, providerName, ep).ifBlank { title }
-        // Same rule as the UI's saveProgress: drop positions under 10 s
-        // or within 30 s of the end.
-        if (posSec <= 10 || (durSec > 0 && posSec >= durSec - 30)) {
+        // (v1.0.19 P18-05) Same rule as the UI's saveProgress, except a
+        // finished title keeps a completed marker instead of being deleted:
+        // posSec = durSec + completed=true, so Watch History still lists
+        // it. CW excludes finished rows (JS cwEntries) and both resume
+        // paths guard pos >= dur - 30 -> 0 (JS resumePos; E play-link
+        // safeStartSec), so Resume can never resurrect. The 500-row cap
+        // (ZaynDatabase PROGRESS_CAP) still prunes oldest-first.
+        if (posSec <= 10) {
             store.removeMapEntry(EngineStore.KEY_PROGRESS, key)
+            return JSONObject().put("saved", true)
+        }
+        if (durSec > 0 && posSec >= durSec - 30) {
+            val now = System.currentTimeMillis()
+            val kept = store.mapEntry(EngineStore.KEY_PROGRESS, key)
+            store.putMapEntry(
+                EngineStore.KEY_PROGRESS,
+                key,
+                JSONObject()
+                    .put("posSec", durSec).put("durSec", durSec)
+                    .put("title", title).put("url", url)
+                    .put("providerName", providerName).put("poster", poster).put("ep", ep)
+                    .put("completed", true)
+                    .put("addedAt", kept?.optLong("addedAt", now) ?: now)
+                    .put("updatedAt", now),
+            )
             return JSONObject().put("saved", true)
         }
         // (v1.0.16 P11-07) addedAt/updatedAt so Watch History can list
@@ -235,7 +257,7 @@ class ZaynLibrary(private val store: EngineStore) {
             JSONObject()
                 .put("posSec", posSec).put("durSec", durSec)
                 .put("title", title).put("url", url)
-                .put("providerName", providerName).put("ep", ep)
+                .put("providerName", providerName).put("poster", poster).put("ep", ep)
                 .put("addedAt", kept?.optLong("addedAt", now) ?: now)
                 .put("updatedAt", now),
         )
