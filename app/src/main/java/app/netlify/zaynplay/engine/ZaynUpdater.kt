@@ -36,6 +36,10 @@ import org.json.JSONObject
  * - ZIP assets are downloaded to cacheDir/ZaynPlay.zip, verified, and
  *   extracted — the single APK inside is what gets installed. The
  *   installer is NEVER fired on ZIP bytes (P20-B2).
+ * - (v1.0.25 F) APK assets are picked ABI-aware first
+ *   (Build.SUPPORTED_ABIS order, universal fallback; per-ABI
+ *   `SHA-256 <abi>:` body lines); the ZIP pick stays as the
+ *   legacy fallback for pre-1.0.25 releases.
  * - Pre-install verification (P20-B3), all five, on the downloaded
  *   file AND the extracted APK: SHA-256 vs the asset `digest` field
  *   (ZIP) / the `APK SHA-256:` body line (APK), signing-cert
@@ -80,6 +84,21 @@ class ZaynUpdater(
         private val TAG_REGEX = Regex("""^v?(\d+)\.(\d+)\.(\d+)$""")
         private val VC_BODY_REGEX = Regex("""versionCode:\s*(\d+)""")
         private val APK_SHA_BODY_REGEX = Regex("""APK SHA-256:\s*([0-9a-fA-F]{64})""")
+        // (v1.0.25 F) Per-ABI SHA-256 lines in the release body,
+        // e.g. `SHA-256 arm64-v8a: <sha>`. The universal APK
+        // keeps the legacy `APK SHA-256:` line above. The asset
+        // `digest` field is the fallback for APK assets only
+        // (for a ZIP asset the digest is the ZIP file's hash
+        // and must never stand in for the extracted APK's).
+        private val PER_ABI_SHA_BODY_REGEX =
+            Regex("""SHA-256\s+(arm64-v8a|armeabi-v7a|x86_64|x86):\s*([0-9a-fA-F]{64})""")
+        // (v1.0.25 F) Release asset names (renamed by the
+        // assembly coordinator from the CI split outputs):
+        // ZaynPlay-1.0.25-<abi>.apk / ZaynPlay-1.0.25-universal.apk.
+        // x86_64 precedes x86 so the shorter token can never
+        // match the longer name.
+        private val SUPPORTED_ABI_TOKENS =
+            listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         private const val UPDATE_CHANNEL_ID = "app.netlify.zaynplay.updates"
         private const val UPDATE_NOTIF_ID = 3200
         private const val MAX_ZIP_ENTRIES = 50
@@ -250,6 +269,53 @@ class ZaynUpdater(
         return null
     }
 
+    /**
+     * (v1.0.25 F) ABI-aware asset selection — pure logic, no
+     * Android calls except the [deviceAbis] passed in (normally
+     * `Build.SUPPORTED_ABIS`, most-preferred first).
+     * 1. Walk the device ABIs IN ORDER; the first ABI whose asset
+     *    (`ZaynPlay-1.0.25-<abi>.apk`, matched by the `-<abi>.apk`
+     *    name suffix) exists wins.
+     * 2. Else the universal APK (`-universal.apk`).
+     * 3. Else null — the caller falls through to the unchanged
+     *    legacy ZIP / single-APK picks (old ZIP-only releases).
+     * ZIP assets never match here (the `.apk` suffix check
+     * excludes them); matching is by name suffix, not
+     * `content_type`.
+     */
+    private fun selectApkAsset(assets: JSONArray, deviceAbis: Array<String>): JSONObject? {
+        for (abi in deviceAbis) {
+            for (j in 0 until assets.length()) {
+                val a = assets.optJSONObject(j) ?: continue
+                if (a.optString("name", "").endsWith("-$abi.apk", ignoreCase = true)) return a
+            }
+        }
+        for (j in 0 until assets.length()) {
+            val a = assets.optJSONObject(j) ?: continue
+            if (a.optString("name", "").endsWith("-universal.apk", ignoreCase = true)) return a
+        }
+        return null
+    }
+
+    /** (v1.0.25 F) The ABI token of a per-ABI asset name, or null
+     * for the universal asset / anything else. */
+    private fun abiTokenOfAsset(name: String): String? {
+        for (abi in SUPPORTED_ABI_TOKENS) {
+            if (name.endsWith("-$abi.apk", ignoreCase = true)) return abi
+        }
+        return null
+    }
+
+    /** (v1.0.25 F) Per-ABI SHA-256 lines from a release body
+     * (`SHA-256 <abi>: <sha>`), as abi -> lowercase sha. */
+    private fun parsePerAbiSha256(body: String): Map<String, String> {
+        val out = mutableMapOf<String, String>()
+        for (m in PER_ABI_SHA_BODY_REGEX.findAll(body)) {
+            out[m.groupValues[1]] = m.groupValues[2].lowercase()
+        }
+        return out
+    }
+
     /** (v1.0.20 P20-B1/B4) Check github.com/TheSMandal/zayn-play/releases
      * for a newer release. Version from `tag_name`, never the asset
      * filename; the newest non-prerelease release is the ONLY candidate
@@ -306,14 +372,25 @@ class ZaynUpdater(
         val body = newest.optString("body", "")
         val remoteVc = VC_BODY_REGEX.find(body)?.groupValues?.get(1)?.toLongOrNull()
             ?: derivedVersionCode(newestTuple)
-        val apkSha256 = APK_SHA_BODY_REGEX.find(body)?.groupValues?.get(1)?.lowercase()
-        // Usable asset: prefer the ZIP container, else a legacy APK.
-        // No usable asset on the NEWEST release is an error, not a
-        // reason to offer an older release (downgrade vector).
+        // (v1.0.25 F) apkSha256 is resolved AFTER asset selection
+        // below — it depends on which asset was chosen (per-ABI
+        // line, legacy line, or asset digest for APK assets).
+        // Usable asset: ABI-aware APK pick first (below), else the
+        // legacy ZIP container, else a legacy APK. No usable asset
+        // on the NEWEST release is an error, not a reason to offer
+        // an older release (downgrade vector).
         val assets = newest.optJSONArray("assets")
         var asset: JSONObject? = null
         var isZip = false
+        // (v1.0.25 F) ABI-aware pick FIRST: the APK matching this
+        // device (Build.SUPPORTED_ABIS order), else the universal
+        // APK. When no APK asset matches (old ZIP-only releases)
+        // the unchanged ZIP / legacy-APK picks below still run --
+        // the earlier structure is not disturbed.
         if (assets != null) {
+            asset = selectApkAsset(assets, Build.SUPPORTED_ABIS)
+        }
+        if (asset == null && assets != null) {
             for (j in 0 until assets.length()) {
                 val a = assets.optJSONObject(j) ?: continue
                 if (a.optString("content_type") == "application/zip" &&
@@ -345,6 +422,22 @@ class ZaynUpdater(
                 .put("error", "no_usable_asset")
         }
         val digest = asset.optString("digest", "").removePrefix("sha256:")
+        val chosenAbi = if (!isZip) abiTokenOfAsset(asset.optString("name", "")) else null
+        // (v1.0.25 F) APK hash for the CHOSEN file. Per-ABI asset:
+        // its `SHA-256 <abi>:` body line, else the asset `digest`
+        // (GitHub's own SHA-256 of the uploaded file -- for an APK
+        // asset that IS the file's hash). Universal / legacy APK:
+        // the `APK SHA-256:` body line, else the digest. ZIP: the
+        // body line ONLY, as before -- the ZIP digest is the ZIP
+        // file's hash and must never stand in for the extracted
+        // APK's hash.
+        val apkSha256 = when {
+            isZip -> APK_SHA_BODY_REGEX.find(body)?.groupValues?.get(1)?.lowercase()
+            chosenAbi != null -> parsePerAbiSha256(body)[chosenAbi]?.lowercase()
+                ?: asset.optString("digest", "").removePrefix("sha256:").lowercase().takeIf { it.isNotBlank() }
+            else -> APK_SHA_BODY_REGEX.find(body)?.groupValues?.get(1)?.lowercase()
+                ?: asset.optString("digest", "").removePrefix("sha256:").lowercase().takeIf { it.isNotBlank() }
+        }
         val available = remoteVc > installedCode
         val out = JSONObject()
             .put("updateAvailable", available)
