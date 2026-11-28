@@ -454,6 +454,8 @@
         width:58px; height:58px; border-radius:50%; display:grid; place-items:center;
         font-family:"Sora",sans-serif; font-weight:700; font-size:17px; color:#fff; margin-bottom:5px;
       }
+      .cast img.face{ object-fit:cover; padding:0; }
+      .cast figcaption small{ display:block; color:var(--app-ink-2); font-size:10.5px; }
       .cast figcaption{ font-size:11px; color:var(--app-ink-2); line-height:1.3; }
       .ep{
         display:flex; gap:12px; align-items:center; text-align:left;
@@ -474,6 +476,23 @@
         background:var(--app-panel-2); border:1px solid var(--app-line); color:#fff;
         border-radius:9px; padding:6px 12px; font-size:13px; font-weight:600; min-height:36px;
       }
+      select.season-pill{ max-width:170px; }
+      /* (v1.0.16 P10-02/P10-10) In-app confirm + episode-picker sheets.
+         window.confirm() is NOT used: MainActivity's WebChromeClient does
+         not implement onJsConfirm, so a native confirm would never show. */
+      .zp-sheet{ position:absolute; left:50%; transform:translateX(-50%); width:min(360px, calc(100% - 24px)); bottom:96px; z-index:40; display:none;
+        background:var(--app-panel); border:1px solid var(--app-line); border-radius:18px; padding:16px;
+        box-shadow:0 22px 40px -14px rgba(0,0,0,.7); }
+      .zp-sheet.open{ display:block; }
+      .zp-sheet h4{ margin:0 0 6px; font-size:16px; }
+      .zp-sheet p{ margin:0 0 14px; color:var(--app-ink-2); font-size:13.5px; line-height:1.6; }
+      .zp-sheet .zp-row{ display:flex; gap:10px; justify-content:flex-end; }
+      .zp-sheet .zp-row button{ padding:9px 16px; border-radius:10px; border:1px solid var(--app-line); background:var(--app-panel-2); color:var(--app-text); font-size:14px; font-weight:600; }
+      .zp-sheet .zp-row button.danger{ background:#b3261e; border-color:#b3261e; color:#fff; }
+      .zp-sheet .zp-row button.primary{ background:var(--app-accent); border-color:var(--app-accent); color:#fff; }
+      .zp-sheet .zp-list{ max-height:260px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+      .zp-sheet .zp-list button{ text-align:left; padding:11px 12px; border-radius:10px; border:1px solid var(--app-line); background:var(--app-panel-2); color:var(--app-text); font-size:14px; }
+      .zp-sheet .zp-list button small{ display:block; color:var(--app-ink-2); font-size:12px; margin-top:2px; }
 
       /* ---------- player ---------- */
       #scr-player{ background:#000; padding-bottom:0; }
@@ -556,7 +575,7 @@ body.native-video #phone{ background:transparent; }
       .storage .srow{ display:flex; justify-content:space-between; font-size:13.5px; margin-bottom:9px; }
       .storage .srow b{ font-size:14px; }
       .storage .bar{ height:8px; border-radius:99px; background:#2b323f; overflow:hidden; }
-      .storage .bar i{ display:block; height:100%; width:46%; background:linear-gradient(90deg,var(--app-accent),var(--app-accent-2)); }
+      .storage .bar i{ display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--app-accent),var(--app-accent-2)); }
       .storage small{ color:var(--app-ink-2); display:block; margin-top:8px; font-size:12px; }
       .dl-item{
         display:flex; gap:12px; align-items:center; margin:0 14px 10px;
@@ -1939,7 +1958,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.15</p>
+                  <p class="splash-ver">Zayn Play v1.0.16</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2239,22 +2258,22 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     <div class="meta"><span class="match" id="d-match">—</span><span id="d-year">—</span><span id="d-dur">—</span><span class="star" id="d-star">—</span><span>HD</span></div>
                     <div class="d-prov" id="d-prov"></div>
                     <div class="detail-actions">
-                      <button class="btn-play" id="d-play"><svg viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12z"/></svg><span id="d-play-label">Play • S1 E1</span></button>
+                      <button class="btn-play" id="d-play"><svg viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12z"/></svg><span id="d-play-label">Play</span></button>
                     </div>
                     <div class="mini-actions">
                       <button data-mylist><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>Library</button>
                       <button data-dl><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v11m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>Download</button>
-                      <button data-toast="Trailer — আসল অ্যাপে ট্রেইলার চলবে"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.8v4.4l4-2.2z" fill="currentColor" stroke="none"/></svg>Trailer</button>
+                      <button data-trailer><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.8v4.4l4-2.2z" fill="currentColor" stroke="none"/></svg>Trailer</button>
                     </div>
                     <p class="synopsis" id="d-syn">আগে হোম বা সার্চ থেকে একটি কনটেন্ট বেছে নিন — তার গল্প, কাস্ট আর এপিসোড এখানে দেখাবে।</p>
                     <h3 class="sec-title" style="padding-left:0">Cast</h3>
                     <div class="cast" id="d-cast"></div>
                   </div>
                   <div id="d-episodes">
-                    <div class="season-row"><h3>Episodes</h3><button class="season-pill" data-toast="Season বাছার মেনু — আসল অ্যাপে ড্রপডাউন আসবে">Season 1 ▾</button></div>
+                    <div class="season-row"><h3>Episodes</h3><select class="season-pill" id="d-season" aria-label="Season"></select></div>
                     <div id="ep-list"></div>
                   </div>
-                  <div class="row-head"><h3>More Like This</h3></div>
+                  <div class="row-head" id="d-more-head"><h3>More Like This</h3></div>
                   <div class="rail" id="d-more"></div>
                 </section>
 
@@ -2267,7 +2286,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     <div class="v-top">
                       <button class="back-btn glass-btn" style="position:static" data-go="details" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 5l-7 7 7 7"/></svg></button>
                       <span class="vt-wrap"><span class="vt" id="p-title">—</span><small id="p-vsub">—</small></span>
-                      <button class="icon-btn glass-btn" data-toast="Cast — TV-তে পাঠানোর অপশন" aria-label="Cast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10v9a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-6"/><path d="M3 15a6 6 0 0 1 6 6M3 11.5A10 10 0 0 1 12.5 21" stroke-linecap="round"/><circle cx="4.5" cy="19.5" r="1.2" fill="currentColor" stroke="none"/></svg></button>
+                      <button class="icon-btn glass-btn" data-toast="Casting to TV isn't available in this version" aria-label="Cast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10v9a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-6"/><path d="M3 15a6 6 0 0 1 6 6M3 11.5A10 10 0 0 1 12.5 21" stroke-linecap="round"/><circle cx="4.5" cy="19.5" r="1.2" fill="currentColor" stroke="none"/></svg></button>
                       <button class="icon-btn glass-btn" id="vol-btn" aria-label="Volume"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10v4h3l5 4.5v-13L7 10H4z"/><path d="M15 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg></button>
                       <button class="icon-btn glass-btn" id="gear-btn" aria-label="Player settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55a7 7 0 0 0 0 2.8l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55c.1-.46.14-.93.14-1.4z"/></svg></button>
                     </div>
@@ -2383,10 +2402,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     <h4 class="p-sec">Cast</h4>
                     <div class="cast" id="p-cast"></div>
                     <div id="p-ep-wrap">
-                      <div class="season-row"><h3>Episodes</h3><button class="season-pill" data-toast="Season বাছার মেনু — আসল অ্যাপে ড্রপডাউন আসবে">Season 1 ▾</button></div>
+                      <div class="season-row"><h3>Episodes</h3><select class="season-pill" id="p-season" aria-label="Season"></select></div>
                       <div id="p-ep-list"></div>
                     </div>
-                    <div class="row-head" style="padding-left:0;padding-right:0"><h3>More Like This</h3></div>
+                    <div class="row-head" id="p-more-head" style="padding-left:0;padding-right:0"><h3>More Like This</h3></div>
                     <div class="rail" id="p-more"></div>
                   </div>
                 </section>
@@ -2400,18 +2419,21 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   </div>
                   <div class="grid" id="lib-grid"></div>
                   <p class="no-result" id="lib-empty">এই স্ট্যাটাসে কিছু নেই।</p>
+                  <h3 class="sec-title" style="padding-left:18px">Watch History</h3>
+                  <div id="hist-list"></div>
+                  <p class="no-result" id="hist-empty">এখনো কিছু দেখা হয়নি।</p>
                 </section>
 
                 <!-- ============ DOWNLOADS ============ -->
                 <section class="screen" id="scr-downloads" aria-label="Downloads">
                   <h2 class="page-title">Downloads</h2>
                   <div class="storage">
-                    <div class="srow"><b>Device Storage</b><span>5.9 GB of 12.8 GB used</span></div>
-                    <div class="bar"><i></i></div>
-                    <small>Downloads are saved on this device and play without internet.</small>
+                    <div class="srow"><b>Device Storage</b><span id="dl-storage-text">Checking storage…</span></div>
+                    <div class="bar"><i id="dl-storage-bar" style="width:0%"></i></div>
+                    <small id="dl-storage-note">Downloads are saved on this device and play without internet.</small>
                   </div>
                   <div id="dl-list"></div>
-                  <p style="padding:8px 20px;color:var(--app-ink-2);font-size:13px;line-height:1.6">ডাউনলোডের জায়গা, প্যারালাল ডাউনলোড আর কানেকশনের সংখ্যা বদলাতে: Settings → General → Downloads।</p>
+                  <p style="padding:8px 20px;color:var(--app-ink-2);font-size:13px;line-height:1.6">ডাউনলোডগুলো এই ডিভাইসের Download / Zayn Play ফোল্ডারে থাকে; ইন্টারনেট ছাড়াই চলে।</p>
                 </section>
 
                 <!-- ============ SETTINGS HOME (Zayn Play) ============ -->
@@ -2433,7 +2455,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                 <button data-go="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>Home</button>
                 <button data-go="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>Search</button>
                 <button data-go="library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>Library</button>
-                <button data-go="downloads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v11m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>Downloads<span class="dl-badge">3</span></button>
+                <button data-go="downloads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v11m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>Downloads<span class="dl-badge" style="display:none"></span></button>
                 <button data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.2"/><path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55a7 7 0 0 0 0 2.8l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55c.1-.46.14-.93.14-1.4z"/></svg>Settings</button>
               </nav>
               <!-- provider picker: Zayn Play's bottom provider dialog, in Zayn Play's glass design (phone-level, like the toast) -->
@@ -2449,6 +2471,18 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                 <div class="pip-btns"><button id="pip-toggle" aria-label="Play or pause">❚❚</button><button id="pip-open">Open</button><button id="pip-close" aria-label="Close">✕</button></div>
               </div>
               <div class="toast" id="toast" role="status"></div>
+              <!-- (v1.0.16 P10-02) Delete confirm sheet (in-app: no onJsConfirm in the WebView) -->
+              <div class="zp-sheet" id="zp-confirm" role="dialog" aria-label="Confirm">
+                <h4 id="zp-confirm-title">Delete?</h4>
+                <p id="zp-confirm-msg"></p>
+                <div class="zp-row"><button id="zp-confirm-cancel">Cancel</button><button class="danger" id="zp-confirm-ok">Delete</button></div>
+              </div>
+              <!-- (v1.0.16 P10-10) Series episode picker for downloads -->
+              <div class="zp-sheet" id="zp-eppick" role="dialog" aria-label="Choose episode">
+                <h4 id="zp-eppick-title">Choose episode to download</h4>
+                <div class="zp-list" id="zp-eppick-list"></div>
+                <div class="zp-row"><button id="zp-eppick-cancel">Cancel</button></div>
+              </div>
       </div>
     </div>
     <div class="zp-dlg" id="upd-dlg" role="dialog" aria-label="Install update">
@@ -2523,12 +2557,50 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* Zayn Play provider rules: no home page -> never listed; NSFW-only -> hidden unless NSFW on */
                   var TITLES = {};
       
-      var EPISODES = [
-        { n:"E1", t:"The Journey Begins", d:"48 min" },
-        { n:"E2", t:"Smoke Over the Valley", d:"51 min" },
-        { n:"E3", t:"The Old Promise", d:"46 min" },
-        { n:"E4", t:"What the Fire Keeps", d:"54 min" }
-      ];
+      /* (v1.0.16 P12-04/P11-05) The four-item demo-episodes constant is
+         DELETED: the player episode list used to render four invented
+         episodes for every series. Episode lists now come only from the
+         provider (t.episodes); no episodes = the section is hidden / an
+         honest empty state, never invented titles. */
+      /* Poster fallback (P11-05): a missing or dead poster shows this
+         placeholder tile, never a broken-image glyph. */
+      var POSTER_FALLBACK = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="170" viewBox="0 0 120 170"><rect width="120" height="170" fill="#232833"/><text x="60" y="92" font-family="sans-serif" font-size="34" font-weight="700" fill="#ff5a3c" text-anchor="middle">Z</text></svg>');
+      function posterImgHTML(src, alt, cls){
+        return '<img' + (cls ? ' class="' + cls + '"' : '') + ' src="' + (src || '') + '" alt="' + (alt || '') + '" onerror="this.onerror=null;this.src=POSTER_FALLBACK" />';
+      }
+      function posterFallbackImg(img){
+        if (!img) return;
+        img.onerror = function(){ img.onerror = null; img.src = POSTER_FALLBACK; };
+      }
+      /* (v1.0.16 P12-09) Real episode label from provider data — never a
+         hardcoded "S1 E1". Season is omitted when the provider gave none. */
+      function epLabel(ep){
+        if (!ep) return '';
+        var s = (ep.season != null && ep.season !== '') ? 'S' + ep.season + ' ' : '';
+        var e = (ep.episode != null && ep.episode !== '') ? 'E' + ep.episode : '';
+        var n = (ep.name || '').trim();
+        var se = (s + e).trim();
+        return se ? (n ? se + ' • ' + n : se) : n;
+      }
+      function epShort(ep){
+        if (!ep) return '';
+        var s = (ep.season != null && ep.season !== '') ? 'S' + ep.season + ' ' : '';
+        var e = (ep.episode != null && ep.episode !== '') ? 'E' + ep.episode : '';
+        return (s + e).trim();
+      }
+      function playLabelFor(t){
+        if (!t || t.type !== 'series') return 'Play';
+        var eps = t.episodes || [];
+        if (!eps.length) return 'Play';
+        var first = eps[0];
+        var lab = epShort(first);
+        return lab ? 'Play • ' + lab : 'Play';
+      }
+      /* (v1.0.16 P12-04) Episode-specific play: the clicked episode's
+         LoadData + episode key, consumed once by openPlayer/playParamsFor
+         so tapping E3 actually plays E3 (the old data-ep-data attribute
+         was set but never read — every episode played E1's links). */
+      var pendingEpData = null, pendingEpKey = '';
       var CAST_COLORS = ["#2563eb","#db2777","#059669","#d97706","#7c3aed","#0891b2"];
 
       var PROVIDERS = {};
@@ -3057,14 +3129,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (idx === 'cw'){
           title = 'Continue Watching';
           try {
-            var d = await engineCall('library', {});
-            ((d && d.items) || []).forEach(function(it){
-              if (it.progressSec > 0 && it.status === 'watching'){
-                var key = 'lib-' + it.id;
-                if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
-                keys.push(key);
-              }
-            });
+            var cw = await cwEntries();
+            cw.forEach(function(g){ keys.push(cwShellFor(g)); });
           } catch (e) { keys = []; }
         } else if (idx === 'trending'){ title = 'Trending Now'; keys = (p.feedKeys || p.trending || []).slice(); kind = 'whole'; hasNext = p.feedHasNext; }
         else if (idx === 'series'){ title = 'Popular Series'; keys = (p.series || []).slice(); }
@@ -3575,6 +3641,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             t.tag = (d.type || '').toUpperCase() || t.tag;
             t.dur = (d.duration != null) ? fmtDurMin(d.duration) : t.dur;
             t.episodes = d.episodes || [];
+            t.seasonNames = d.seasonNames || [];
             t.recommendations = d.recommendations || [];
             t.trailer = d.trailer || null;
             t.data = d.data;
@@ -3599,63 +3666,286 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('d-year').textContent = t.year;
         document.getElementById('d-dur').textContent = t.dur;
         document.getElementById('d-star').textContent = t.star;
-        document.getElementById('d-syn').textContent = t.syn;
+        renderSynopsis(document.getElementById('d-syn'), t.syn);
         var dp = document.getElementById('d-prov');
         if (dp) dp.innerHTML = logoHTML(t.parent || t.prov, 'sm') + '<span>' + t.prov + (t.siteUrl ? ' • ' + t.siteUrl : '') + '</span>';
         var rp = resumePos(t.title, current);
-        document.getElementById('d-play-label').textContent = rp > 0 ? 'Resume • ' + fmtT(rp) : (t.type === 'series' ? 'Play • S1 E1' : 'Play');
-        var cast = document.getElementById('d-cast');
-        cast.innerHTML = '';
-        t.cast.forEach(function(name, i){
-          var initials = name.split(' ').map(function(w){ return w.charAt(0); }).join('').slice(0,2).toUpperCase();
-          var fig = document.createElement('figure');
-          var face = document.createElement('span'); face.className = 'face';
-          face.style.background = CAST_COLORS[i % CAST_COLORS.length]; face.textContent = initials;
-          var cap = document.createElement('figcaption'); cap.textContent = name;
-          fig.appendChild(face); fig.appendChild(cap); cast.appendChild(fig);
-        });
+        document.getElementById('d-play-label').textContent = rp > 0 ? 'Resume • ' + fmtT(rp) : playLabelFor(t);
+        /* (v1.0.16 P12-02) No trailer in the payload = no Trailer button
+           (never a button that promises a trailer that does not exist). */
+        var trBtn = document.querySelector('#scr-details [data-trailer]');
+        if (trBtn) trBtn.style.display = t.trailer ? '' : 'none';
+        syncMylistButtons();
+        renderCast(document.getElementById('d-cast'), t.cast);
         var epWrap = document.getElementById('d-episodes');
         var epList = document.getElementById('ep-list');
         epList.innerHTML = '';
         if (t.type === 'series'){
           epWrap.style.display = 'block';
-          var eps = t.episodes || EPISODES;
-          eps.forEach(function(ep){
-            var b = document.createElement('button'); b.className = 'ep';
-            b.setAttribute('data-open-player', t.title);
-            b.setAttribute('data-open-id', id);
-            var epTitle, epSub, epData = '';
-            if (ep.data){ epData = ep.data; epTitle = (ep.season != null ? 'S' + ep.season + ' ' : '') + (ep.episode != null ? 'E' + ep.episode + ' ' : '') + (ep.name || ''); epSub = ep.description || ''; }
-            else { epTitle = ep.n + ' • ' + ep.t; epSub = ep.d; }
-            if (epData) b.setAttribute('data-ep-data', epData);
-            b.innerHTML = '<img src="' + t.poster + '" alt="" /><span><span class="ep-t">' + epTitle + '</span><br /><small>' + epSub + '</small></span><span class="ep-play"><svg viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12z"/></svg></span>';
-            epList.appendChild(b);
-          });
+          /* (v1.0.16 P12-05) Real episodes only: an empty/missing list
+             shows an honest empty state, never the deleted demo episodes. */
+          var eps = t.episodes || [];
+          fillSeasonSelect(document.getElementById('d-season'), t, 'details');
+          renderEpisodeRows(epList, eps, id, t.poster, 'details');
+          if (!eps.length){
+            var none = document.createElement('p');
+            none.className = 'no-result';
+            none.textContent = 'No episode list from this provider.';
+            epList.appendChild(none);
+          }
         } else {
           epWrap.style.display = 'none';
         }
         var more = document.getElementById('d-more');
+        var moreHead = document.getElementById('d-more-head');
         more.innerHTML = '';
         var recs = t.recommendations || null;
-        if (recs){
+        /* (v1.0.16 P12-10) No recommendations = no "More Like This" rail:
+           arbitrary titles were presented as recommendations before. */
+        if (recs && recs.length){
+          if (moreHead) moreHead.style.display = '';
+          more.style.display = '';
           recs.forEach(function(it){
             var rt = engineItemToTitle(it, t.prov, t.siteUrl);
             TITLES[it.id] = rt;
             var b = document.createElement('button'); b.className = 'card';
             b.setAttribute('data-open', it.id);
-            b.innerHTML = '<img class="poster" src="' + rt.poster + '" alt="' + rt.title + ' poster" /><p>' + rt.title + '</p><small>' + rt.star + ' • ' + rt.year + '</small>';
+            b.innerHTML = posterImgHTML(rt.poster, rt.title + ' poster') + '<p>' + rt.title + '</p><small>' + rt.star + ' • ' + rt.year + '</small>';
             more.appendChild(b);
           });
         } else {
-          Object.keys(TITLES).filter(function(k){ return k !== id; }).slice(0,5).forEach(function(k){
-            var m = TITLES[k];
-            var b = document.createElement('button'); b.className = 'card';
-            b.setAttribute('data-open', k);
-            b.innerHTML = '<img class="poster" src="' + m.poster + '" alt="' + m.title + ' poster" /><p>' + m.title + '</p><small>' + m.star + ' • ' + m.year + '</small>';
-            more.appendChild(b);
-          });
+          if (moreHead) moreHead.style.display = 'none';
+          more.style.display = 'none';
         }
         go('details');
+      }
+
+      /* (v1.0.16 P12-06) Cast render: names are always real; photos and
+         roles come from the bridge when the provider supplies them (the
+         payload may carry strings from older shapes — both are handled).
+         A null/missing photo keeps the initials tile, never a broken
+         image or an invented face. */
+      function renderCast(box, castArr){
+        if (!box) return;
+        box.innerHTML = '';
+        (castArr || []).forEach(function(c, i){
+          var name = (c && typeof c === 'object') ? (c.name || '') : String(c || '');
+          if (!name) return;
+          var img = (c && typeof c === 'object') ? (c.image || '') : '';
+          var role = (c && typeof c === 'object') ? (c.role || '') : '';
+          var initials = name.split(' ').map(function(w){ return w.charAt(0); }).join('').slice(0,2).toUpperCase();
+          var fig = document.createElement('figure');
+          if (img){
+            var im = document.createElement('img');
+            im.className = 'face'; im.src = img; im.alt = name;
+            /* Dead photo URL -> initials tile (never a broken image). */
+            im.onerror = (function(initials2, i2){
+              return function(){
+                var sp = document.createElement('span');
+                sp.className = 'face';
+                sp.style.background = CAST_COLORS[i2 % CAST_COLORS.length];
+                sp.textContent = initials2;
+                if (im.parentNode) im.parentNode.replaceChild(sp, im);
+              };
+            })(initials, i);
+            fig.appendChild(im);
+          } else {
+            var face = document.createElement('span'); face.className = 'face';
+            face.style.background = CAST_COLORS[i % CAST_COLORS.length]; face.textContent = initials;
+            fig.appendChild(face);
+          }
+          var cap = document.createElement('figcaption'); cap.textContent = name;
+          if (role){
+            var rs = document.createElement('small'); rs.textContent = role;
+            cap.appendChild(rs);
+          }
+          fig.appendChild(cap); box.appendChild(fig);
+        });
+        if (!box.children.length){
+          var none = document.createElement('p');
+          none.className = 'no-result';
+          none.textContent = 'No cast info from this provider.';
+          box.appendChild(none);
+        }
+      }
+      /* (v1.0.16 P12-08) Synopsis with read more/less for long plots, and
+         an honest message when the provider gave no description. The
+         toggle button is kept on the element so re-renders reuse it. */
+      function renderSynopsis(el, text){
+        if (!el) return;
+        var syn = (text || '').trim();
+        if (!el._synMore){
+          var btn = document.createElement('button');
+          btn.className = 'syn-more';
+          btn.style.cssText = 'background:none;border:0;color:#ff5a3c;font-size:13px;font-weight:600;padding:4px 0;';
+          if (el.parentNode && el.parentNode.insertBefore) el.parentNode.insertBefore(btn, el.nextSibling || null);
+          el._synMore = btn;
+        }
+        var moreBtn = el._synMore;
+        if (!syn){
+          el.textContent = 'No description from this provider.';
+          moreBtn.style.display = 'none';
+          return;
+        }
+        var LIMIT = 220;
+        if (syn.length <= LIMIT){
+          el.textContent = syn;
+          moreBtn.style.display = 'none';
+          return;
+        }
+        var expanded = false;
+        var paint = function(){
+          el.textContent = expanded ? syn : syn.slice(0, LIMIT) + '…';
+          moreBtn.textContent = expanded ? 'Read less' : 'Read more';
+          moreBtn.style.display = '';
+        };
+        moreBtn.onclick = function(){ expanded = !expanded; paint(); };
+        paint();
+      }
+      var seasonSel = { details: 'all', player: 'all' };
+      function episodesForSeason(eps, where){
+        var sel = seasonSel[where] || 'all';
+        if (sel === 'all') return eps;
+        if (sel === 'none') return eps.filter(function(ep){ return ep.season == null; });
+        return eps.filter(function(ep){ return String(ep.season) === sel; });
+      }
+      function fillSeasonSelect(selEl, t, where){
+        if (!selEl) return;
+        var eps = t.episodes || [];
+        var seasons = [];
+        var hasNull = false;
+        eps.forEach(function(ep){
+          if (ep.season == null){ hasNull = true; return; }
+          if (seasons.indexOf(String(ep.season)) === -1) seasons.push(String(ep.season));
+        });
+        seasons.sort(function(a, b){ return (+a) - (+b); });
+        var names = {};
+        (t.seasonNames || []).forEach(function(sn){ names[String(sn.season)] = sn.name || ('Season ' + sn.season); });
+        selEl.innerHTML = '';
+        if (!eps.length || (seasons.length <= 1 && !hasNull)){
+          /* One season (or none): no fake "Season 1" label — the picker
+             hides and the list stays ungrouped. */
+          selEl.style.display = 'none';
+          seasonSel[where] = 'all';
+          return;
+        }
+        selEl.style.display = '';
+        var mk = function(val, label){
+          var o = document.createElement('option');
+          o.value = val; o.textContent = label;
+          selEl.appendChild(o);
+        };
+        mk('all', 'All seasons');
+        seasons.forEach(function(s){ mk(s, names[s] || ('Season ' + s)); });
+        if (hasNull) mk('none', 'Other episodes');
+        selEl.value = seasonSel[where] || 'all';
+        if (selEl.value !== seasonSel[where]) seasonSel[where] = 'all';
+      }
+      /* Season select changes re-render that screen's episode rows. */
+      (function(){
+        var ds = document.getElementById('d-season');
+        if (ds) ds.addEventListener('change', function(){
+          seasonSel.details = ds.value;
+          var t = TITLES[current];
+          if (t){ var el = document.getElementById('ep-list'); el.innerHTML = ''; renderEpisodeRows(el, t.episodes || [], current, t.poster, 'details'); }
+        });
+        var ps = document.getElementById('p-season');
+        if (ps) ps.addEventListener('change', function(){
+          seasonSel.player = ps.value;
+          var t2 = curTitleEntry();
+          if (t2){ var el2 = document.getElementById('p-ep-list'); el2.innerHTML = ''; renderEpisodeRows(el2, t2.episodes || [], curTitleId, t2.poster, 'player'); }
+        });
+      })();
+      /* (v1.0.16 P12-02) Trailer: the stored extractor URL is an
+         extractor input, NOT a video URL — it goes through the normal
+         link-resolution path, then plays as its own title so trailer
+         progress never pollutes the movie/series position. */
+      async function playTrailer(){
+        var t = (typeof current !== 'undefined' && current) ? TITLES[current] : null;
+        if (!t || !t.trailer){ toast('No trailer available for this title'); return; }
+        try {
+          var d = await engineCall('links', { url: t.trailer, providerName: t.prov || '', title: t.title }, 60000);
+          var links = (d && d.links) || [];
+          if (!links.length){ toast('Trailer couldn\'t be loaded'); return; }
+          var tkey = 'trailer-' + current;
+          TITLES[tkey] = { title: 'Trailer — ' + t.title, poster: t.poster || '', type: 'movie', genre: '', year: t.year || '', star: '', syn: '', cast: [], url: t.trailer, prov: t.prov || '', engine: true, data: '' };
+          openPlayer('Trailer — ' + t.title, 0, tkey);
+        } catch (e){ toast(engineErrText(e)); }
+      }
+      function renderEpisodeRows(listEl, eps, titleId, poster, where){
+        var t = TITLES[titleId];
+        var shown = episodesForSeason(eps || [], where);
+        shown.forEach(function(ep){
+          var b = document.createElement('button'); b.className = 'ep';
+          var label = epLabel(ep);
+          var sub = ep.description || '';
+          if (ep.dub) sub = (sub ? sub + ' • ' : '') + (ep.dub === 'dubbed' ? 'Dubbed' : 'Subbed');
+          if (where === 'player'){
+            b.setAttribute('data-ep-play', t ? t.title : '');
+            b.setAttribute('data-ep-id', titleId);
+          } else {
+            b.setAttribute('data-open-player', t ? t.title : '');
+            b.setAttribute('data-open-id', titleId);
+          }
+          if (ep.data) b.setAttribute('data-ep-data', ep.data);
+          b.setAttribute('data-ep-n', (ep.episode != null ? 'E' + ep.episode : '')); /* (v1.0.14 G1) per-episode resume key */
+          b.setAttribute('data-ep-label', label);
+          b.innerHTML = posterImgHTML(ep.posterUrl || poster, '') + '<span><span class="ep-t">' + label + '</span><br /><small>' + sub + '</small></span><span class="ep-play"><svg viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12z"/></svg></span>';
+          listEl.appendChild(b);
+        });
+      }
+      /* (v1.0.16 P11-02) Which title does a [data-mylist] button belong
+         to? Search/hero cards carry it via closest [data-open] (hero via
+         the hero Play button's data-open-id); details/player use the
+         current title. */
+      function mylistEntryFor(btn){
+        if (!btn) return null;
+        var card = btn.closest ? btn.closest('[data-open]') : null;
+        if (card && TITLES[card.getAttribute('data-open')]) return { key: card.getAttribute('data-open'), t: TITLES[card.getAttribute('data-open')] };
+        var hero = btn.closest ? btn.closest('.hero') : null;
+        if (hero){
+          var hp = document.getElementById('h-hero-play');
+          var hk = hp && hp.getAttribute('data-open-id');
+          if (hk && TITLES[hk]) return { key: hk, t: TITLES[hk] };
+        }
+        var scr = document.querySelector('#phone .screen.on');
+        if (scr && scr.id === 'scr-player' && curTitleId && TITLES[curTitleId]) return { key: curTitleId, t: TITLES[curTitleId] };
+        if (typeof current !== 'undefined' && current && TITLES[current]) return { key: current, t: TITLES[current] };
+        if (curTitleId && TITLES[curTitleId]) return { key: curTitleId, t: TITLES[curTitleId] };
+        return null;
+      }
+      /* (v1.0.16 P11-02) Reflect stored library state on every
+         [data-mylist] button: .added only when the bridge says so. */
+      function syncMylistButtons(){
+        var btns = document.querySelectorAll('[data-mylist]');
+        for (var i = 0; i < btns.length; i++){
+          var ent = mylistEntryFor(btns[i]);
+          var added = !!(ent && typeof LIB_IDS !== 'undefined' && LIB_IDS[ent.key]);
+          btns[i].classList.toggle('added', added);
+        }
+      }
+      async function toggleLibrary(btn){
+        var ent = mylistEntryFor(btn);
+        if (!ent || !ent.t) return;
+        var t = ent.t;
+        var libId = (typeof LIB_IDS !== 'undefined') ? LIB_IDS[ent.key] : null;
+        try {
+          if (libId){
+            await engineCall('librarySet', { id: libId, status: 'remove' });
+            if (typeof LIB_IDS !== 'undefined') delete LIB_IDS[ent.key];
+            if (typeof LIBRARY !== 'undefined') delete LIBRARY['lib-' + libId];
+            toast('Library থেকে সরানো হয়েছে');
+          } else {
+            var d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'watching', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '' });
+            if (d && d.status){
+              await buildLibrary();
+              toast('Library-তে যোগ হয়েছে ✓');
+            } else {
+              toast('Library-তে যোগ করা যায়নি');
+            }
+          }
+        } catch (e){ toast(engineErrText(e)); }
+        syncMylistButtons();
       }
 
       function titleByName(name){
@@ -3691,48 +3981,47 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('p-info-sub').textContent = t.year + ' • ' + t.genre + ' • ' + t.dur + ' • English subtitle available.';
         document.getElementById('p-meta').innerHTML =
           '<span class="match">' + t.match + '</span><span>' + t.year + '</span><span>' + t.dur + '</span><span class="star">' + t.star + '</span><span>' + t.genre + '</span><span>HD</span>';
-        document.getElementById('p-syn').textContent = t.syn;
+        renderSynopsis(document.getElementById('p-syn'), t.syn);
         document.getElementById('p-facts').innerHTML =
           '<div class="p-fact"><small>Genre</small><b>' + t.genre + '</b></div>' +
           '<div class="p-fact"><small>Release</small><b>' + t.year + '</b></div>' +
           '<div class="p-fact"><small>' + (t.type === 'series' ? 'Seasons' : 'Runtime') + '</small><b>' + t.dur + '</b></div>' +
           '<div class="p-fact"><small>Rating</small><b>' + t.star.replace('★ ', '') + ' / 10</b></div>';
-        var cast = document.getElementById('p-cast');
-        cast.innerHTML = '';
-        t.cast.forEach(function(name, i){
-          var initials = name.split(' ').map(function(w){ return w.charAt(0); }).join('').slice(0,2).toUpperCase();
-          var fig = document.createElement('figure');
-          var face = document.createElement('span'); face.className = 'face';
-          face.style.background = CAST_COLORS[i % CAST_COLORS.length]; face.textContent = initials;
-          var cap = document.createElement('figcaption'); cap.textContent = name;
-          fig.appendChild(face); fig.appendChild(cap); cast.appendChild(fig);
-        });
+        renderCast(document.getElementById('p-cast'), t.cast);
         var epWrap = document.getElementById('p-ep-wrap');
         var epList = document.getElementById('p-ep-list');
         epList.innerHTML = '';
-        if (t.type === 'series'){
+        /* (v1.0.16 P12-04) The player list renders the SAME real episodes
+           as details (t.episodes) — never the deleted demo constant. No
+           episodes (movie, or provider returned none) = section hidden. */
+        if (t.type === 'series' && t.episodes && t.episodes.length){
           epWrap.style.display = 'block';
-          EPISODES.forEach(function(ep){
-            var b = document.createElement('button'); b.className = 'ep';
-            b.setAttribute('data-ep-play', t.title);
-            b.setAttribute('data-ep-id', (id && TITLES[id]) ? id : keyByTitle(title));
-            b.setAttribute('data-ep-n', ep.n); /* (v1.0.14 G1) per-episode resume key */
-            b.setAttribute('data-ep-label', 'S1 ' + ep.n + ' • ' + ep.t);
-            b.innerHTML = '<img src="' + t.poster + '" alt="" /><span><span class="ep-t">' + ep.n + ' • ' + ep.t + '</span><br /><small>' + ep.d + '</small></span><span class="ep-play"><svg viewBox="0 0 24 24"><path d="M7 4.8v14.4L19 12z"/></svg></span>';
-            epList.appendChild(b);
-          });
+          fillSeasonSelect(document.getElementById('p-season'), t, 'player');
+          renderEpisodeRows(epList, t.episodes, (id && TITLES[id]) ? id : keyByTitle(title), t.poster, 'player');
         } else {
           epWrap.style.display = 'none';
         }
         var more = document.getElementById('p-more');
+        var moreHead = document.getElementById('p-more-head');
         more.innerHTML = '';
-        Object.keys(TITLES).filter(function(k){ return TITLES[k].title !== title; }).slice(0,5).forEach(function(k){
-          var m = TITLES[k];
-          var b = document.createElement('button'); b.className = 'card';
-          b.setAttribute('data-open', k);
-          b.innerHTML = '<img class="poster" src="' + m.poster + '" alt="' + m.title + ' poster" /><p>' + m.title + '</p><small>' + m.star + ' • ' + m.year + '</small>';
-          more.appendChild(b);
-        });
+        /* (v1.0.16 P12-10) Player "More Like This" uses the real
+           recommendations when the provider gave them; otherwise the rail
+           is hidden instead of filled with arbitrary titles. */
+        if (t.recommendations && t.recommendations.length){
+          if (moreHead) moreHead.style.display = '';
+          more.style.display = '';
+          t.recommendations.forEach(function(it){
+            var rt = engineItemToTitle(it, t.prov, t.siteUrl);
+            TITLES[it.id] = rt;
+            var b = document.createElement('button'); b.className = 'card';
+            b.setAttribute('data-open', it.id);
+            b.innerHTML = posterImgHTML(rt.poster, rt.title + ' poster') + '<p>' + rt.title + '</p><small>' + rt.star + ' • ' + rt.year + '</small>';
+            more.appendChild(b);
+          });
+        } else {
+          if (moreHead) moreHead.style.display = 'none';
+          more.style.display = 'none';
+        }
       }
       function openPlayer(title, startAt, id){
         /* (v1.0.12 §7) Duplicate-play guard: a second open for the SAME title
@@ -3749,6 +4038,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            resumeSeek from an abandoned Manual/external play must never
            leak into the next title. */
         resumeSeek = -1; resumeSeekFor = ''; curEpKey = '';
+        /* (v1.0.16 P12-04) An episode tap sets pendingEpKey before
+           openPlayer; openPlayer's reset above must not wipe it. */
+        if (pendingEpKey){ curEpKey = pendingEpKey; pendingEpKey = ''; }
         if (startAt > 0){ resumeSeek = startAt; resumeSeekFor = progKey(title, id); }
         /* (v1.0.4) Beautiful "Server Loading" animation FIRST — the player
            screen opens only once the server is ready (enterPlayerNow,
@@ -3939,18 +4231,23 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         clearProgress(curTitle, curTitleId);
         cur = TOTAL; renderTime();
         if (typeof buildCW === 'function') buildCW();
-        var libId = (typeof LIB_IDS !== 'undefined') ? LIB_IDS[curTitle] : null;
+        /* (v1.0.16 P11-03) Playback-end "completed" uses the entry id from
+           the play path (curTitleId), never a bare-title lookup — two
+           same-title movies must not mark each other completed. */
+        var libId = (typeof LIB_IDS !== 'undefined' && curTitleId) ? LIB_IDS[curTitleId] : null;
         if (libId) engineCall('librarySet', { id: libId, status: 'completed' }).catch(function(){});
         /* Up-Next / autoplay: the 600ms ticker picks it up from cur >= TOTAL */
       }
       function onEngineDownload(name, d){
-        if (!d || !d.id) return;
-        var row = document.querySelector('[data-dlk="' + d.id + '"]');
+        if (!d || !(d.id || d.downloadId)) return;
+        var did = d.id || d.downloadId;
+        var row = document.querySelector('[data-dlk="' + did + '"]');
         if (row){
           var bar = row.querySelector('.dl-bar i'), st = row.querySelector('.dl-state');
           if (name === 'downloadProgress'){
-            if (bar) bar.style.width = Math.round(d.pct || 0) + '%';
-            if (st) st.textContent = 'Downloading… ' + Math.round(d.pct || 0) + '%';
+            var pct = (typeof d.pct === 'number') ? d.pct : -1;
+            if (bar) bar.style.width = (pct >= 0 ? Math.round(pct) + '%' : '0%');
+            if (st) st.textContent = 'Downloading… ' + dlProgressText(d);
           } else if (name === 'downloadDone'){
             if (bar) bar.style.width = '100%';
             if (st) st.textContent = 'Downloaded';
@@ -4509,7 +4806,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 
       /* library grid + status filter */
       var libGrid = document.getElementById('lib-grid');
-      var LIB_IDS = {}; /* title -> native bookmark id (for librarySet) */
+      var LIB_IDS = {}; /* (v1.0.16 P11-03) TITLES key -> native bookmark id (content-keyed, never bare title) */
       async function buildLibrary(){
         libGrid.innerHTML = '';
         LIBRARY = {}; LIB_IDS = {};
@@ -4517,14 +4814,52 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         try { var d = await engineCall('library', {}); items = (d && d.items) || []; } catch (e) { items = []; }
         items.forEach(function(it){
           var key = 'lib-' + it.id;
-          LIBRARY[key] = it.status; LIB_IDS[it.title] = it.id;
-          if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
+          LIBRARY[key] = it.status; LIB_IDS[key] = it.id;
+          /* Map any feed TITLES key with the same url+provider, so the
+             details/player/search Library buttons find this entry. */
+          for (var k in TITLES){
+            var tk = TITLES[k];
+            if (tk && tk.url && it.url && tk.url === it.url && (tk.prov || '') === (it.providerName || '')) LIB_IDS[k] = it.id;
+          }
+          /* (v1.0.16 P11-06) A series in the Library keeps its real type:
+             the old code forced type 'movie', which hid the Episodes
+             section when opening a series from the Library. */
+          var ltype = it.type || 'movie';
+          if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: ltype, genre: '', year: it.year || '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
+          else TITLES[key].type = ltype;
           var b = document.createElement('button'); b.className = 'card';
           b.setAttribute('data-open', key); b.setAttribute('data-status', it.status);
-          b.innerHTML = '<img class="poster" loading="lazy" decoding="async" src="' + (it.poster || '') + '" alt="' + it.title + ' poster" /><p>' + it.title + '</p><small>' + (it.progressSec > 0 ? Math.round(it.progressSec / 60) + 'm watched' : '') + '</small>';
+          var progTxt = '';
+          if (it.progressSec > 0){
+            progTxt = Math.round(it.progressSec / 60) + 'm watched' + (it.progressEp ? ' • ' + it.progressEp : '');
+          }
+          b.innerHTML = posterImgHTML(it.poster || '', it.title + ' poster', 'poster') + '<p>' + it.title + '</p><small>' + progTxt + '</small>';
           libGrid.appendChild(b);
         });
         filterLibrary(libFilter);
+        if (typeof syncMylistButtons === 'function') syncMylistButtons();
+        buildHistory();
+      }
+      /* (v1.0.16 P11-07) Watch History: what was PLAYED, driven by
+         progress (not by library membership) — a title appears here even
+         when it was never bookmarked. Newest first. */
+      async function buildHistory(){
+        var box = document.getElementById('hist-list'); if (!box) return;
+        var empty = document.getElementById('hist-empty');
+        var entries = await cwEntries();
+        box.innerHTML = '';
+        if (!entries.length){ if (empty) empty.style.display = 'block'; return; }
+        if (empty) empty.style.display = 'none';
+        entries.forEach(function(g){
+          var key = cwShellFor(g);
+          var b = document.createElement('button'); b.className = 'card wide';
+          b.setAttribute('data-open-player', g.title);
+          b.setAttribute('data-open-id', key);
+          if (g.ep) b.setAttribute('data-ep-n', g.ep);
+          var when = g.updatedAt ? new Date(g.updatedAt).toLocaleDateString() : '';
+          b.innerHTML = '<span class="cw-thumb">' + posterImgHTML(TITLES[key].poster, g.title + ' still', 'poster') + '</span><p>' + g.title + (g.ep ? ' • ' + g.ep : '') + ' • ' + fmtT(g.posSec || 0) + (when ? ' • ' + when : '') + '</p>';
+          box.appendChild(b);
+        });
       }
       var libFilter = 'all';
       function filterLibrary(status){
@@ -4652,6 +4987,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (epp){
           curBaseSub = epp.getAttribute('data-ep-label');
           curEpKey = epp.getAttribute('data-ep-n') || '';
+          pendingEpData = epp.getAttribute('data-ep-data') || null;
+          pendingEpKey = curEpKey;
           cur = 0; renderTime();
           document.getElementById('scr-player').scrollTop = 0;
           startStream(epp.getAttribute('data-ep-play'), epp.getAttribute('data-ep-id'));
@@ -4659,28 +4996,26 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           return;
         }
         var op = e.target.closest('[data-open-player]');
-        if (op){ var ot = op.getAttribute('data-open-player'); openPlayer(ot, resumePos(ot, op.getAttribute('data-open-id')), op.getAttribute('data-open-id')); return; }
+        if (op){
+          var ot = op.getAttribute('data-open-player');
+          var opId = op.getAttribute('data-open-id');
+          var opEp = op.getAttribute('data-ep-n') || '';
+          pendingEpData = op.getAttribute('data-ep-data') || null;
+          pendingEpKey = opEp;
+          openPlayer(ot, resumePos(ot, opId, opEp || undefined), opId);
+          return;
+        }
         var od = e.target.closest('[data-open]');
         if (od){ openDetails(od.getAttribute('data-open')); return; }
         var g = e.target.closest('[data-go]');
         if (g){ var gt = g.getAttribute('data-go'); if (gt === 'set-ext'){ if (window.ZP_openSettings) window.ZP_openSettings('g-prov'); else go('settings'); return;} if (gt.indexOf('set-') === 0){ go('settings'); return;} go(gt); return;}
+        var tr = e.target.closest('[data-trailer]');
+        if (tr){ playTrailer(); return; }
         var ml = e.target.closest('[data-mylist]');
         if (ml){
-          ml.classList.toggle('added');
-          toast(ml.classList.contains('added') ? 'Library-তে যোগ হয়েছে ✓' : 'Library থেকে সরানো হয়েছে');
-          return;
-        }
-        var del = e.target.closest('[data-delete]');
-        if (del){
-          var item = del.closest('.dl-item');
-          if (item) item.remove();
-          var badge = document.querySelector('#phone .tabbar .dl-badge');
-          if (badge){
-            var left = document.querySelectorAll('#dl-list .dl-item').length;
-            badge.textContent = left;
-            badge.style.display = left ? '' : 'none';
-          }
-          toast('ডাউনলোড মুছে ফেলা হয়েছে');
+          /* (v1.0.16 P11-02) Real bookmark: librarySet add/remove with
+             the toast only after the bridge call succeeds. */
+          toggleLibrary(ml);
           return;
         }
         var thopt = e.target.closest('[data-theme-opt]');
@@ -5566,6 +5901,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          data (details dataUrl) or loads the URL itself. */
       function playParamsFor(title, tt, extra){
         var p = { title: title, providerName: (tt && tt.prov) || '', url: (tt && tt.url) || '', type: (tt && tt.type) || 'movie', poster: (tt && tt.poster) || '' };
+        /* (v1.0.16 P12-04) Episode tap data, consumed once: the tapped
+           episode's LoadData reaches resolveLinks so E3 plays E3. */
+        if (pendingEpData){ p.episodeData = pendingEpData; pendingEpData = null; }
         /* (v0.2.11) C-6: the stored Stream-timeout setting finally reaches
            the engine (it was stored but never read — playback always died
            at the 10 s default while the UI waited 60/90 s). */
@@ -5947,49 +6285,137 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('home-feed').style.display = 'none';
         document.getElementById('hs-label').textContent = 'Search…';
       }
+      /* (v1.0.16 P11-06, rank 2) Continue Watching is built from the
+         PROGRESS store, not from library entries — playing must not
+         auto-bookmark (rank 3), so the rail would empty if it still read
+         the Library. Progress rows are keyed by content key (+#ep: for
+         episodes); rows for one title are grouped and the furthest
+         episode's position wins. Most recently updated first. */
+      async function cwEntries(){
+        var prog = {};
+        try { prog = await engineCall('progressAll', {}) || {}; } catch (e) { prog = {}; }
+        var groups = {};
+        Object.keys(prog).forEach(function(k){
+          var p = prog[k]; if (!p || !p.title) return;
+          var pos = p.posSec || 0;
+          if (pos <= 0) return;
+          var base = k.split('#ep:')[0];
+          var g = groups[base];
+          if (!g){
+            g = groups[base] = { base: base, title: p.title, url: p.url || '', prov: p.providerName || '', posSec: 0, durationSec: 0, ep: '', updatedAt: 0 };
+          }
+          if (pos > g.posSec){ g.posSec = pos; g.durationSec = p.durSec || 0; g.ep = p.ep || ''; }
+          if ((p.updatedAt || 0) > g.updatedAt) g.updatedAt = p.updatedAt || 0;
+        });
+        var out = Object.keys(groups).map(function(k){ return groups[k]; });
+        out.sort(function(a, b){ return (b.updatedAt || 0) - (a.updatedAt || 0); });
+        return out;
+      }
+      function cwShellFor(g){
+        var key = 'cw-' + g.base;
+        if (!TITLES[key]){
+          /* Poster: reuse a poster the feed already showed for this title
+             (real data); otherwise the placeholder fallback renders. */
+          var poster = '';
+          for (var k in TITLES){ if (TITLES[k] && TITLES[k].title === g.title){ poster = TITLES[k].poster || ''; break; } }
+          var siteUrl = '';
+          for (var k2 in TITLES){ if (TITLES[k2] && TITLES[k2].prov === g.prov && TITLES[k2].siteUrl){ siteUrl = TITLES[k2].siteUrl; break; } }
+          TITLES[key] = { title: g.title, poster: poster, type: g.ep ? 'series' : 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: g.url, prov: g.prov, siteUrl: siteUrl, engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
+        }
+        return key;
+      }
       async function buildCW(){
         var rail = document.getElementById('h-cw'); if (!rail) return;
         var head = document.getElementById('h-cw-head');
-        var items = [];
-        try { var d = await engineCall('library', {}); items = (d && d.items) || []; } catch (e) { items = []; }
-        var keys = [];
-        items.forEach(function(it){
-          if (it.progressSec > 0 && it.status === 'watching'){
-            var key = 'lib-' + it.id;
-            if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
-            keys.push({ key: key, it: it });
-          }
-        });
+        var entries = await cwEntries();
         rail.innerHTML = '';
-        if (!keys.length){ if (head) head.style.display = 'none'; rail.style.display = 'none'; return; }
+        if (!entries.length){ if (head) head.style.display = 'none'; rail.style.display = 'none'; return; }
         if (head) head.style.display = ''; rail.style.display = '';
-        keys.slice(0, 3).forEach(function(entry){
-          var t = TITLES[entry.key], it = entry.it;
-          var rp = it.progressSec || 0;
+        /* No item cap (the old three-item slice silently dropped titles)
+           and no 95% cap (a finished title can show 100%). */
+        entries.forEach(function(g){
+          var key = cwShellFor(g);
+          var t = TITLES[key];
+          var rp = g.posSec || 0;
           var b = document.createElement('button'); b.className = 'card wide';
-          if (rp > 0){ b.setAttribute('data-open-player', t.title); b.setAttribute('data-open-id', entry.key); }
-          else b.setAttribute('data-open', entry.key);
-          var pct = (rp > 0 && it.durationSec > 0) ? Math.min(95, Math.round(rp / it.durationSec * 100)) : 0;
-          b.innerHTML = '<span class="cw-thumb"><img class="poster" src="' + t.poster + '" alt="' + t.title + ' still" /><span class="bar"><i style="width:' + pct + '%"></i></span></span><p>' + t.title + (t.type === 'series' ? ' • S1 E1' : '') + '</p>';
+          b.setAttribute('data-open-player', t.title);
+          b.setAttribute('data-open-id', key);
+          if (g.ep) b.setAttribute('data-ep-n', g.ep);
+          var pct = (rp > 0 && g.durationSec > 0) ? Math.round(rp / g.durationSec * 100) : 0;
+          if (pct > 100) pct = 100;
+          var epTxt = g.ep ? ' • ' + g.ep : '';
+          b.innerHTML = '<span class="cw-thumb">' + posterImgHTML(t.poster, t.title + ' still', 'poster') + '<span class="bar"><i style="width:' + pct + '%"></i></span></span><p>' + t.title + epTxt + ' • ' + fmtT(rp) + '</p>';
           rail.appendChild(b);
         });
+      }
+      /* (v1.0.16 P10-01/P10-05) Download rows by id (Open/delete/controls
+         read title, poster, size from here). */
+      var DL_BY_ID = {};
+      /* (v1.0.16 P10-05) One live progress line for a download event/item:
+         bytes downloaded/total, speed, ETA — no % when the total is
+         unknown (master rule). */
+      function dlProgressText(d){
+        var dl = (d && typeof d.downloadedBytes === 'number') ? d.downloadedBytes : 0;
+        var tot = (d && typeof d.totalBytes === 'number') ? d.totalBytes : -1;
+        var pct = (d && typeof d.pct === 'number') ? d.pct : -1;
+        var sp = (d && typeof d.downloadSpeed === 'number') ? d.downloadSpeed : 0;
+        var base;
+        if (tot > 0) base = fmtMB(dl) + ' / ' + fmtMB(tot) + (pct >= 0 ? ' • ' + Math.round(pct) + '%' : '');
+        else base = fmtMB(dl) + ' downloaded';
+        var extra = fmtSpeed(sp);
+        if (extra && tot > 0 && sp > 0) extra += ' • ' + fmtETA((tot - dl) / sp);
+        return extra ? base + ' • ' + extra : base;
+      }
+      function dlStateText(it){
+        if (it.status === 'done') return 'Downloaded';
+        if (it.status === 'paused') return 'Paused • ' + dlProgressText(it);
+        if (it.status === 'failed') return 'Failed — ' + (it.error || 'try again');
+        if (it.status === 'queued') return 'Queued';
+        if (it.status === 'cancelled') return 'Cancelled';
+        return 'Downloading… ' + dlProgressText(it);
       }
       async function buildDownloads(){
         var list = document.getElementById('dl-list'); if (!list) return;
         var items = [];
         try { var d = await engineCall('downloads', {}); items = (d && d.items) || []; } catch (e) { items = []; }
+        DL_BY_ID = {};
+        items.forEach(function(it){ DL_BY_ID[it.id] = it; });
         list.innerHTML = '';
+        /* (v1.0.16 P10-06) Dock badge = ACTIVE downloads only
+           (queued/downloading); 0 hides it. Done/failed/paused never count. */
         var badge = document.querySelector('#phone .tabbar .dl-badge');
-        if (badge){ badge.textContent = items.length; badge.style.display = items.length ? '' : 'none'; }
+        var active = items.filter(function(it){ return it.status === 'queued' || it.status === 'downloading'; }).length;
+        if (badge){ badge.textContent = active; badge.style.display = active ? '' : 'none'; }
+        /* (v1.0.16 P10-06) Real storage figures (StatFs via the engine). */
+        try {
+          var si = await engineCall('storageInfo', {});
+          var stEl = document.getElementById('dl-storage-text');
+          var barEl = document.getElementById('dl-storage-bar');
+          if (si && si.totalBytes > 0){
+            var used = si.usedBytes || 0;
+            if (stEl) stEl.textContent = fmtMB(used) + ' of ' + fmtMB(si.totalBytes) + ' used';
+            if (barEl) barEl.style.width = Math.round(used / si.totalBytes * 100) + '%';
+          } else if (stEl) { stEl.textContent = 'Storage info unavailable'; }
+        } catch (e) {}
         if (!items.length){
           list.innerHTML = '<p class="dl-none">কোনো ডাউনলোড নেই — আগে Extensions থেকে প্রোভাইডার ON করুন, তারপর এখানে ডাউনলোড করা কনটেন্ট দেখাবে।</p>';
           return;
         }
         items.forEach(function(it){
           var d = document.createElement('div'); d.className = 'dl-item'; d.setAttribute('data-dlk', it.id);
-          var pct = Math.round(it.pct || 0);
-          var state = it.status === 'done' ? 'Downloaded' : it.status === 'paused' ? 'Paused • ' + pct + '%' : it.status === 'failed' ? 'Failed — ' + (it.error || 'try again') : 'Downloading… ' + pct + '%';
-          d.innerHTML = '<img src="' + (it.poster || '') + '" alt="" /><div><p class="dl-t">' + it.title + '</p><small>' + (it.providerName || '') + ' • ' + (it.sizeMB ? Math.round(it.sizeMB) + ' MB' : '—') + '</small><div class="dl-bar"><i style="width:' + pct + '%"></i></div><span class="dl-state">' + state + '</span>' + (it.status === 'done' ? ' <button class="dl-open" data-dlopen="' + it.id + '">Open</button>' : '') + ' <button class="dl-del" data-dldel="' + it.id + '">Delete</button></div>';
+          var pct = (typeof it.pct === 'number') ? it.pct : 0;
+          var sizeTxt;
+          if (it.status === 'done' && it.sizeMB) sizeTxt = Math.round(it.sizeMB) + ' MB';
+          else if (typeof it.totalBytes === 'number' && it.totalBytes > 0) sizeTxt = fmtMB(it.downloadedBytes || 0) + ' / ' + fmtMB(it.totalBytes);
+          else if (typeof it.downloadedBytes === 'number' && it.downloadedBytes > 0) sizeTxt = fmtMB(it.downloadedBytes) + ' downloaded';
+          else sizeTxt = '—';
+          var bar = (pct >= 0) ? '<div class="dl-bar"><i style="width:' + Math.round(pct) + '%"></i></div>' : '';
+          var ctrls = '';
+          if (it.status === 'downloading') ctrls = ' <button class="dl-open" data-dlctl="pause" data-dlid="' + it.id + '">Pause</button> <button class="dl-open" data-dlctl="cancel" data-dlid="' + it.id + '">Cancel</button>';
+          else if (it.status === 'queued') ctrls = ' <button class="dl-open" data-dlctl="cancel" data-dlid="' + it.id + '">Cancel</button>';
+          else if (it.status === 'paused') ctrls = ' <button class="dl-open" data-dlctl="resume" data-dlid="' + it.id + '">Resume</button> <button class="dl-open" data-dlctl="cancel" data-dlid="' + it.id + '">Cancel</button>';
+          else if (it.status === 'failed') ctrls = ' <button class="dl-open" data-dlctl="retry" data-dlid="' + it.id + '">Retry</button> <button class="dl-open" data-dlctl="cancel" data-dlid="' + it.id + '">Cancel</button>';
+          d.innerHTML = posterImgHTML(it.poster || '', '') + '<div><p class="dl-t">' + it.title + '</p><small>' + (it.providerName || '') + ' • ' + sizeTxt + '</small>' + bar + '<span class="dl-state">' + dlStateText(it) + '</span>' + (it.status === 'done' ? ' <button class="dl-open" data-dlopen="' + it.id + '">Open</button>' : '') + ctrls + ' <button class="dl-del" data-dldel="' + it.id + '">Delete</button></div>';
           list.appendChild(d);
         });
       }
@@ -6728,20 +7154,118 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* ===== gap-fill features (real Zayn Play features): working downloads,
          PiP, Skip Intro + autoplay next episode, subtitle download,
          backup & restore, Random button ===== */
-      var FEAT = { dlQ: [], dlRun: 0, ep: 1, introFor: '', subdlDone: {} };
+      var FEAT = { ep: 1, introFor: '', subdlDone: {} };
+      /* (v1.0.16 P10-02) In-app confirm sheet. Returns a Promise that
+         resolves true only when the user taps the confirm button. */
+      var zpConfirmResolve = null;
+      function zpConfirm(title, msg){
+        var sheet = document.getElementById('zp-confirm');
+        var t = document.getElementById('zp-confirm-title');
+        var m = document.getElementById('zp-confirm-msg');
+        if (!sheet) return Promise.resolve(false);
+        if (t) t.textContent = title || 'Are you sure?';
+        if (m) m.textContent = msg || '';
+        sheet.classList.add('open');
+        return new Promise(function(res){ zpConfirmResolve = res; });
+      }
+      function zpConfirmDone(ok){
+        var sheet = document.getElementById('zp-confirm');
+        if (sheet) sheet.classList.remove('open');
+        if (zpConfirmResolve){ var r = zpConfirmResolve; zpConfirmResolve = null; r(!!ok); }
+      }
+      function fmtMB(bytes){
+        if (bytes == null || bytes < 0) return '—';
+        if (bytes < 1048576) return Math.round(bytes / 1024) + ' KB';
+        if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+        return (bytes / 1073741824).toFixed(1) + ' GB';
+      }
+      function fmtSpeed(bps){
+        if (!bps || bps <= 0) return '';
+        if (bps < 1048576) return Math.round(bps / 1024) + ' KB/s';
+        return (bps / 1048576).toFixed(1) + ' MB/s';
+      }
+      function fmtETA(sec){
+        if (sec == null || !isFinite(sec) || sec < 0) return '';
+        sec = Math.round(sec);
+        if (sec < 60) return sec + 's left';
+        var m = Math.floor(sec / 60);
+        if (m < 60) return m + 'm ' + (sec % 60) + 's left';
+        return Math.floor(m / 60) + 'h ' + (m % 60) + 'm left';
+      }
+      (function(){
+        var ok = document.getElementById('zp-confirm-ok');
+        if (ok) ok.addEventListener('click', function(){ zpConfirmDone(true); });
+        var cancel = document.getElementById('zp-confirm-cancel');
+        if (cancel) cancel.addEventListener('click', function(){ zpConfirmDone(false); });
+      })();
       function featBadge(){
+        /* (v1.0.16 P10-06) Active downloads only, from the last loaded
+           list — done/failed/paused never count. */
         var badge = document.querySelector('#phone .tabbar .dl-badge');
-        var n = document.querySelectorAll('#dl-list .dl-item').length;
+        var n = 0;
+        for (var k in DL_BY_ID){ var it = DL_BY_ID[k]; if (it && (it.status === 'queued' || it.status === 'downloading')) n++; }
         if (badge){ badge.textContent = n; badge.style.display = n ? '' : 'none'; }
       }
       /* Phase C: the fake download pump is gone — progress comes from the
          engine as downloadProgress events (onEngineDownload). */
-      async function startDownload(key){
+      /* (v1.0.16 P10-10) Series downloads ask WHICH episode: the engine
+         resolves a series page URL to the FIRST episode only, so a silent
+         series download would mislabel S1 E1 as the whole series. */
+      function pickEpisodeForDownload(t){
+        var eps = t.episodes || [];
+        if (t.type !== 'series' || !eps.length) return Promise.resolve(null);
+        if (eps.length === 1) return Promise.resolve(eps[0]);
+        var sheet = document.getElementById('zp-eppick');
+        var list = document.getElementById('zp-eppick-list');
+        var titleEl = document.getElementById('zp-eppick-title');
+        if (!sheet || !list) return Promise.resolve(eps[0]);
+        if (titleEl) titleEl.textContent = 'Choose episode to download — ' + t.title;
+        list.innerHTML = '';
+        return new Promise(function(res){
+          eps.forEach(function(ep){
+            var b = document.createElement('button');
+            b.innerHTML = epLabel(ep) + (ep.description ? '<small>' + ep.description.slice(0, 80) + '</small>' : '');
+            b.addEventListener('click', function(){
+              sheet.classList.remove('open');
+              res(ep);
+            });
+            list.appendChild(b);
+          });
+          var cancel = document.getElementById('zp-eppick-cancel');
+          if (cancel) cancel.onclick = function(){ sheet.classList.remove('open'); res(null); };
+          sheet.classList.add('open');
+        });
+      }
+      async function startDownload(key, ep){
         var t = TITLES[key]; if (!t) return;
         if (!t.url){ toast('এই কনটেন্টের ডাউনলোড লিংক পাওয়া যায়নি'); return; }
-        toast('Download started');
+        /* If this is a series whose episode list never loaded, fetch the
+           real details first so the picker offers real episodes. */
+        if (t.type === 'series' && !(t.episodes && t.episodes.length) && t.engine && t.url){
+          try {
+            var det = await engineDetails(t.url, t.prov);
+            if (det){ t.episodes = det.episodes || []; if (det.trailer) t.trailer = det.trailer; }
+          } catch (e) {}
+        }
+        var epChoice = ep || null;
+        if (!epChoice && t.type === 'series'){
+          epChoice = await pickEpisodeForDownload(t);
+          if (epChoice === null && (t.episodes || []).length > 1) return; /* picker cancelled */
+        }
+        var title = t.title;
+        var params = { url: t.url, providerName: t.prov, title: title, type: t.type, poster: t.poster };
+        if (epChoice){
+          var lab = epShort(epChoice);
+          title = lab ? t.title + ' — ' + lab : t.title;
+          params.title = title;
+          if (epChoice.data) params.episodeData = epChoice.data;
+        }
         try {
-          await engineCall('downloadStart', { url: t.url, providerName: t.prov, title: t.title, type: t.type, poster: t.poster }, 120000);
+          var d = await engineCall('downloadStart', params, 120000);
+          /* (v1.0.16 P10-12) Toast only AFTER the start succeeds — the old
+             toast fired before the call, so a failed start (no links,
+             Wi-Fi-only block) showed two contradictory toasts. */
+          if (d && (d.queued || d.id)) toast('Download started');
           await buildDownloads();
           go('downloads');
         } catch (e) { toast(engineErrText(e)); }
@@ -6835,8 +7359,17 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (dlo){
           var did = dlo.getAttribute('data-dlopen');
           engineCall('downloadOpen', { id: did }, 60000).then(function(d){
+            /* (v1.0.16 P10-01) Native now replies playing:true + title
+               (it already started playback); navigate to the player and
+               name the title from the download entry — no second play. */
             if (d && d.playing){
-              if (d.title) curTitle = d.title;
+              if (d.title){
+                curTitle = d.title;
+                var dlEnt = (typeof DL_BY_ID !== 'undefined' && DL_BY_ID[did]) || null;
+                var dlKey = 'dl-' + did;
+                if (!TITLES[dlKey]) TITLES[dlKey] = { title: d.title, poster: (dlEnt && dlEnt.poster) || '', type: (dlEnt && dlEnt.type) || 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: '', prov: (dlEnt && dlEnt.providerName) || '', engine: true, data: '' };
+                curTitleId = dlKey;
+              }
               go('player');
               if (!fsOn) setFS(true);
               reportStageRect();
@@ -6844,10 +7377,33 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           }).catch(function(e){ toast(engineErrText(e)); });
           return;
         }
+        var dlc = e.target.closest('[data-dlctl]');
+        if (dlc){
+          /* (v1.0.16 P10-04) Pause / Resume / Cancel / Retry, from the
+             item's real status — the buttons only render for the states
+             that allow them. Cancel asks first (it deletes the file). */
+          var act = dlc.getAttribute('data-dlctl');
+          var cid = dlc.getAttribute('data-dlid');
+          var runCtl = function(){
+            engineCall('downloadControl', { id: cid, action: act }).then(function(){ buildDownloads(); }).catch(function(e){ toast(engineErrText(e)); });
+          };
+          if (act === 'cancel'){
+            var ct = (typeof DL_BY_ID !== 'undefined' && DL_BY_ID[cid] && DL_BY_ID[cid].title) || 'this download';
+            zpConfirm('Cancel download?', '"' + ct + '" will be stopped and the partial file removed.').then(function(ok){ if (ok) runCtl(); });
+          } else runCtl();
+          return;
+        }
         var dld = e.target.closest('[data-dldel]');
         if (dld){
           var did2 = dld.getAttribute('data-dldel');
-          engineCall('downloadControl', { id: did2, action: 'delete' }).then(function(){ buildDownloads(); }).catch(function(e){ toast(engineErrText(e)); });
+          var dlTitle = (typeof DL_BY_ID !== 'undefined' && DL_BY_ID[did2] && DL_BY_ID[did2].title) || 'this download';
+          var dlSize = (typeof DL_BY_ID !== 'undefined' && DL_BY_ID[did2] && DL_BY_ID[did2].sizeMB) ? ' (' + Math.round(DL_BY_ID[did2].sizeMB) + ' MB)' : '';
+          /* (v1.0.16 P10-02) Ask FIRST, then delete the file too — the
+             delete runs only after the user confirms. */
+          zpConfirm('Delete download?', '"' + dlTitle + '"' + dlSize + ' will be removed, including the downloaded file.').then(function(ok){
+            if (!ok) return;
+            engineCall('downloadControl', { id: did2, action: 'delete' }).then(function(){ buildDownloads(); }).catch(function(e){ toast(engineErrText(e)); });
+          });
           return;
         }
         var so = e.target.closest('[data-subdl-open]');
@@ -7319,9 +7875,10 @@ buffer: { title:'বাফারিং', desc:'ভিডিও কতটা আ�
     ['never','কখনো না','শুধু হাতে নিলে'], ['daily','প্রতিদিন',''], ['weekly','প্রতি সপ্তাহে',''], ['monthly','প্রতি মাসে',''] ] },
   dlQuality: { title:'ডাউনলোডের মান', desc:'নামানোর সময় এই মানের ভিডিও নামবে।', opts:[
     ['Auto','Auto','সবচেয়ে ভালো মান নিজে থেকে'], ['4K','4K','Ultra HD'], ['2K','2K','Quad HD'], ['1080p','1080p','Full HD'], ['720p','720p','HD'], ['480p','480p','SD — কম জায়গা লাগে'] ] },
-  dlPath: { title:'কোথায় নামবে', desc:'ডাউনলোড করা ভিডিও এই ফোল্ডারে যাবে।', opts:[
-    ['/Download/Zayn Play','Download / Zayn Play',''], ['/Movies/Zayn Play','Movies / Zayn Play',''],
-    ['/Zayn Play/Downloads','Zayn Play / Downloads',''], ['/Android/data/zayn.play/files','অ্যাপের নিজের ফোল্ডার',''] ] },
+  /* (v1.0.16 P10-09) The dlPath folder picker is REMOVED: no native code
+     ever read it — downloads always land in the app's Download /
+     Zayn Play folder, and the Downloads screen says so honestly. A
+     setting that changes nothing must not be offered. */
   backupFolder: { title:'ব্যাকআপের ফোল্ডার', desc:'ব্যাকআপ ফাইল এই ফোল্ডারে থাকবে।', opts:[
     ['/Zayn Play/Backup','Zayn Play / Backup',''], ['/Download/Zayn Play Backup','Download / Zayn Play Backup',''],
     ['/Documents/Zayn Play','Documents / Zayn Play',''] ] }
@@ -7402,7 +7959,7 @@ function defaults(){
       media: readSetupMedia(), dubsub:'both',
       bioLock:false,
       updNotify:true, plugAutoUpd:true, backupFreq:'weekly', backupFolder:'/Zayn Play/Backup',
-      dlPath:'/Download/Zayn Play', dlQuality:'Auto', wifiOnly:false, autoNextEp:false, dns:'cloudflare',
+      dlQuality:'Auto', wifiOnly:false, autoNextEp:false, dns:'cloudflare',
       swDec:false
     };
     try{
@@ -7710,7 +8267,6 @@ function rAccountPage(inst, id){
 function rGen(inst){
   return head('সাধারণ', 'ডাউনলোড আর ইন্টারনেট') +
     secT('ডাউনলোড') + card(
-      rPick(inst, 'dlPath', 'কোথায় নামবে', 'ডাউনলোড করা ভিডিও এই ফোল্ডারে যাবে', IC.folder, '#059669') +
       rPick(inst, 'dlQuality', 'ডাউনলোডের মান', 'নামানোর সময় এই মানের ভিডিও নামবে', IC.down, '#2563eb', true) +
       rTog(inst, 'wifiOnly', 'শুধু Wi-Fi-তে ডাউনলোড', 'মোবাইল ডেটা বাঁচে — Wi-Fi ছাড়া নামবে না', IC.wifi, '#0891b2', true) +
       rTog(inst, 'autoNextEp', 'পরের পর্ব নিজে থেকে নামানো', 'Wi-Fi থাকলে পরের পর্ব আগে থেকে নেমে থাকে', IC.down, '#059669', true) +
@@ -7749,7 +8305,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.15</span></div>' +
+      '<span class="v31-val">Version 1.0.16</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
