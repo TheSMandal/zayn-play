@@ -20,8 +20,9 @@ import org.json.JSONObject
  * - Settings: one key per setting ("zayn/settings/<key>"), each value a
  *   small JSON wrapper {"v": <value>} (Phase A format, kept so the
  *   migration is a plain copy).
- * - Provider state: three JSON-object maps ("zayn/provOn",
- *   "zayn/provAutoOff", "zayn/provHealth"), keyed "<repoId>|<name>".
+ * - Provider state: four JSON-object maps ("zayn/provOn",
+ *   "zayn/provAutoOff", "zayn/provHealth", "zayn/provHealthDetail"),
+ *   keyed "<repoId>|<name>".
  *   Providers of a newly installed repo default OFF — the absence of a
  *   key means OFF.
  */
@@ -35,6 +36,7 @@ class EngineStore(private val context: Context) {
         private const val KEY_PROV_ON = "zayn/provOn"
         private const val KEY_PROV_AUTO_OFF = "zayn/provAutoOff"
         private const val KEY_PROV_HEALTH = "zayn/provHealth"
+        private const val KEY_PROV_HEALTH_DETAIL = "zayn/provHealthDetail"
         private const val KEY_MIGRATED = "zayn/migrated"
 
         /** The 11 app languages (engine-design.md §4.5, strict rule). */
@@ -327,10 +329,42 @@ class EngineStore(private val context: Context) {
         }
     }
 
+    /**
+     * (v1.0.17 P15-01) Per-provider Part H health record: the 8 fields
+     * (load / dataValidation / linkResolution / streamValidation /
+     * playerPrep / playback / lastError / lastSuccessAtMs) + lastStage +
+     * summary + updatedAtMs, as one JSON object per provider. Updated
+     * field-by-field (merge); the one-word summary in zayn/provHealth
+     * stays the compatibility summary. Persisted in DataStore, so the
+     * record survives an app restart.
+     */
+    fun providerHealthDetail(repoId: String, providerName: String): JSONObject? =
+        readMap(KEY_PROV_HEALTH_DETAIL).optJSONObject(mapKey(repoId, providerName))
+
+    fun providerHealthDetails(): JSONObject = readMap(KEY_PROV_HEALTH_DETAIL)
+
+    fun updateProviderHealthDetail(repoId: String, providerName: String, update: JSONObject) {
+        synchronized(mapLock) {
+            val map = readMap(KEY_PROV_HEALTH_DETAIL)
+            val key = mapKey(repoId, providerName)
+            val cur = map.optJSONObject(key) ?: JSONObject()
+            val keys = update.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                cur.put(k, update.opt(k))
+            }
+            cur.put("repoId", repoId)
+            cur.put("providerName", providerName)
+            cur.put("updatedAtMs", System.currentTimeMillis())
+            map.put(key, cur)
+            writeMap(KEY_PROV_HEALTH_DETAIL, map)
+        }
+    }
+
     /** Drop all provider state for one repo (called on repoRemove). */
     fun clearRepoState(repoId: String) {
         synchronized(mapLock) {
-            for (key in listOf(KEY_PROV_ON, KEY_PROV_AUTO_OFF, KEY_PROV_HEALTH)) {
+            for (key in listOf(KEY_PROV_ON, KEY_PROV_AUTO_OFF, KEY_PROV_HEALTH, KEY_PROV_HEALTH_DETAIL)) {
                 val map = readMap(key)
                 val keys = map.keys()
                 val doomed = mutableListOf<String>()
