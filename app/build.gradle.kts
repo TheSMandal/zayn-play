@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
     // Phase B: @Serializable data classes in the vendored engine.
     id("org.jetbrains.kotlin.plugin.serialization")
+    // (v1.0.18 P16-01) KSP drives the Room compiler (room-compiler below).
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -41,8 +43,8 @@ android {
         // build MUST use versionCode >= 1000, so it can update-install
         // over every review build without an uninstall (Android refuses
         // a downgrade in versionCode even with the same signature).
-        versionCode = 1017
-        versionName = "1.0.17"
+        versionCode = 1018
+        versionName = "1.0.18"
     }
 
     // FIXED SIGNING (v0.2.10): every build — debug AND release — must be
@@ -267,6 +269,27 @@ dependencies {
     // Brotli decoder: bigbull CizgiSiteProvider.fetchHtml news one up
     // to decompress a Brotli response body. Pure Java, tiny.
     implementation("org.brotli:dec:0.1.2")
+    // (v1.0.18 P16-01) Room + Jetpack DataStore + secure storage.
+    // Versions are the last releases built for the FROZEN Kotlin 1.9.24
+    // toolchain (same metadata rule as the pinned deps above):
+    // Room 2.6.1 and DataStore 1.1.1 both target Kotlin 1.9.24;
+    // security-crypto 1.1.0-alpha06 is Java + Tink 1.7.0.
+    // Room is used WITHOUT room-ktx (no suspend DAOs — the bridge is
+    // synchronous by contract, and allowMainThreadQueries keeps it so);
+    // DataStore needs coroutines, which the patched 1.8.1 core jar
+    // (V1.0.4) already provides — the global core exclude above strips
+    // the Maven core DataStore would otherwise pull in, so no second
+    // BuildersKt can appear. Do NOT add room-ktx or a Maven
+    // kotlinx-coroutines-core here.
+    implementation("androidx.room:room-runtime:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // (v1.0.18 P17-17) BiometricPrompt for the fingerprint lock.
+    implementation("androidx.biometric:biometric:1.1.0")
+    // (v1.0.18 P17-16) WorkManager for scheduled auto-backup.
+    // 2.9.0 is the last release built for Kotlin 1.9.24 / compileSdk 34.
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 }
 
 // Force the frozen stdlib: ksoup's transitive deps would otherwise
