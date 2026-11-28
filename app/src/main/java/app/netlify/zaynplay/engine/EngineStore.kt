@@ -126,11 +126,10 @@ class EngineStore(private val context: Context) {
             "posterUI" to listOf("রেটিং", "সাল"),
             "rowTrend" to true,
             "rowCW" to true,
-            // (v1.0.18 P17-20) Confirm-before-exit: the row, the
-            // defaults() entry and the ZaynApp.goBack() gate all existed,
-            // but the key was missing from this schema, so setSetting
-            // rejected it as unknown_setting and it never persisted.
-            "confirmExit" to false,
+            // (v1.0.21 ITEM 5) confirmExit REMOVED: double-back-to-exit
+            // replaces the confirm dialog. A stale stored value is ignored
+            // (applyEngineSettings only overlays keys present in inst.set)
+            // and can never be written again (no UI writes it).
             "appLang" to "English",
             "media" to listOf("Movie", "AnimeMovie", "TvSeries", "Cartoon", "Anime", "OVA", "Torrent", "Documentary", "AsianDrama", "Live", "Others", "Music", "AudioBook", "CustomMedia", "Audio", "Podcast", "Video"),
             "bioLock" to false,
@@ -228,14 +227,19 @@ class EngineStore(private val context: Context) {
             "bufDisk" to { v -> isPick(v, "100 MB", "250 MB", "500 MB", "1 GB") },
             "buffer" to { v -> isPick(v, "verylow", "low", "normal", "high", "veryhigh") },
             "theme" to { v -> isPick(v, "system", "dark", "light") },
-            "layout" to { v -> isPick(v, "phone", "tv", "auto") },
+            // (v1.0.21) "tablet" joins the layout pick: without it
+            // setSetting rejects the value as invalid_value and the
+            // Settings row can never persist — a dead row. The native
+            // formFactor() already accepts "tablet" (MainActivity) and
+            // the form-tablet CSS already exists; this one line was
+            // the missing link.
+            "layout" to { v -> isPick(v, "phone", "tablet", "tv", "auto") },
             "bottomTitles" to { v -> isBool(v) },
             // Quality / Dub-Sub removed in V1.0.18: no card carries a
             // quality or dub/sub badge to filter on.
             "posterUI" to { v -> isStringList(v, setOf("রেটিং", "সাল")) },
             "rowTrend" to { v -> isBool(v) },
             "rowCW" to { v -> isBool(v) },
-            "confirmExit" to { v -> isBool(v) },
             "appLang" to { v -> v is String && v in APP_LANGS_11 },
             "media" to { v -> isStringList(v, MEDIA_TYPES) },
             "bioLock" to { v -> isBool(v) },
