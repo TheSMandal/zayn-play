@@ -141,6 +141,12 @@ class ZaynDownloads(
     fun downloadItem(entry: JSONObject): JSONObject {
         val id = entry.optString("id")
         val path = entry.optString("path", "")
+        // (v1.0.18 P16-13) A row whose file was deleted outside the app
+        // is not "done" — flag it so the Downloads screen offers
+        // re-download instead of Open (C-15 re-detects on start()).
+        val status = entry.optString("status", "")
+        val fileMissing = (status == "done" || status == "paused") &&
+            path.isNotBlank() && !File(path).exists()
         val prog = progressStates[id]
         val downloadedBytes = prog?.downloadedBytes ?: entry.optLong("downloadedBytes", 0L)
         val totalBytes = prog?.totalBytes ?: entry.optLong("totalBytes", -1L)
@@ -173,6 +179,7 @@ class ZaynDownloads(
             .put("sizeMB", entry.optDouble("sizeMB", 0.0))
             .put("path", path)
             .put("contentUri", contentUri ?: JSONObject.NULL)
+            .put("fileMissing", fileMissing)
             .put("updatedAt", entry.optLong("updatedAt", 0L))
             .put("addedAt", entry.optLong("addedAt", 0L))
     }
@@ -224,6 +231,106 @@ class ZaynDownloads(
                 .put("usedBytes", -1L)
                 .put("path", dir.absolutePath)
         }
+    }
+
+    /**
+     * (v1.0.18 P16-13) Free bytes on the download filesystem, for the
+     * start() quota check (ZaynEngine.downloadStart refuses before any
+     * byte is written when free space is below MIN_FREE_BYTES).
+     */
+    fun freeBytes(): Long {
+        return try {
+            StatFs(downloadDir().absolutePath).freeBytes
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
+    /**
+     * (v1.0.18 P16-13) Orphan sweep. Two directions, neither deletes
+     * anything by itself:
+     * - deadRows: download rows whose files are gone (the file was
+     *   deleted outside the app). The row stays; the UI shows
+     *   fileMissing and offers re-download.
+     * - orphanFiles: files/dirs in the download folder with NO row
+     *   (restore dropped the rows in V1.0.17, or a partial download
+     *   lost its row). Only these are deletable via orphanDelete —
+     *   never a paused download's partial file, which HAS a row.
+     */
+    fun orphanSweep(): JSONObject {
+        val dir = downloadDir()
+        val map = store.readJsonMap(EngineStore.KEY_DOWNLOADS)
+        val knownPaths = mutableSetOf<String>()
+        val deadRows = JSONArray()
+        val keys = map.keys()
+        while (keys.hasNext()) {
+            val id = keys.next()
+            val entry = map.optJSONObject(id) ?: continue
+            val path = entry.optString("path", "")
+            if (path.isNotBlank()) {
+                knownPaths += File(path).absolutePath
+                // An HLS row points at playlist.m3u8 inside its dir.
+                File(path).parentFile?.let { knownPaths += it.absolutePath }
+                val st = entry.optString("status", "")
+                if ((st == "done" || st == "paused") && !File(path).exists()) {
+                    deadRows.put(JSONObject().put("id", id).put("title", entry.optString("title", "")))
+                }
+            }
+        }
+        val orphanFiles = JSONArray()
+        var orphanBytes = 0L
+        fun dirSize(f: File): Long {
+            if (!f.exists()) return 0
+            if (f.isFile) return f.length()
+            return f.listFiles()?.sumOf { dirSize(it) } ?: 0
+        }
+        dir.listFiles()?.forEach { f ->
+            if (f.absolutePath !in knownPaths) {
+                val bytes = dirSize(f)
+                orphanBytes += bytes
+                orphanFiles.put(
+                    JSONObject().put("name", f.name).put("bytes", bytes)
+                        .put("isDir", f.isDirectory),
+                )
+            }
+        }
+        return JSONObject()
+            .put("deadRows", deadRows)
+            .put("orphanFiles", orphanFiles)
+            .put("orphanBytes", orphanBytes)
+    }
+
+    /**
+     * Delete orphan files listed by orphanSweep (files with no row).
+     * Names are matched against the download dir only — a name that is
+     * not a direct child of the download dir is refused.
+     */
+    fun orphanDelete(names: JSONArray): JSONObject {
+        val dir = downloadDir()
+        var deleted = 0
+        var freedBytes = 0L
+        for (i in 0 until names.length()) {
+            val name = names.optString(i, "")
+            if (name.isBlank() || name.contains("/") || name.contains("..")) continue
+            val f = File(dir, name)
+            if (!f.exists()) continue
+            fun dirSize(x: File): Long {
+                if (!x.exists()) return 0
+                if (x.isFile) return x.length()
+                return x.listFiles()?.sumOf { dirSize(it) } ?: 0
+            }
+            val bytes = dirSize(f)
+            val ok = try {
+                if (f.isDirectory) f.deleteRecursively() else f.delete()
+            } catch (e: Exception) {
+                false
+            }
+            if (ok) {
+                deleted++
+                freedBytes += bytes
+            }
+        }
+        return JSONObject().put("deleted", deleted).put("freedBytes", freedBytes)
     }
 
     fun downloadDir(): File {
