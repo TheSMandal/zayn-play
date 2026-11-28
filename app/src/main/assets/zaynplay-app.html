@@ -1996,7 +1996,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.23</p>
+                  <p class="splash-ver">Zayn Play v1.0.24</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -3566,6 +3566,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var _titled = 0, _firstTitleLen = -1;
         ((sec && sec.items) || []).forEach(function(it){
           var t = engineItemToTitle(it, p.name, mainUrl);
+          applyHealedTitle(it.id, t); /* (v1.0.24 D ITEM 1) healed title survives re-render */
           if (_firstTitleLen < 0) _firstTitleLen = (t.title || '').length;
           if (t.title && t.title.trim()) _titled++;
           TITLES[it.id] = t; keys.push(it.id);
@@ -3622,6 +3623,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         }
         renderPSearch();
         if (typeof buildBYW === 'function') buildBYW();
+        scheduleHomeEnrichment(); /* (v1.0.24 D ITEM 1) visible blank cards only */
       }
       function renderSectionError(p, sectionIndex, err){
         var dyn = p._prog.dynList, di = -1;
@@ -3785,6 +3787,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var sk = [];
           (sec.items || []).forEach(function(it){
             var t = engineItemToTitle(it, p.name, mainUrl);
+            applyHealedTitle(it.id, t); /* (v1.0.24 D ITEM 1) healed title survives re-render */
             TITLES[it.id] = t; keys.push(it.id); sk.push(it.id);
             if (t.type === 'series') series.push(it.id); else movies.push(it.id);
           });
@@ -3866,6 +3869,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         /* (v1.0.19 BUG 2) The feed just loaded real posters: rebuild CW so
            boot-created shells (empty poster) pick them up. */
         if (typeof buildCW === 'function') buildCW();
+        scheduleHomeEnrichment(); /* (v1.0.24 D ITEM 1) visible blank cards only */
       }
       var feedToken = 0;
       function skelCards(n){
@@ -3885,6 +3889,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       var current = 'dragon';
       function openDetails(id){
         var t = TITLES[id]; if (!t) return;
+        /* (v1.0.24 D ITEM 3) Hydrate from the persistent healed store
+           (provider-supplied title/plot only): a previously viewed
+           title paints instantly across restarts. */
+        applyHealedTitle(id, t);
+        t._detailsTapAt = Date.now();
+        /* Loading state only for fields still blank at tap: a known
+           title/synopsis is never replaced by a loading label. */
+        t._detailsLoading = !(t.title && t.title.trim()) || !(t.syn && t.syn.trim());
         /* Phase B: engine-sourced titles fetch the real details (plot,
            cast, episodes, recommendations) and re-render when they land;
            the local render below shows instantly either way. */
@@ -3918,6 +3930,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                placeholder invention: a genuinely empty feed title with
                an empty details title stays blank, honestly. */
             if ((!t.title || !t.title.trim()) && d.title && String(d.title).trim()) t.title = cleanTitle(d.title);
+            t._detailsLoading = false;
+            /* (v1.0.24 D ITEMS 1+3) Persist the provider's real title +
+               plot (never invented): home cards, CW, Library and the
+               next details visit all paint from it. */
+            saveHealedTitle(t.prov, t.url, t.title, t.syn);
+            try{ console.log('[details] paint tapMs=' + (Date.now() - (t._detailsTapAt || Date.now())) + ' titlePainted=' + !!(t.title && t.title.trim()) + ' synPainted=' + !!(t.syn && t.syn.trim())); }catch(e){}
             /* (v1.0.23 D) Mirror-probe warming (TRACE-1.0.23-LOADLINKS
                §8.1): trigger the background loadLinks that populates
                the provider's shared API-base cache while the user
@@ -3933,7 +3951,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               if (_wd) engineCall('warmLinks', { providerName: t.prov, data: _wd, url: t.url, title: t.title }).catch(function(){});
             }catch(e){}
             renderDetailsBody(id);
-          }).catch(function(){ /* keep the local render */ });
+          }).catch(function(){ t._detailsLoading = false; if (current === id) renderDetailsBody(id); /* fetch failed: show the honest empty state, not a loading label */ });
         }
         renderDetailsBody(id);
       }
@@ -3942,6 +3960,31 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (min < 60) return min + 'm';
         return Math.floor(min / 60) + 'h ' + (min % 60) + 'm';
       }
+      /* (v1.0.24 ITEM 7) A title has REAL episodes only when at least one
+         episode carries a season number, an episode number, or a name of
+         its own (different from the title) — or the list has more than
+         one entry. The Netflix provider hands some MOVIES back as a
+         one-item "episode" list whose single row is just the movie's own
+         title ("418": no season, no episode number, name == title) —
+         that is the movie itself, not an episode, and it must never open
+         an Episodes section or a season picker. A real series always has
+         numbered episodes, several episodes, or episode names of their
+         own, so it still passes. The episode DATA is untouched: the play
+         path (pendingEpData / episodeData, resolveLinks) still receives
+         it — only the section's render decision uses this. */
+      function hasRealEpisodes(t){
+        var eps = (t && t.episodes) || [];
+        if (eps.length > 1) return true;
+        var title = cleanTitle((t && t.title) || '');
+        for (var i = 0; i < eps.length; i++){
+          var ep = eps[i] || {};
+          if (ep.season != null && ep.season !== '') return true;
+          if (ep.episode != null && ep.episode !== '') return true;
+          var n = (ep.name || '').trim();
+          if (n && cleanTitle(n) !== title) return true;
+        }
+        return false;
+      }
       function renderDetailsBody(id){
         var t = TITLES[id]; if (!t) return;
         current = id;
@@ -3949,11 +3992,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         setLargeImg(_backdropImg, t.poster);
         _backdropImg.alt = t.title + " artwork";
         document.getElementById('d-tag').textContent = t.tag;
-        document.getElementById('d-title').textContent = t.title;
+        document.getElementById('d-title').textContent = (t._detailsLoading && !(t.title && t.title.trim())) ? 'Loading…' : t.title;
         document.getElementById('d-year').textContent = t.year;
         document.getElementById('d-dur').textContent = t.dur;
         document.getElementById('d-star').textContent = t.star;
-        renderSynopsis(document.getElementById('d-syn'), t.syn);
+        renderSynopsis(document.getElementById('d-syn'), t.syn, !!(t._detailsLoading && !(t.syn && t.syn.trim())));
         renderGenreChips(document.getElementById('d-genres'), t.genres);
         var dp = document.getElementById('d-prov');
         if (dp) dp.innerHTML = logoHTML(t.parent || t.prov, 'sm') + '<span>' + t.prov + (t.siteUrl ? ' • ' + t.siteUrl : '') + '</span>';
@@ -3969,7 +4012,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var epWrap = document.getElementById('d-episodes');
         var epList = document.getElementById('ep-list');
         epList.innerHTML = '';
-        if (t.type === 'series'){
+        /* (v1.0.24 ITEM 7 fix, assembly) A real series with NO episode
+           list at all still shows the honest empty state; only a
+           non-empty list with no real episodes (movie-as-series
+           pseudo-episode) hides the section. */
+        if (t.type === 'series' && (hasRealEpisodes(t) || !(t.episodes && t.episodes.length))){
           epWrap.style.display = 'block';
           /* (v1.0.16 P12-05) Real episodes only: an empty/missing list
              shows an honest empty state, never the deleted demo episodes. */
@@ -4090,7 +4137,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* (v1.0.16 P12-08) Synopsis with read more/less for long plots, and
          an honest message when the provider gave no description. The
          toggle button is kept on the element so re-renders reuse it. */
-      function renderSynopsis(el, text){
+      function renderSynopsis(el, text, loading){
         if (!el) return;
         var syn = (text || '').trim();
         if (!el._synMore){
@@ -4101,6 +4148,15 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           el._synMore = btn;
         }
         var moreBtn = el._synMore;
+        if (loading){
+          /* (v1.0.24 D ITEM 3) Honest loading state: the details fetch
+             is still in flight, so neither 'No description' nor a
+             blank is true yet. That text is written only when the
+             fetch has returned without a plot (below). */
+          el.textContent = 'Loading description…';
+          moreBtn.style.display = 'none';
+          return;
+        }
         if (!syn){
           el.textContent = 'No description from this provider.';
           moreBtn.style.display = 'none';
@@ -4271,7 +4327,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             await engineCall('librarySet', { id: libId, status: 'watching' });
             if (typeof LIBRARY !== 'undefined') LIBRARY['lib-' + libId] = 'watching';
           } else {
-            var d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'watching', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '' });
+            var d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'watching', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '', syn: t.syn || '' });
             if (d && d.status && typeof buildLibrary === 'function') await buildLibrary();
           }
           if (typeof syncMylistButtons === 'function') syncMylistButtons();
@@ -4289,7 +4345,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             if (typeof LIBRARY !== 'undefined') delete LIBRARY['lib-' + libId];
             toast('Library থেকে সরানো হয়েছে');
           } else {
-            var d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'plantowatch', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '' });
+            var d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'plantowatch', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '', syn: t.syn || '' });
             if (d && d.status){
               await buildLibrary();
               toast('Plan to Watch-এ যোগ হয়েছে ✓');
@@ -4398,8 +4454,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         epList.innerHTML = '';
         /* (v1.0.16 P12-04) The player list renders the SAME real episodes
            as details (t.episodes) — never the deleted demo constant. No
-           episodes (movie, or provider returned none) = section hidden. */
-        if (t.type === 'series' && t.episodes && t.episodes.length){
+           episodes (movie, or provider returned none) = section hidden.
+           (v1.0.24 ITEM 7) A movie handed back as a one-item episode
+           list named after itself is not real episodes either. */
+        if (t.type === 'series' && hasRealEpisodes(t)){
           epWrap.style.display = 'block';
           fillSeasonSelect(document.getElementById('p-season'), t, 'player');
           renderEpisodeRows(epList, t.episodes, (id && TITLES[id]) ? id : keyByTitle(title), t.poster, 'player');
@@ -4613,7 +4671,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          MainActivity.pushEngineEvent. */
       function onEngineEvent(name, data){
         try{
-          if (name === 'pluginsChanged'){ rebuildCatalog(); if (typeof runAppUpdateCheck === 'function') runAppUpdateCheck('boot'); return; }
+          if (name === 'pluginsChanged'){ /* (v1.0.24 L ITEM 4 P0-3) Boot update check FIRST: it is initiated before the home feed rebuilds, so a new release paints its banner from this launch's check result — not from the previous run's record. */ if (typeof runAppUpdateCheck === 'function') runAppUpdateCheck('boot'); rebuildCatalog(); return; }
           if (name === 'subtitleCues'){ showSubtitleCue(data && data.text ? data.text : ''); return; }
           if (name === 'playerState'){ onEnginePlayerState(data); return; }
           if (name === 'playerError'){ onEnginePlayerError(data); return; }
@@ -4917,6 +4975,17 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (typeof syncSeekLabels === 'function') syncSeekLabels();
           if (typeof applySubtitleStyle === 'function') applySubtitleStyle();
           if (typeof applyShowInfo === 'function') applyShowInfo();
+          /* (v1.0.24 G ITEM 2 refinement) Saved aspect ratio survives
+             restarts: the stored value (EngineStore 'aspectRatio',
+             default 'fill') is applied silently on boot / restore /
+             reset -- label + stage class + native playerAspect -- so
+             a new video opens with his ratio, not Fill. Unknown or
+             absent value = keep the in-memory default (Fill). */
+          try{
+            if (set && typeof set.aspectRatio === 'string' && typeof RATIO_OPTS !== 'undefined' && typeof applyRatioOpt === 'function'){
+              for (var _gri = 0; _gri < RATIO_OPTS.length; _gri++) if (RATIO_OPTS[_gri].ratio === set.aspectRatio){ curRatioIdx = _gri; applyRatioOpt(RATIO_OPTS[_gri], true); break; }
+            }
+          }catch(e){}
           /* render() lives inside the v31 IIFE — re-render through its hook. */
           if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
           syncPBFromSettings(set);
@@ -4961,16 +5030,217 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!t) return s;
         return t;
       }
+      /* (v1.0.24 J ITEM 8) Card type label = the item's OWN TvType, mapped
+         completely (TvType enum: MainAPI.kt:1118-1138) — never guessed from
+         the section name, never a hardcoded 'series'. The CNC plugin sends
+         type Anime for every home/search item (dex-proven, all four
+         mirrors) and TvSeries for every details load, so a CNC movie's own
+         type data says Anime and still labels 'series' here; that half is
+         plugin-side and no in-app mapping can fix it without inventing
+         data. What this fixes in-app: (a) series-shaped types Cartoon /
+         OVA / AsianDrama were labelled 'movie'; (b) types that prove
+         neither (Torrent / Documentary / Live / NSFW / Others / Music /
+         AudioBook / CustomMedia / Audio / Podcast / null / unknown) fell
+         through to a false 'movie' — they now get '' (honest blank;
+         cardMetaFor drops empty segments, cardHTML omits an empty
+         <small>); (c) idempotent: the search merges (H:5289, H:5322) pass
+         the already-mapped TITLES[].type ('series'/'movie') back in, and
+         the old two-branch map turned a merged SERIES into 'movie'.
+         LABEL ONLY: the logic `type` line below is byte-identical, so
+         episodes/download/hero-split/play-label behaviour (Worker I's
+         domain) is untouched — only the displayed `genre` label changes.
+         Localisation: same pattern as the old label — the same two
+         lowercase literals ('movie'/'series'), no new i18n key (none
+         exists for the lowercase forms; BN_FULL has only capitalised
+         "Movie"/"Series" heading keys, BN_FRAG has no series/movie
+         fragment), so the tr() observer treats it exactly as before. */
+      function typeLabelFor(raw){
+        if (raw === 'series' || raw === 'movie') return raw; /* already-mapped (search merge) */
+        if (raw === 'TvSeries' || raw === 'Anime' || raw === 'Cartoon' || raw === 'OVA' || raw === 'AsianDrama') return 'series';
+        if (raw === 'Movie' || raw === 'AnimeMovie') return 'movie';
+        return ''; /* proves neither movie nor series: no label, never a false one */
+      }
       function engineItemToTitle(it, provName, mainUrl){
         var type = (it.type === 'TvSeries' || it.type === 'Anime') ? 'series' : 'movie';
         return {
           title: cleanTitle(it.title), poster: it.poster || '', tag: (it.type || '').toUpperCase(),
           year: (it.year != null) ? String(it.year) : '',
           dur: '', star: (it.rating != null) ? '★ ' + Number(it.rating).toFixed(1) : '',
-          type: type, genre: type, syn: '', cast: [],
+          type: type, genre: typeLabelFor(it.type), syn: '', cast: [],
           prov: provName, parent: provName, siteUrl: mainUrl || '',
           url: it.url, apiName: it.apiName, engine: true
         };
+      }
+      /* (v1.0.24 D ITEMS 1+3) Persistent healed-title store.
+         TRACE-1.0.24-HOME-TITLES §2.3 (bytecode-proven): the CNC plugin
+         hard-codes name = "" for every home-feed card, and every home
+         render overwrote TITLES[id] from the feed (§4.2) — so the
+         V1.0.23 details self-heal could never reach a home card.
+         This store (localStorage, same try/catch quota-safe pattern as
+         the feed cache `zayn-feed-cache:`) holds the provider's OWN
+         real title + plot per content key "prov|url", healed from a
+         details reply. A healed title is NEVER overwritten by an empty
+         feed title (applyHealedTitle, consulted by renderSectionInto
+         + renderFeedInto below). Nothing here is ever invented: only
+         non-blank provider-supplied title/plot is stored, and a card
+         with no healed title stays honestly blank — never a URL slug,
+         poster filename, or placeholder-as-title. */
+      var HEALED_TITLES_KEY = 'zayn-healed-titles';
+      var HEALED_TITLES = null; /* lazy map: "prov|url" -> { t, s, at } */
+      var HEALED_TITLES_MAX = 500;
+      function loadHealedTitles(){
+        if (HEALED_TITLES) return HEALED_TITLES;
+        HEALED_TITLES = {};
+        try{
+          if (typeof localStorage === 'undefined') return HEALED_TITLES;
+          var raw = localStorage.getItem(HEALED_TITLES_KEY);
+          if (raw){ var o = JSON.parse(raw); if (o && typeof o === 'object') HEALED_TITLES = o; }
+        }catch(err){ HEALED_TITLES = {}; }
+        return HEALED_TITLES;
+      }
+      function healedKeyFor(prov, url){ return String(prov || '') + '|' + String(url || ''); }
+      function healedFor(prov, url){
+        if (!url) return null;
+        var m = loadHealedTitles();
+        var v = m[healedKeyFor(prov, url)];
+        return (v && typeof v === 'object') ? v : null;
+      }
+      function saveHealedTitle(prov, url, title, syn){
+        if (!url) return;
+        var t = (title && String(title).trim()) ? String(title).trim() : '';
+        var s = (syn && String(syn).trim()) ? String(syn).trim() : '';
+        if (!t && !s) return; /* never store a blank heal */
+        var m = loadHealedTitles();
+        var k = healedKeyFor(prov, url);
+        var old = m[k] || {};
+        /* Never overwrite a stored real value with a blank one. */
+        m[k] = { t: t || old.t || '', s: s || old.s || '', at: Date.now() };
+        var keys = Object.keys(m);
+        if (keys.length > HEALED_TITLES_MAX){
+          keys.sort(function(a, b){ return (m[a].at || 0) - (m[b].at || 0); });
+          for (var i = 0; i < keys.length - HEALED_TITLES_MAX; i++) delete m[keys[i]];
+        }
+        try{ if (typeof localStorage !== 'undefined') localStorage.setItem(HEALED_TITLES_KEY, JSON.stringify(m)); }catch(err){ /* quota: skip silently, like the feed cache */ }
+      }
+      function applyHealedTitle(id, t){
+        if (!t || !t.url) return;
+        /* A non-blank feed title stands (freshest); only a BLANK title
+           (or blank synopsis) is filled from the healed store — so a
+           re-render can never wipe a healed title with "". */
+        if ((!(t.title && t.title.trim()) || !(t.syn && t.syn.trim()))){
+          var hv = healedFor(t.prov, t.url);
+          if (hv){
+            if (!(t.title && t.title.trim()) && hv.t) t.title = hv.t;
+            if (!(t.syn && t.syn.trim()) && hv.s) t.syn = hv.s;
+          }
+        }
+      }
+      /* (v1.0.24 D ITEM 1) Visible-only lazy enrichment.
+         TRACE-1.0.24-HOME-TITLES §5: one enrichment call = ONE cheap
+         details GET (post.php, <1 s observed) — load() never calls
+         resolveApiUrl, so the 25-mirror probe is NOT paid; bypass()
+         only when the cookie is empty, once per process. Visible-only
+         is ~9-12 calls/screen (~1.5-3 s at concurrency 4); whole-feed
+         would be 100 (Hotstar) / 197 (Disney) calls per provider per
+         visit, so it is NEVER done. Enrichment runs only for cards
+         whose title is blank AND which have no healed title, and only
+         while the home screen is showing. */
+      var HEALED_ENRICH_MAX_CONC = 4;
+      var HEALED_ENRICH_MAX_PER_PASS = 16;
+      var HEALED_ENRICH_ATTEMPTED = {};
+      var HEALED_ENRICH_INFLIGHT = {};
+      var HEALED_ENRICH_TIMER = null;
+      function scheduleHomeEnrichment(){
+        if (HEALED_ENRICH_TIMER) return;
+        HEALED_ENRICH_TIMER = setTimeout(function(){ HEALED_ENRICH_TIMER = null; enrichVisibleHomeCards(); }, 400);
+      }
+      function homeScreenOn(){
+        try{
+          var hs = document.getElementById('scr-home');
+          if (!hs || !hs.classList || typeof hs.classList.contains !== 'function') return true;
+          return hs.classList.contains('on');
+        }catch(err){ return true; }
+      }
+      function cardInViewport(el){
+        try{
+          if (typeof el.getBoundingClientRect !== 'function') return true;
+          var rc = el.getBoundingClientRect();
+          var vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+          return rc.bottom > 0 && rc.top < vh;
+        }catch(err){ return true; }
+      }
+      function visibleHomeCardIds(){
+        var out = [];
+        try{
+          var home = document.getElementById('scr-home');
+          if (!home || typeof home.querySelectorAll !== 'function') return out;
+          var cards = home.querySelectorAll('[data-open]');
+          for (var i = 0; i < cards.length; i++){
+            var id = cards[i].getAttribute('data-open');
+            if (!id || !TITLES[id] || out.indexOf(id) >= 0) continue;
+            if (!cardInViewport(cards[i])) continue;
+            out.push(id);
+          }
+        }catch(err){}
+        return out;
+      }
+      function repaintHealedCard(id){
+        /* Re-paint the healed title in place (card <p> + hero title),
+           without re-rendering the rail: a full re-render would disturb
+           scroll/hero state. Only the title line is touched. */
+        try{
+          var t = TITLES[id]; if (!t || !(t.title && t.title.trim())) return;
+          var home = document.getElementById('scr-home');
+          if (home && typeof home.querySelectorAll === 'function'){
+            var cards = home.querySelectorAll('[data-open]');
+            for (var i = 0; i < cards.length; i++){
+              if (cards[i].getAttribute('data-open') !== id) continue;
+              var p = (typeof cards[i].querySelector === 'function') ? cards[i].querySelector('p') : null;
+              if (p) p.textContent = t.title;
+            }
+          }
+          if (heroList && heroList.indexOf(id) >= 0){
+            var ht = document.getElementById('h-hero-title');
+            if (ht && heroList[heroIdx] === id) ht.textContent = t.title;
+          }
+        }catch(err){}
+      }
+      function enrichVisibleHomeCards(){
+        if (!homeScreenOn()) return;
+        var ids = visibleHomeCardIds();
+        var todo = [];
+        for (var i = 0; i < ids.length && todo.length < HEALED_ENRICH_MAX_PER_PASS; i++){
+          var id = ids[i], t = TITLES[id];
+          if (!t || !t.engine || !t.url) continue;
+          if (t.title && t.title.trim()) continue; /* blank titles only */
+          if (healedFor(t.prov, t.url)) continue; /* already healed */
+          if (HEALED_ENRICH_ATTEMPTED[id] || HEALED_ENRICH_INFLIGHT[id]) continue;
+          todo.push(id);
+        }
+        if (!todo.length) return;
+        var next = 0;
+        function pump(){
+          while (Object.keys(HEALED_ENRICH_INFLIGHT).length < HEALED_ENRICH_MAX_CONC && next < todo.length){
+            (function(cid){
+              var ct = TITLES[cid];
+              HEALED_ENRICH_ATTEMPTED[cid] = true;
+              HEALED_ENRICH_INFLIGHT[cid] = true;
+              engineDetails(ct.url, ct.prov).then(function(d){
+                delete HEALED_ENRICH_INFLIGHT[cid];
+                if (d && d.title && String(d.title).trim()){
+                  var nt = cleanTitle(d.title);
+                  if (TITLES[cid] && !(TITLES[cid].title && TITLES[cid].title.trim())) TITLES[cid].title = nt;
+                  if (TITLES[cid] && d.plot && String(d.plot).trim()) TITLES[cid].syn = TITLES[cid].syn || d.plot;
+                  saveHealedTitle(ct.prov, ct.url, nt, (d.plot && String(d.plot).trim()) ? String(d.plot) : '');
+                  repaintHealedCard(cid);
+                  try{ console.log('[feed] titleHeal provider=' + ct.prov + ' healed=true'); }catch(err2){}
+                }
+                pump();
+              }).catch(function(){ delete HEALED_ENRICH_INFLIGHT[cid]; pump(); });
+            })(todo[next++]);
+          }
+        }
+        pump();
       }
       function engineRepos(){ return engineCall('repos', {}); }
       function engineRepoProviders(repoId){ return engineCall('repoProviders', { repoId: repoId }); }
@@ -5293,7 +5563,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         else if (keep) PROGRESS[k] = { t: Math.round(pos), d: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0 };
         else delete PROGRESS[k];
         var _t = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null;
-        engineCall('progressSet', { title: title, posSec: finished ? Math.round(dur) : (keep ? Math.round(pos) : 0), durSec: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0, url: (_t && _t.url) || '', providerName: (_t && _t.prov) || '', poster: (_t && _t.poster) || '', ep: curEpKey || '' }).catch(function(){});
+        engineCall('progressSet', { title: title, posSec: finished ? Math.round(dur) : (keep ? Math.round(pos) : 0), durSec: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0, url: (_t && _t.url) || '', providerName: (_t && _t.prov) || '', poster: (_t && _t.poster) || '', ep: curEpKey || '', syn: (_t && _t.syn) || '' }).catch(function(){});
       }
       function clearProgress(title, id){ if (!title) return; delete PROGRESS[progKey(title, id)]; delete PROGRESS[progKeyEp(title, id)]; var _t2 = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null; engineCall('progressSet', { title: title, posSec: 0, durSec: 0, url: (_t2 && _t2.url) || '', providerName: (_t2 && _t2.prov) || '', ep: curEpKey || '' }).catch(function(){}); }
       function resumePos(title, id, ep){
@@ -5517,6 +5787,18 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var ltype = it.type || 'movie';
           if (!TITLES[key]) TITLES[key] = { title: it.title, poster: it.poster || '', type: ltype, genre: '', year: it.year || '', star: '', syn: '', cast: [], url: it.url || '', prov: it.providerName || '', engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
           else TITLES[key].type = ltype;
+          /* (v1.0.24 D ITEM 3) The native library record carries the
+             provider's real plot (syn) when it was stored from a
+             details view; the healed store is the fallback. Never
+             invented, never a slug — blank stays blank. */
+          if (it.syn) TITLES[key].syn = it.syn;
+          if (!TITLES[key].syn || !(TITLES[key].title && TITLES[key].title.trim())){
+            var _lh = healedFor(it.providerName || '', it.url || '');
+            if (_lh){
+              if (!TITLES[key].syn && _lh.s) TITLES[key].syn = _lh.s;
+              if (!(TITLES[key].title && TITLES[key].title.trim()) && _lh.t) TITLES[key].title = _lh.t;
+            }
+          }
           var b = document.createElement('button'); b.className = 'card';
           b.setAttribute('data-open', key); b.setAttribute('data-status', it.status);
           var progTxt = '';
@@ -5810,7 +6092,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           else menus[i].classList.remove('open');
         }
       }
-      ['subs-btn','audio-btn','ratio-btn'].forEach(function(bid){
+      ['subs-btn','audio-btn'].forEach(function(bid){
         var b = document.getElementById(bid);
         if (!b) return;
         if (bid === 'audio-btn'){ b.addEventListener('click', function(){ if (typeof ZP_playerPopup === 'function') openAudioPopup(); else { renderAudioMenu(); toggleMenu('audio-menu'); } }); return; }
@@ -5819,8 +6101,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       });
       /* (v1.0.22 ITEMS 5+6) Speed + Resolution open the shared glossy
          player pop-up (ZP_playerPopup) — the old .quality-menu pickers
-         are no longer opened for these two. Subs/audio/ratio keep the
-         old menu system (Worker B owns server/audio/subtitle pop-ups). */
+         are no longer opened for these two. Subs/audio keep the
+         old menu system (Worker B owns server/audio/subtitle pop-ups);
+         ratio cycles directly since v1.0.24 (B ITEM 2) — no menu. */
       var speedBtnEl = document.getElementById('speed-btn');
       if (speedBtnEl) speedBtnEl.addEventListener('click', function(){ openSpeedPopup(); });
       var qualityBtnEl = document.getElementById('quality-btn');
@@ -5873,7 +6156,33 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         try { engineCall('playerAspect', { ratio: opt.ratio }).catch(function(){}); } catch (e) {}
         try { if (typeof reportStageRect === 'function') reportStageRect(); } catch (e) {}
       }
-      /* (v1.0.4) Aspect ratio now opens its own small pop-up menu (#ratio-menu) via the button loop above — tap-to-cycle is gone; the menu click applies it (see the allMenus handler). */
+      /* (v1.0.24 B ITEM 2) Aspect ratio is a DIRECT CYCLE — tap the Aspect
+         button and the ratio changes at once, no pop-up: Fill → 16:9 → 4:3
+         → Fit → Fill … (RATIO_OPTS order, the same order #ratio-menu
+         listed). ratio-btn is wired here, NOT in the subs/audio button
+         loop above, so neither #ratio-menu nor the shared #playerPopup
+         can open from it. applyRatioOpt does the real work (stage class
+         + #ratio-label + engineCall('playerAspect') → ExoPlayer
+         TextureView Matrix + reportStageRect); the #ratio-menu .on row
+         is kept in sync only so the (now unreachable) menu cannot
+         disagree with the label. */
+      function cycleRatio(){
+        if (typeof closeMenus === 'function') closeMenus();
+        curRatioIdx = (curRatioIdx + 1) % RATIO_OPTS.length;
+        var opt = RATIO_OPTS[curRatioIdx];
+        /* (v1.0.24 G ITEM 2 refinement) Persist the tap: the chosen
+           ratio is saved to the engine store ('aspectRatio') so it
+           survives app restarts -- set once, stays set. */
+        try{ enginePersistSetting('aspectRatio', opt.ratio); }catch(e){}
+        var menu = document.getElementById('ratio-menu');
+        if (menu){
+          var rows = menu.querySelectorAll('[data-set="ratio"]');
+          for (var i = 0; i < rows.length; i++) rows[i].classList.toggle('on', rows[i].getAttribute('data-val') === opt.val);
+        }
+        applyRatioOpt(opt, false);
+      }
+      var ratioBtnEl = document.getElementById('ratio-btn');
+      if (ratioBtnEl) ratioBtnEl.addEventListener('click', function(){ cycleRatio(); });
       /* Source button (replaces the old in-player Resolution/quality picker):
          quality auto-picks from the Settings preferred resolution; here the
          viewer only picks the source (server) to play from */
@@ -5892,7 +6201,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var sv = document.getElementById('sheet-val-' + set);
           if (sv) sv.textContent = b.getAttribute('data-short');
           if (set === 'speed'){ var r = parseFloat(b.getAttribute('data-val')); if (isFinite(r) && r > 0){ curRate = r; playerSetRate(r); } }
-          if (set === 'ratio'){ for (var ri = 0; ri < RATIO_OPTS.length; ri++) if (RATIO_OPTS[ri].val === b.getAttribute('data-val')){ curRatioIdx = ri; applyRatioOpt(RATIO_OPTS[ri], true); break; } }
+          if (set === 'ratio'){ for (var ri = 0; ri < RATIO_OPTS.length; ri++) if (RATIO_OPTS[ri].val === b.getAttribute('data-val')){ curRatioIdx = ri; try{ enginePersistSetting('aspectRatio', RATIO_OPTS[ri].ratio); }catch(e){} applyRatioOpt(RATIO_OPTS[ri], true); break; } }
           if (set === 'audio'){ var ac = audioCodeForVal(b.getAttribute('data-val')); if (ac){ PB.audio1 = ac; curAudioCode = ac; try{ enginePersistSetting('audio1', langOf(ac).nat); }catch(e){} try{ syncPBUI(); }catch(e){} if (curTitle) playFromServer(-1, true); } }
           if (set === 'subs'){ applySubsMenuPick(b); }
           b.closest('.quality-menu').classList.remove('open');
@@ -6705,7 +7014,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           /* the rotation re-lays the window and can drop the immersive
              hide: re-hide the bars once the rotation has settled */
           setTimeout(function(){ if (fsOn){ setNativeFS(true); sizeFSStage(); reportStageRect(); } }, 350);
-          toast('Fullscreen — ল্যান্ডস্কেপ');
+          /* (v1.0.24 ITEM 5) No fullscreen announcement — video goes fullscreen silently. */
         } else {
           stageEl.classList.remove('fs');
           host.classList.remove('fs-host');
@@ -6996,6 +7305,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           curAudioTracks = (d && d.audio) || [];
           curSubTracks = (d && d.subtitles) || [];
         } catch (e){ curAudioTracks = null; curSubTracks = null; }
+        /* (v1.0.24 H) Every inventory refresh re-syncs the Audio pill to
+           the selected track — play start, picker open, pick confirm. */
+        if (typeof syncAudioLabelFromTracks === 'function') syncAudioLabelFromTracks();
       }
       function trackLabel(t){
         if (t && t.label) return t.label;
@@ -7006,6 +7318,30 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!tracks) return null;
         for (var i = 0; i < tracks.length; i++) if (tracks[i].selected) return tracks[i];
         return null;
+      }
+      /* (v1.0.24 H) Audio pill follows the ACTUAL playing track: the
+         manifest's selected audio track (ExoPlayer currentTracks via
+         refreshPlayerTracks) is the only source that knows what is
+         really playing — the link audio hint is null whenever the
+         provider's link name carries no language word, and that null
+         was painted as '—' by setAudioFromServer. Original name first
+         (the manifest label), else the language short code; never '—',
+         never a guessed language, never 'Track'. Returns false when
+         there is no selected track (label left untouched). */
+      function audioTrackPillName(t){
+        if (!t) return '';
+        if (t.label) return String(t.label);
+        if (t.lang) return langOf(t.lang).s;
+        return '';
+      }
+      function syncAudioLabelFromTracks(){
+        var sel = selectedTrack(curAudioTracks);
+        var name = audioTrackPillName(sel);
+        if (!name) return false;
+        if (sel.lang) curAudioCode = sel.lang;
+        var lbl = document.getElementById('audio-label');
+        if (lbl) lbl.textContent = name;
+        return true;
       }
       async function confirmTrack(tracks, sel){
         /* Re-query and check the SELECTED track matches the pick. One retry (the track-change event can land after the control reply). No inventory = nothing to contradict the ok reply: trust it. */
@@ -7055,7 +7391,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             var ok = await confirmTrack('audio', v);
             if (!ok){ if (lbl) lbl.textContent = prevLabel; toast('Audio did not change — ' + (prevLabel || '') + ' is still playing'); return false; }
             curAudioCode = v.lang || curAudioCode;
-            if (lbl) lbl.textContent = v.lang ? langOf(v.lang).s : prevLabel;
+            /* (v1.0.24 H) Pill from the picked track itself (original
+               manifest name via sync), not just its lang code — a track
+               with a label but no lang used to leave the pill at '—'. */
+            if (typeof syncAudioLabelFromTracks !== 'function' || !syncAudioLabelFromTracks()){
+              if (lbl) lbl.textContent = v.lang ? langOf(v.lang).s : prevLabel;
+            }
             toast('Audio: ' + (v.lang ? langOf(v.lang).n : ''));
             return true;
           }
@@ -7368,6 +7709,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                re-applies its own lastRate; this second send covers a
                re-play, where the newly prepared session never saw the rate. */
             if (typeof curRate === 'number' && curRate !== 1) playerSetRate(curRate);
+            /* (v1.0.24 G ITEM 2 refinement) Re-assert the saved aspect
+               ratio on every fresh play, like the speed above: a
+               rebuilt native player starts at Fill, so a re-play
+               would silently drop his ratio while the label still
+               showed it. Silent -- no toast, value already stored. */
+            if (typeof applyRatioOpt === 'function' && typeof RATIO_OPTS !== 'undefined' && RATIO_OPTS[curRatioIdx]) applyRatioOpt(RATIO_OPTS[curRatioIdx], true);
             document.getElementById('p-vsub').textContent = curBaseSub + ' • ' + link.source;
             var slb = document.getElementById('source-label'); if (slb) slb.textContent = link.source;
             showBufferForLink(link, d.reused);
@@ -7375,7 +7722,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (!_superseded){
             if (typeof curSubtitles !== 'undefined' && d.subtitles) curSubtitles = d.subtitles;
             renderSrvSheet();
-            if (typeof refreshPlayerTracks === 'function') refreshPlayerTracks();
+            if (typeof refreshPlayerTracks === 'function') refreshPlayerTracks().then(function(){ if (typeof syncAudioLabelFromTracks === 'function' && !syncAudioLabelFromTracks()){ /* (v1.0.24 H) The first inventory can land before the manifest is parsed (no selected track yet): one delayed re-query so the pill follows the real track instead of staying '—'. */ setTimeout(function(){ refreshPlayerTracks(); }, 600); } });
           }
         } catch (e) { hideServerLoading(); hideSrvLoadScreen(); toast(engineErrText(e)); }
         if (playFromServer._token === _playToken) playFromServer._inFlight = false;
@@ -7526,11 +7873,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var base = k.split('#ep:')[0];
           var g = groups[base];
           if (!g){
-            g = groups[base] = { base: base, title: p.title, url: p.url || '', prov: p.providerName || '', poster: p.poster || '', posSec: 0, durationSec: 0, ep: '', updatedAt: 0 };
+            g = groups[base] = { base: base, title: p.title, url: p.url || '', prov: p.providerName || '', poster: p.poster || '', posSec: 0, durationSec: 0, ep: '', updatedAt: 0, syn: p.syn || '' };
           }
           if (pos > g.posSec){ g.posSec = pos; g.durationSec = p.durSec || 0; g.ep = p.ep || ''; if (p.poster) g.poster = p.poster; }
           else if (!g.poster && p.poster) g.poster = p.poster;
           if ((p.updatedAt || 0) > g.updatedAt) g.updatedAt = p.updatedAt || 0;
+          if (p.syn) g.syn = p.syn;
         });
         var out = Object.keys(groups).map(function(k){ return groups[k]; });
         out.sort(function(a, b){ return (b.updatedAt || 0) - (a.updatedAt || 0); });
@@ -7553,12 +7901,22 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var poster = _cwPoster();
           var siteUrl = '';
           for (var k2 in TITLES){ if (TITLES[k2] && TITLES[k2].prov === g.prov && TITLES[k2].siteUrl){ siteUrl = TITLES[k2].siteUrl; break; } }
-          TITLES[key] = { title: g.title, poster: poster, type: g.ep ? 'series' : 'movie', genre: '', year: '', star: '', syn: '', cast: [], url: g.url, prov: g.prov, siteUrl: siteUrl, engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
+          TITLES[key] = { title: g.title, poster: poster, type: g.ep ? 'series' : 'movie', genre: '', year: '', star: '', syn: g.syn || '', cast: [], url: g.url, prov: g.prov, siteUrl: siteUrl, engine: true, data: '' }; /* (v1.0.5 E1) data MUST stay blank: a page URL here short-circuits resolveLinkData's load() fallback and loadLinks gets the raw page URL -> no_links */
         } else if (!TITLES[key].poster){
           /* (v1.0.19 BUG 2) Un-freeze: a shell created at boot (empty
              TITLES) picks up the real poster once the feed has loaded it. */
           var _bp = _cwPoster();
           if (_bp) TITLES[key].poster = _bp;
+        }
+        /* (v1.0.24 D ITEM 3) Hydrate title/synopsis from the persistent
+           healed store (provider-supplied only, never invented): a
+           previously viewed title paints instantly across restarts. */
+        if (!(TITLES[key].title && TITLES[key].title.trim()) || !TITLES[key].syn){
+          var _hh = healedFor(g.prov, g.url);
+          if (_hh){
+            if (!(TITLES[key].title && TITLES[key].title.trim()) && _hh.t) TITLES[key].title = _hh.t;
+            if (!TITLES[key].syn && _hh.s) TITLES[key].syn = _hh.s;
+          }
         }
         return key;
       }
@@ -8088,14 +8446,17 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          "আপডেট এলে জানানো" toggle — the toggle MUST be read; it was dead
          before (never read by any code). Silent unless an update is
          found; a failed auto-check stays silent (the manual Check button
-         reports errors). 'boot' = on app open, at most once a day
-         (localStorage throttle); 'page' = opening the Updates screen,
+         reports errors). 'boot' = on EVERY app open (v1.0.24 L ITEM 4:
+         the 24 h wall is gone — the check is automatic, first thing,
+         no manual tap; only a 5-min in-memory guard stops a double-fire
+         in one session); 'page' = opening the Updates screen,
          at most once per 5 min. */
       function updNotifyOn(){
         if (window.ZP_v31updNotify){ try{ return !!window.ZP_v31updNotify(); }catch(e){} }
         return true;
       }
       var _zpUpdPageAt = 0;
+      var _zpUpdBootAt = 0; /* (v1.0.24 L ITEM 4 P0-3) in-memory only: stops a double-fire inside one session, never a 24 h wall */
       function runAppUpdateCheck(kind){
         try{
           if (!updNotifyOn()) return;
@@ -8106,9 +8467,18 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
              lets the next foreground return retry a failed check past
              the 6 h throttle. */
           if (kind === 'boot'){
-            var last = 0;
-            try{ last = parseInt(localStorage.getItem('zp_upd_last') || '0', 10) || 0; }catch(e2){}
-            if (now - last < 86400000) return;
+            /* (v1.0.24 L ITEM 4 P0-3) No 24 h wall any more: the boot
+               check runs on EVERY cold start, automatically — Samim
+               must never tap anything or wait up to a day for a new
+               release to appear. Only a 5-min in-memory guard stops
+               a double-fire inside one session (pluginsChanged can
+               only fire once per onCreate, but be safe). The
+               updNotify toggle above stays the only opt-out.
+               zp_upd_last is still WRITTEN on a definitive result
+               below (diagnostic timestamp); nothing reads it as a
+               gate any more. */
+            if (now - _zpUpdBootAt < 300000) return;
+            _zpUpdBootAt = now;
           } else if (kind === 'fg'){
             /* (v1.0.4) F4: foreground / periodic re-check, at most once per 6 h — a release that lands while the app is open appears without a restart. */
             var lastFg = 0, pending = false;
@@ -8122,8 +8492,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           engineCall('appUpdateCheck', { manual: false }, 60000).then(function(d){
             /* (v1.0.4) F1: persist the result — the banner + Updates card render from it, so the update stays visible after the toast is gone. A failed check keeps the old state. */
             if (d && !d.error){
-              /* Definitive result (available or not): the throttle
-                 window starts NOW, not when the check started. */
+              /* Definitive result (available or not): record WHEN the
+                 last successful check ran (diagnostic only since
+                 v1.0.24 L ITEM 4 — zp_upd_last no longer gates the
+                 boot check). */
               try{
                 if (kind === 'boot') localStorage.setItem('zp_upd_last', String(Date.now()));
                 else if (kind === 'fg') localStorage.setItem('zp_upd_fg_last', String(Date.now()));
@@ -8152,6 +8524,42 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         try{ if (u) localStorage.setItem('zp_app_update', JSON.stringify(u)); else localStorage.removeItem('zp_app_update'); }catch(e){}
         renderUpdBanner();
       }
+      /* (v1.0.24 L ITEM 4 P0-1/P0-2) The banner's truth is
+         stored.versionCode > installedVersionCode — NEVER mere record
+         existence. The installed vc is learned at boot from
+         engineStatus() (ST.installedVersionCode); until it is known the
+         first paint HOLDS the banner (hidden) instead of flashing a
+         possibly-stale record — engineStatus is a local bridge call, so
+         the hold is milliseconds; a 3 s fallback releases it fail-open
+         if the bridge never answers. Unknown installed vc (0) fails
+         OPEN: the banner shows, so a bridge failure can never hide a
+         real update. A stale record (vc <= installed) is deleted
+         locally, with zero network needed — so the banner is already
+         gone on the first paint after an install. */
+      var _zpUpdVcKnown = false;
+      var _zpUpdVcFallbackTimer = null;
+      function installedAppVc(){
+        try{
+          var v = (typeof ST !== 'undefined') ? ST.installedVersionCode : 0;
+          v = parseInt(v, 10);
+          return (isNaN(v) || v <= 0) ? 0 : v;
+        }catch(e){ return 0; }
+      }
+      function isStoredAppUpdateNewer(u){
+        var ivc = installedAppVc();
+        if (!ivc) return true; /* installed unknown: fail open, show */
+        var svc = (u && typeof u.versionCode === 'number') ? u.versionCode : parseInt((u && u.versionCode) || '0', 10) || 0;
+        return svc > ivc;
+      }
+      function pruneStaleAppUpdate(u){
+        /* True when a stale record was deleted. Local only — no check. */
+        if (u && !isStoredAppUpdateNewer(u)){
+          try{ if (typeof ST !== 'undefined') ST.appUpdate = null; }catch(e){}
+          try{ localStorage.removeItem('zp_app_update'); }catch(e){}
+          return true;
+        }
+        return false;
+      }
       function renderUpdBanner(){
         var u = null;
         try{ if (typeof ST !== 'undefined' && ST.appUpdate) u = ST.appUpdate; }catch(e){}
@@ -8159,6 +8567,24 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (u){ try{ if (typeof ST !== 'undefined') ST.appUpdate = u; }catch(e){} }
         var b = document.getElementById('upd-banner'); if (!b) return;
         if (!u){ b.hidden = true; return; }
+        /* (v1.0.24 L ITEM 4 P0-1/P0-2) Gate on installed-vs-
+           available: a record for the already-installed version
+           is deleted on the spot and the banner stays hidden —
+           no network check needed. */
+        if (!_zpUpdVcKnown){
+          /* Installed vc not learned yet (first paint raced the
+             boot engineStatus call): HOLD the banner hidden
+             instead of flashing a possibly-stale record.
+             engineStatus re-paints when it answers; the
+             fallback below releases the hold fail-open if the
+             bridge never answers. */
+          b.hidden = true;
+          if (!_zpUpdVcFallbackTimer){
+            _zpUpdVcFallbackTimer = setTimeout(function(){ _zpUpdVcKnown = true; _zpUpdVcFallbackTimer = null; renderUpdBanner(); }, 3000);
+          }
+          return;
+        }
+        if (pruneStaleAppUpdate(u)){ b.hidden = true; return; }
         b.hidden = false;
         var t = document.getElementById('upd-banner-text'); if (t) t.textContent = 'নতুন আপডেট এসেছে — v' + (u.version || '');
       }
@@ -8912,9 +9338,17 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var v = (d && d.version) || '';
           var _i3 = (typeof window !== 'undefined' && window.__v31Instances) || [];
           _i3.forEach(function(inst){ inst.appVersion = v; });
+          /* (v1.0.24 L ITEM 4 P0-1) Learn the installed
+             versionCode so the banner/card gate
+             (stored.versionCode > installed) can run — then
+             re-paint: the first paint may have held the banner
+             until this was known. */
+          try{ if (typeof ST !== 'undefined' && d && typeof d.installedVersionCode === 'number') ST.installedVersionCode = d.installedVersionCode; }catch(e2){}
+          _zpUpdVcKnown = true;
+          if (typeof renderUpdBanner === 'function') renderUpdBanner();
           if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
         }catch(e){}
-      }).catch(function(){});
+      }).catch(function(){ /* (v1.0.24 L ITEM 4 P0-1) engineStatus failed: release the banner hold fail-open (installed vc stays unknown, so the gate shows the record). */ _zpUpdVcKnown = true; if (typeof renderUpdBanner === 'function') renderUpdBanner(); });
       /* (v1.0.18 P16-06) Drop stale/over-cap feed cache entries at boot. */
       if (typeof sweepFeedCache === 'function') sweepFeedCache();
       go('home');
@@ -9280,7 +9714,7 @@ buffer: { title:'বাফারিং', desc:'ভিডিও কতটা আ�
     ['phone','Phone','ফোনের সাজানো'], ['tablet','Tablet','ট্যাবলেটের বড় সাজানো'], ['tv','TV','TV-র বড় সাজানো'], ['auto','Auto','ডিভাইস দেখে নিজে থেকে'] ] },
   appLang: { title:'অ্যাপের ভাষা', desc:'পুরো অ্যাপ এই ভাষায় দেখাবে।', opts: langOpts() },
   dns: { title:'নিরাপদ DNS', desc:'ব্লক থাকা সাইট খুলতে সাহায্য করে (DNS over HTTPS)।', opts:[
-    ['system','System','ফোনের নিজের DNS — ডিফল্ট'], ['cloudflare','Cloudflare',''], ['google','Google',''],
+    ['system','System','ফোনের নিজের DNS'], ['cloudflare','Cloudflare','ডিফল্ট'], ['google','Google',''],
     ['adguard','AdGuard',''], ['dnswatch','DNSWatch',''], ['quad9','Quad9',''],
     ['dnssb','DNS.SB',''], ['canadianshield','Canadian Shield',''] ] },
   backupFreq: { title:'নিজে থেকে ব্যাকআপ', desc:'কতদিন পরপর নিজে থেকে ব্যাকআপ হবে।', opts:[
@@ -9347,7 +9781,7 @@ var CHIP_LABEL = { all:'সব', official:'Official', english:'English', hindi:'
 function defaults(){
     var d = {
       player:'internal', extApp:'VLC', titleChars:'50', showInfo:true, resume:true,
-      mode:'auto', res:'Auto', audio1:'English', audio2:'বাংলা', audio3:'none', timeout:'30s', reuse:true, reuseDur:'24h', srcPrio:'quality',
+      mode:'auto', res:'Auto', aspectRatio:'fill', audio1:'English', audio2:'বাংলা', audio3:'none', timeout:'30s', reuse:true, reuseDur:'24h', srcPrio:'quality',
       subLang:'বাংলা', subFilter:'All', subColor:'সাদা', subStyle:'outline', subPosV:'bottom', subPosH:'center', subSize:'medium',
       gSwipeSeek:true, gSwipeBV:true, gDtSeek:false, gDtPause:false, gHold2x:true, seekAmt:10,
       bufDisk:'250 MB', buffer:'normal',
@@ -9359,7 +9793,7 @@ function defaults(){
       providerOrder:[], providerPin:{},
       bioLock:false,
       updNotify:true, plugAutoUpd:true, backupFreq:'weekly', backupFolder:'/Zayn Play/Backup',
-      dlQuality:'Auto', wifiOnly:false, dns:'system'
+      dlQuality:'Auto', wifiOnly:false, dns:'cloudflare'
     };
     try{
       if (typeof ZPTheme !== 'undefined' && ZPTheme.pref) d.theme = ZPTheme.pref;
@@ -9608,6 +10042,9 @@ function rAccountPage(inst, id){
   try{ if (typeof ST !== 'undefined' && ST.appUpdate) u = ST.appUpdate; }catch(e){}
   if (!u){ try{ var s = localStorage.getItem('zp_app_update'); if (s) u = JSON.parse(s); }catch(e){} }
   if (!u) return '';
+  /* (v1.0.24 L ITEM 4 P0-1/P0-2) Same gate as the banner: a record
+     for the already-installed version is deleted, no card. */
+  if (typeof pruneStaleAppUpdate === 'function' && pruneStaleAppUpdate(u)) return '';
   return secT('নতুন আপডেট') + card(
     '<div class="upd-card"><b>Zayn Play v' + esc(u.version || '') + '</b><p>নতুন ভার্সন এসেছে।</p>' +
     '<div class="upd-prog" id="upd-card-prog" hidden><i id="upd-card-fill"></i></div><p class="upd-pct" id="upd-card-pct" hidden></p></div>' +
@@ -10281,6 +10718,12 @@ function doAct(inst, act, el){
       if (d && d.error === 'no_usable_asset'){ toast(inst, 'আপডেটের তথ্য পাওয়া যায়নি — আবার চেষ্টা করুন'); return; }
       if (d && d.error){ toast(inst, 'আপডেট দেখা যায়নি (' + d.error + ') — আবার চেষ্টা করুন'); return; }
       try{ if (typeof ST !== 'undefined') ST.latestAppVersion = d.latestVersion || null; }catch(e){}
+      /* (v1.0.24 L ITEM 4 P1) A definitive "up to date" from the
+         manual check clears a stale record too — before, only
+         the automatic paths could clear the banner, so tapping
+         Check after updating left the banner up. Errors return
+         above, so this never runs on a failed check. */
+      if (d && !d.updateAvailable && typeof saveAppUpdate === 'function') saveAppUpdate(null);
       if (d && d.updateAvailable){
         /* (v1.0.4) F1: store the update + show the card/banner — do NOT download yet. The user taps Update; the download then shows full progress and ends in the Install pop-up. (v1.0.20 P20-B3/B10) The record carries size + hashes + versionCode so the download/install can verify before installing. */
         if (typeof saveAppUpdate === 'function') saveAppUpdate({ version: d.version || '', versionCode: d.versionCode || 0, url: d.url || '', size: (typeof d.size === 'number' ? d.size : -1), sha256: d.sha256 || '', apkSha256: d.apkSha256 || '', changelog: d.changelog || '', at: Date.now() });
