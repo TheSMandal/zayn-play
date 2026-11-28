@@ -91,9 +91,11 @@ class ZaynLibrary(private val store: EngineStore) {
 
     /**
      * Set (or remove with status "remove") a library entry. The UI calls
-     * this ONLY from an explicit bookmark action (details / player /
-     * search Library button) and from the playback-end path (completed,
-     * by id). Playing a title never adds it (P11-01).
+     * this from an explicit bookmark action (details / player / search
+     * Plan to Watch button), from the playback-end path (completed, by
+     * id), and from the play-start auto-add (watching — v1.0.21 ITEM 8
+     * REVERSAL of P11-01 "Playing a title never adds it", per Samim
+     * 2026-11-28: watched -> Watching, finished -> Completed).
      */
     fun librarySet(
         url: String,
@@ -158,7 +160,10 @@ class ZaynLibrary(private val store: EngineStore) {
     }
 
     /** Mark completed when playback ends near the end. Only marks an
-        entry the user explicitly bookmarked — never creates one (P11-01). */
+        entry already in the library — never creates one. (Since
+        v1.0.21 ITEM 8 the play-start auto-add normally creates the
+        entry first, so this guard rarely bites; it still guards the
+        case where the auto-add write failed.) */
     fun markCompleted(url: String, providerName: String) {
         if (url.isBlank()) return
         val id = bookmarkId(url, providerName).toString()
