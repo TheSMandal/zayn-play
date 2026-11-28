@@ -1462,15 +1462,22 @@ class ZaynEngine(
     }
 
     /** (v1.0.17 P15-01/P15-08) Resolve a provider NAME to its repo id for
-     * health recording from the play path (which only carries the name). */
+     * health recording from the play path (which only carries the name).
+     * Non-suspend by construction: providerDiag (a plain fun) calls this
+     * via recordHealthByName, so the suspend
+     * RepositoryManager.getRepoPlugins cannot be used here (it broke CI
+     * run 46093356609: "Suspend function 'getRepoPlugins' should be called
+     * only from a coroutine or another suspend function"). The live
+     * MainAPI set (APIHolder.allProviders) carries sourcePlugin paths,
+     * matched against each repo's sanitized folder — the same pattern
+     * apisForRepo uses (E:4184). A plugin with no MainAPI cannot produce
+     * a play-path provider name, so no plugin-name fallback is needed. */
     private fun repoIdForProviderName(name: String): String? {
-        for (repo in RepositoryManager.getRepositories()) {
-            val id = repoId(repo.url)
-            val wrappers = try { RepositoryManager.getRepoPlugins(repo) } catch (e: Exception) { null } ?: continue
-            for (w in wrappers) {
-                val apis = apisForPlugin(repo, w.plugin)
-                if (apis.any { it.name == name }) return id
-                if (apis.isEmpty() && w.plugin.name == name) return id
+        for (api in APIHolder.allProviders) {
+            if (api.name != name) continue
+            val pluginPath = api.sourcePlugin ?: continue
+            for (repo in RepositoryManager.getRepositories()) {
+                if (pluginPath.contains("/${PluginManager.getPluginSanitizedFileName(repo.url)}/")) return repoId(repo.url)
             }
         }
         return null
