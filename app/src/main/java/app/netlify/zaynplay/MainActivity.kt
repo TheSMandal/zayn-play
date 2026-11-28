@@ -605,9 +605,12 @@ class MainActivity : AppCompatActivity() {
             // (scheduleBootPluginCheck — throttled to once a day, 15 s
             // after the first home feed settles, cached manifests via
             // the native 15-min TTL). It no longer races the first feed
-            // from native, so no native boot check runs here. Updates
-            // still run only on the JS schedule, or when the user opens
-            // Settings -> Extensions, or taps update manually.
+            // from native, so no native boot check runs here. (v1.0.24
+            // L ITEM 4) The APP-update boot check runs in the page's JS
+            // on EVERY cold start now (pluginsChanged ->
+            // runAppUpdateCheck('boot'), no 24 h wall) — the old
+            // "only on the JS schedule / Settings / manual tap" line
+            // above no longer applies to app updates.
         }
         webView.addJavascriptInterface(object {
             @JavascriptInterface
