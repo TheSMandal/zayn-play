@@ -1,7 +1,9 @@
 package app.netlify.zaynplay.engine;
 
 import android.content.Context;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
+import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Surface;
@@ -13,6 +15,9 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -81,6 +86,12 @@ public class ZaynMpvPlayer {
     private volatile float lastVolume = 1f;
     private volatile boolean muted;
     private volatile float preMuteVolume = 1f;
+    // (v1.0.22 C ITEM 7) Aspect mode the page picked (default Fill,
+    // matching the page's curRatioIdx default). Applied to mpv via the
+    // video-aspect / keepaspect properties; the shared TextureView's
+    // transform is reset to identity so no stale ExoPlayer transform
+    // stretches mpv's output.
+    private String aspectMode = "fill";
 
     private boolean tickerRunning;
     private boolean firstFrameLogged;
@@ -370,6 +381,9 @@ public class ZaynMpvPlayer {
             try {
                 m.command(new String[]{"loadfile", link.getUrl()});
                 EngineLogger.INSTANCE.log("player", "mpv: recreated — loadfile re-issued " + link.getSource());
+                // (v1.0.22 ITEM 5) Same re-apply as play(): the recreated
+                // instance is fresh, so its speed is 1x until restored.
+                try { m.setPropertyDouble("speed", lastRate); } catch (Exception ignored) { }
             } catch (Exception e) {
                 EngineLogger.INSTANCE.log("player", "mpv: recreated loadfile failed " + e.getMessage());
             }
@@ -589,6 +603,10 @@ public class ZaynMpvPlayer {
             m.attachSurface(attachedSurface);
             attachedTexId = texId;
             surfaceAttached = true;
+            // (v1.0.22 C ITEM 7) Apply the picked aspect now (it may have
+            // been picked before mpv existed) and clear any stale
+            // ExoPlayer transform from the shared TextureView.
+            applyAspectProperties();
             // (v1.0.12 §6 step 3) Report the live size at attach.
             setSurfaceSizeOption();
             // (v1.0.11 D1) Attach log now carries both identities: the
@@ -781,6 +799,12 @@ public class ZaynMpvPlayer {
                 return;
             }
             EngineLogger.INSTANCE.log("player", "mpv: loadfile " + link.getSource());
+            // (v1.0.22 ITEM 5) Re-apply the saved speed on every fresh
+            // loadfile: mpv starts a new file at 1x, so a server/audio/
+            // resolution re-play silently dropped the user's chosen rate
+            // while the Speed label still showed it. lastRate is 1f by
+            // default, so this is a no-op at normal speed.
+            try { m.setPropertyDouble("speed", lastRate); } catch (Exception ignored) { }
             lastPlaying = true;
             tickerLogCount = 0;
             startTicker();
@@ -934,6 +958,137 @@ public class ZaynMpvPlayer {
         }
     }
 
+    /** (v1.0.22 B) The playing file's REAL audio/subtitle tracks, from mpv's
+     *  track-list property (JSON array: id/type/lang/title/selected). Empty
+     *  lists on any failure — never invented. */
+    public JSONObject tracksSnapshot() {
+        JSONObject out = new JSONObject();
+        List<JSONObject> audio = new ArrayList<>();
+        List<JSONObject> subs = new ArrayList<>();
+        try {
+            MPVLib m = mpv;
+            if (m != null) {
+                String raw = m.getPropertyString("track-list");
+                if (raw != null && !raw.isEmpty()) {
+                    JSONArray list = new JSONArray(raw);
+                    for (int i = 0; i < list.length(); i++) {
+                        JSONObject t = list.optJSONObject(i);
+                        if (t == null) continue;
+                        String type = t.optString("type", "");
+                        if (!"audio".equals(type) && !"sub".equals(type)) continue;
+                        JSONObject e = new JSONObject();
+                        put(e, "id", String.valueOf(t.optInt("id", -1)));
+                        put(e, "lang", t.has("lang") && !t.isNull("lang") ? t.optString("lang") : JSONObject.NULL);
+                        put(e, "label", t.has("title") && !t.isNull("title") ? t.optString("title") : JSONObject.NULL);
+                        put(e, "selected", t.optBoolean("selected", false));
+                        if ("audio".equals(type)) audio.add(e); else subs.add(e);
+                    }
+                    put(out, "ready", true);
+                } else {
+                    put(out, "ready", false);
+                }
+            } else {
+                put(out, "ready", false);
+            }
+        } catch (Exception e) {
+            put(out, "ready", false);
+        }
+        put(out, "audio", new JSONArray(audio));
+        put(out, "subtitles", new JSONArray(subs));
+        return out;
+    }
+
+    private String findMpvTrackId(String type, String lang) {
+        // Resolve a language to a track-list id, synchronously (mpv properties are thread-safe to read).
+        try {
+            MPVLib m = mpv;
+            if (m == null || lang == null || lang.isEmpty()) return null;
+            String raw = m.getPropertyString("track-list");
+            if (raw == null || raw.isEmpty()) return null;
+            JSONArray list = new JSONArray(raw);
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject t = list.optJSONObject(i);
+                if (t == null) continue;
+                if (type.equals(t.optString("type", "")) && lang.equals(t.optString("lang", ""))) {
+                    return String.valueOf(t.optInt("id", -1));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** (v1.0.22 B) In-play audio switch: aid by track id, or by language via the track-list. False = the known track-list contradicts the pick. */
+    public boolean setAudioTrack(String trackId, String lang) {
+        String id = (trackId != null && !trackId.isEmpty()) ? trackId : findMpvTrackId("audio", lang);
+        if (id == null) {
+            EngineLogger.INSTANCE.log("player", "mpv: audio track not found trackId=" + trackId + " lang=" + lang);
+            return false;
+        }
+        final String useId = id;
+        final String useLang = lang;
+        mainHandler.post(() -> {
+            MPVLib m = mpv;
+            if (m == null) return;
+            try {
+                m.setPropertyString("aid", useId);
+                if (useLang != null && !useLang.isEmpty()) lastAudio = useLang;
+                EngineLogger.INSTANCE.log("player", "mpv: audio track set aid=" + useId);
+            } catch (Exception e) {
+                EngineLogger.INSTANCE.log("player", "mpv: audio track set failed " + e.getMessage());
+            }
+        });
+        return true;
+    }
+
+    public boolean setSubtitleTrack(String trackId, String lang) {
+        String id = (trackId != null && !trackId.isEmpty()) ? trackId : findMpvTrackId("sub", lang);
+        if (id == null) {
+            EngineLogger.INSTANCE.log("player", "mpv: subtitle track not found trackId=" + trackId + " lang=" + lang);
+            return false;
+        }
+        final String useId = id;
+        final String useLang = lang;
+        mainHandler.post(() -> {
+            MPVLib m = mpv;
+            if (m == null) return;
+            try {
+                m.setPropertyString("sid", useId);
+                if (useLang != null && !useLang.isEmpty()) currentSubtitleLang = useLang;
+                EngineLogger.INSTANCE.log("player", "mpv: subtitle track set sid=" + useId);
+            } catch (Exception e) {
+                EngineLogger.INSTANCE.log("player", "mpv: subtitle track set failed " + e.getMessage());
+            }
+        });
+        return true;
+    }
+
+    /** (v1.0.22 B) Attach a provider subtitle URL to the current item (mpv selects the added track). */
+    public void setSubtitleUrl(String url, String lang) {
+        mainHandler.post(() -> {
+            MPVLib m = mpv;
+            if (m == null) return;
+            currentSubtitleLang = lang;
+            try {
+                m.command(new String[]{"sub-add", url});
+                EngineLogger.INSTANCE.log("player", "mpv: subtitle url added lang=" + lang);
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /** (v1.0.22 B) Off: remove the attached external subtitle and disable subtitle display. */
+    public void setSubtitleOff() {
+        mainHandler.post(() -> {
+            MPVLib m = mpv;
+            if (m == null) return;
+            currentSubtitleLang = null;
+            try { m.command(new String[]{"sub-remove"}); } catch (Exception ignored) { }
+            try { m.setPropertyString("sid", "no"); } catch (Exception ignored) { }
+            EngineLogger.INSTANCE.log("player", "mpv: subtitles off");
+        });
+    }
+
     /** Attach downloaded subtitle text to the current item. */
     public void setSubtitleText(String text, String lang) {
         mainHandler.post(() -> {
@@ -1029,21 +1184,28 @@ public class ZaynMpvPlayer {
                     case "volume": {
                         float v = value != null ? value.floatValue() : 1f;
                         v = Math.max(0f, Math.min(1f, v));
-                        lastVolume = v;
-                        muted = v <= 0f;
-                        m.setPropertyDouble("volume", v * 100.0);
+                        lastVolume = (float) applySystemVolume(v);
+                        muted = lastVolume <= 0f;
+                        m.setPropertyDouble("volume", 100.0);
                         break;
                     }
                     case "mute": {
+                        // (v1.0.22 C ITEM 8) Mute is the system volume at 0,
+                        // not mpv's internal mute: unmute restores the
+                        // pre-mute system volume. mpv's gain stays 100 and
+                        // its mute flag stays off throughout.
                         boolean wantMute = value == null ? !muted : value >= 1.0;
                         if (wantMute) {
                             if (!muted) preMuteVolume = lastVolume;
                             muted = true;
-                            m.setPropertyBoolean("mute", true);
+                            lastVolume = (float) applySystemVolume(0.0);
+                            m.setPropertyBoolean("mute", false);
+                            m.setPropertyDouble("volume", 100.0);
                         } else {
                             muted = false;
+                            lastVolume = (float) applySystemVolume(preMuteVolume);
                             m.setPropertyBoolean("mute", false);
-                            m.setPropertyDouble("volume", preMuteVolume * 100.0);
+                            m.setPropertyDouble("volume", 100.0);
                         }
                         break;
                     }
@@ -1059,6 +1221,83 @@ public class ZaynMpvPlayer {
         return stateSnapshot();
     }
 
+    /** (v1.0.22 C ITEM 7) Aspect ratio on the live libmpv frame. */
+    public boolean setAspectRatio(String mode) {
+        String m = mode == null ? "fit" : mode.toLowerCase();
+        if (!"fit".equals(m) && !"fill".equals(m) && !"169".equals(m) && !"43".equals(m)) {
+            EngineLogger.INSTANCE.log("player", "mpv: setAspectRatio rejected unknown mode=" + mode);
+            return false;
+        }
+        aspectMode = m;
+        EngineLogger.INSTANCE.log("player", "mpv: aspect mode=" + m + " video=" + lastVideoW + "x" + lastVideoH);
+        applyAspectProperties();
+        return true;
+    }
+
+    // (v1.0.22 C ITEM 7) mpv renders the aspect itself: video-aspect
+    // forces the display aspect (letterboxed inside the surface, which
+    // the page already sized to the target frame); keepaspect=false
+    // stretches to fill the surface for Fill. The shared TextureView
+    // transform is reset to identity — an ExoPlayer stretch transform
+    // left over from the other engine must never stretch mpv's output.
+    private void applyAspectProperties() {
+        mainHandler.post(() -> {
+            MPVLib m = mpv;
+            if (textureView != null) textureView.setTransform(new Matrix());
+            if (m == null) return;
+            try {
+                if ("fill".equals(aspectMode)) {
+                    m.setPropertyString("video-aspect", "-1");
+                    m.setPropertyBoolean("keepaspect", false);
+                } else if ("169".equals(aspectMode)) {
+                    m.setPropertyString("video-aspect", "16:9");
+                    m.setPropertyBoolean("keepaspect", true);
+                } else if ("43".equals(aspectMode)) {
+                    m.setPropertyString("video-aspect", "4:3");
+                    m.setPropertyBoolean("keepaspect", true);
+                } else {
+                    m.setPropertyString("video-aspect", "-1");
+                    m.setPropertyBoolean("keepaspect", true);
+                }
+            } catch (Exception e) {
+                EngineLogger.INSTANCE.log("player", "mpv: aspect apply failed " + e.getMessage());
+            }
+        });
+    }
+
+    // (v1.0.22 C ITEM 8) The in-player volume IS the system volume:
+    // AudioManager STREAM_MUSIC is the source of truth. mpv's own
+    // volume stays at full gain (100) — it used to be the only volume,
+    // so a system volume of 0 left the slider moving with no sound.
+    // Returns the fraction actually set (steps are integers).
+    private double applySystemVolume(double frac) {
+        AudioManager am;
+        try {
+            am = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
+        } catch (Exception e) {
+            am = null;
+        }
+        if (am == null) return Math.max(0.0, Math.min(1.0, frac));
+        int max = Math.max(1, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        int step = (int) Math.round(Math.max(0.0, Math.min(1.0, frac)) * max);
+        step = Math.max(0, Math.min(max, step));
+        try {
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, step, 0);
+        } catch (Exception e) {
+            EngineLogger.INSTANCE.log("player", "mpv: setStreamVolume failed " + e.getMessage());
+        }
+        return (double) step / (double) max;
+    }
+
+    // (v1.0.22 C ITEM 8) The system volume moved outside the player
+    // (hardware buttons / system UI, via MainActivity's observer): keep
+    // the snapshot truthful so playerState reports the real volume.
+    // mpv's gain stays 100 — the system governs loudness.
+    public void onSystemVolumeChanged(float frac) {
+        lastVolume = Math.max(0f, Math.min(1f, frac));
+        muted = lastVolume <= 0f;
+    }
+
     public JSONObject stateSnapshot() {
         JSONObject o = new JSONObject();
         put(o, "playing", lastPlaying);
@@ -1068,6 +1307,8 @@ public class ZaynMpvPlayer {
         put(o, "bufferedSec", (int) (lastBufferedMs / 1000));
         put(o, "rate", (double) lastRate);
         put(o, "volume", (double) lastVolume);
+        put(o, "videoW", lastVideoW);
+        put(o, "videoH", lastVideoH);
         put(o, "muted", muted);
         put(o, "qualityLabel", lastQuality);
         put(o, "source", lastSource);
@@ -1104,9 +1345,9 @@ public class ZaynMpvPlayer {
                     double v = pendingVolume;
                     pendingVolume = null;
                     volumeOnly = pendingSeekSec == null;
-                    lastVolume = (float) v;
-                    muted = v <= 0.0;
-                    m.setPropertyDouble("volume", v * 100.0);
+                    lastVolume = (float) applySystemVolume(v);
+                    muted = lastVolume <= 0f;
+                    m.setPropertyDouble("volume", 100.0);
                 }
                 if (pendingSeekSec != null) {
                     double target = pendingSeekSec;
