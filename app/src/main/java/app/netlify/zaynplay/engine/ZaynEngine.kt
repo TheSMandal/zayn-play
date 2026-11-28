@@ -744,6 +744,7 @@ class ZaynEngine(
                         params.optString("providerName", ""),
                         params.optString("poster", ""),
                         params.optString("ep", ""),
+                        params.optString("syn", ""),
                     ),
                 )
                 "progressAll" -> ok(library.progressAll())
@@ -869,7 +870,11 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.23")
+        .put("version", "1.0.24")
+        // (v1.0.24 L ITEM 4 P0-1) Installed versionCode for the JS
+        // banner gate: stored.versionCode > installed, evaluated at
+        // paint time. Existing "version" string untouched.
+        .put("installedVersionCode", updater.installedVersionCode())
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -2230,6 +2235,7 @@ class ZaynEngine(
         // native job then finishes into a deleted pending entry.
         // CancellationException is rethrown so MainActivity's cancel path
         // still replies (the M.call timeout reply path).
+        val _detailsT0 = System.currentTimeMillis()
         val loaded = try {
             withTimeout(25_000) { APIRepository(api).load(url) }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -2243,7 +2249,7 @@ class ZaynEngine(
         // (v1.0.23 D) Title diagnostic: does the provider's load()
         // supply a real name (TRACE-1.0.23-TITLE §5.4)? Presence and
         // length only — never the title text, never a URL.
-        EngineLogger.log("bridge", "details titleProbe provider=$providerName titlePresent=${resp.name.isNotBlank()} titleLen=${resp.name.length}")
+        EngineLogger.log("bridge", "details titleProbe provider=$providerName titlePresent=${resp.name.isNotBlank()} titleLen=${resp.name.length} elapsedMs=${System.currentTimeMillis() - _detailsT0}")
         return ok(detailsJson(resp))
     }
 
@@ -4251,6 +4257,7 @@ class ZaynEngine(
                 params.optString("type", "movie"),
                 params.optString("poster", ""),
                 params.optString("year", ""),
+                params.optString("syn", ""),
             ),
         )
     }
