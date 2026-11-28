@@ -589,7 +589,7 @@ class ZaynPlayer(
         // overlay, which renders them styled from the Settings values
         // (subColor/subStyle/subPosV/subPosH/subSize). The video path is
         // untouched — this only adds cue delivery.
-        exo.addTextOutput { cues ->
+        exo.setTextOutput { cues ->
             val text = cues.mapNotNull { it.text?.toString() }
                 .filter { it.isNotBlank() }
                 .joinToString("\n")
