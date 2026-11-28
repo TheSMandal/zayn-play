@@ -1006,6 +1006,23 @@ body.native-video #phone{ background:transparent; }
       #scr-player .quality-menu button{ border-radius:12px; color:#fff; }
       #scr-player .quality-menu button small{ color:#aeb9c6; }
       #scr-player .quality-menu button.on{ background:rgba(232,38,28,.22); color:#ffb4a8; }
+      /* (v1.0.22 ITEMS 5+6) Shared glossy player pop-up (#player-popup):
+         small centred glass card over the playing video; backdrop tap +
+         X close. Same component for speed, resolution (Worker A) and
+         server/audio/subtitle (Worker B via ZP_playerPopup). */
+      #scr-player .ppop{ position:absolute; inset:0; z-index:10; display:flex; align-items:center; justify-content:center; padding:16px; }
+      #scr-player .ppop[hidden]{ display:none; }
+      #scr-player .ppop-backdrop{ position:absolute; inset:0; background:rgba(5,8,14,.45); }
+      #scr-player .ppop-card{ position:relative; width:min(340px, calc(100% - 32px)); max-height:70vh; display:flex; flex-direction:column; overflow:hidden; background:rgba(16,20,28,.72); border:1px solid rgba(255,255,255,.22); border-radius:18px; backdrop-filter:blur(20px) saturate(1.5); -webkit-backdrop-filter:blur(20px) saturate(1.5); box-shadow:inset 0 1px 0 rgba(255,255,255,.18), 0 22px 40px -14px rgba(0,0,0,.7); }
+      #scr-player .ppop-head{ display:flex; align-items:center; justify-content:space-between; padding:12px 6px 6px 14px; }
+      #scr-player .ppop-title{ color:#fff; font-size:15px; font-weight:700; }
+      #scr-player .ppop-x{ background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.18); color:#fff; width:28px; height:28px; border-radius:50%; font-size:13px; line-height:1; cursor:pointer; }
+      #scr-player .ppop-list{ overflow-y:auto; padding:2px 6px 8px; scrollbar-width:none; }
+      #scr-player .ppop-list::-webkit-scrollbar{ display:none; }
+      #scr-player .ppop-row{ display:flex; width:100%; align-items:center; justify-content:space-between; background:none; border:0; color:#fff; padding:11px 12px; font-size:14px; border-radius:12px; text-align:left; cursor:pointer; }
+      #scr-player .ppop-row small{ color:#aeb9c6; }
+      #scr-player .ppop-row.on{ background:rgba(232,38,28,.22); color:#ffb4a8; font-weight:700; }
+      #scr-player .ppop-row.on small{ color:#ffb4a8; }
       /* glass settings sheet (gear) */
       .glass-sheet{
         position:absolute; left:50%; right:auto; transform:translateX(-50%); width:min(360px, calc(100% - 24px)); bottom:12px; z-index:9; display:none;
@@ -1979,7 +1996,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.21</p>
+                  <p class="splash-ver">Zayn Play v1.0.22</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2373,9 +2390,16 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     <button data-set="ratio" data-val="16:9" data-short="16:9"><span>16:9</span><small>Widescreen</small></button>
                     <button data-set="ratio" data-val="4:3" data-short="4:3"><span>4:3</span><small>Classic</small></button>
                   </div>
+                  <div id="player-popup" class="ppop" hidden role="dialog" aria-label="Player options">
+                    <div class="ppop-backdrop" data-ppop-close></div>
+                    <div class="ppop-card">
+                      <div class="ppop-head"><b class="ppop-title" id="ppop-title"></b><button class="ppop-x" id="ppop-x" aria-label="Close">×</button></div>
+                      <div class="ppop-list" id="ppop-list"></div>
+                    </div>
+                  </div>
                   <div class="glass-sheet" id="set-sheet" role="dialog" aria-label="Player settings">
                     <div class="gs-head"><b>Player Settings</b><button class="gs-x" id="sheet-close" aria-label="Close settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
-                    <div class="gs-row gs-slider"><span>Brightness</span><input type="range" id="bri-range" min="40" max="130" value="100" aria-label="Brightness" /><span class="gs-val" id="bri-val">100</span></div>
+                    <div class="gs-row gs-slider"><span>Brightness</span><input type="range" id="bri-range" min="1" max="100" value="100" aria-label="Brightness" /><span class="gs-val" id="bri-val">100</span></div>
                     <div class="gs-row gs-foot"><span>Autoplay next</span><button class="switch" role="switch" aria-checked="true" data-switch aria-label="Autoplay next episode"></button></div>
                     <button class="gs-row" data-ext-play><span>Play with external player</span><span class="gs-val"><span data-pb-val="extApp">VLC</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 5 7 7-7 7"/></svg></span></button>
                   </div>
@@ -4589,6 +4613,15 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       function onEnginePlayerState(s){
         if (!s) return;
         if (typeof s.durSec === 'number' && s.durSec > 0) TOTAL = s.durSec;
+        /* (v1.0.22 C ITEM 7) Live video size for the Fit frame: when it
+           arrives (or changes) re-report the stage so a Fit frame uses the
+           new aspect at once. */
+        if (typeof s.videoW === 'number' && typeof s.videoH === 'number' && s.videoW > 0 && s.videoH > 0){
+          if (s.videoW !== curVideoW || s.videoH !== curVideoH){
+            curVideoW = s.videoW; curVideoH = s.videoH;
+            if (typeof reportStageRect === 'function') reportStageRect();
+          }
+        }
         if (typeof s.posSec === 'number') cur = s.posSec;
         if (typeof renderTime === 'function') renderTime();
         var playingNow = !!s.playing;
@@ -5685,7 +5718,57 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          player (data-go="details" navigates via the delegated handler). */
       document.getElementById('p-err-retry').addEventListener('click', function(){ playFromServer(-1, true); });
       document.getElementById('p-err-back').addEventListener('click', function(){ setPlayerFailed(false); });
-      document.getElementById('d-play').addEventListener('click', function(){ openPlayer(TITLES[current].title, resumePos(TITLES[current].title, current), current); });
+      document.getElementById('d-play').addEventListener('click', function(){ /* (v1.0.22 D ITEM 10) Play the FIRST episode's data: episode rows already hand openPlayer their ep.data via pendingEpData, but d-play did not, so resolveLinkData re-derived it with a fresh load() instead of using the episode list the details page already holds. */ var _t = TITLES[current]; if (_t && _t.type === 'series' && _t.episodes && _t.episodes.length){ var _ep0 = _t.episodes[0]; if (_ep0 && _ep0.data){ pendingEpData = _ep0.data; pendingEpKey = (_ep0.episode != null ? 'E' + _ep0.episode : ''); } } openPlayer(TITLES[current].title, resumePos(TITLES[current].title, current), current); });
+      /* (v1.0.22 ITEMS 5+6 — SHARED GLOSSY PLAYER POP-UP, CONTRACT)
+         One shared container (#player-popup) + one function every player
+         picker uses: ZP_playerPopup({title, rows:[{label, sub, value,
+         selected}], onPick(value), onClose()}). Small centred glossy
+         glass card (max-width ~340px, max-height ~70vh, scrollable list),
+         backdrop tap + X to close, works while the video plays. Worker B
+         calls this same function for the server/audio/subtitle pickers —
+         do not change its signature. Row values arrive at onPick as
+         strings (they travel through a data- attribute). onClose fires
+         only on dismiss (X / backdrop), not on a pick. */
+      var _ppopCur = null;
+      function ZP_closePlayerPopup(){
+        var p = document.getElementById('player-popup');
+        if (p) p.hidden = true;
+        if (_ppopCur && _ppopCur.onClose){ var cb = _ppopCur.onClose; _ppopCur = null; try{ cb(); }catch(e){} }
+        else _ppopCur = null;
+      }
+      function ZP_playerPopup(opts){
+        opts = opts || {};
+        var p = document.getElementById('player-popup');
+        if (!p) return;
+        closeMenus();
+        var titleEl = document.getElementById('ppop-title');
+        var listEl = document.getElementById('ppop-list');
+        if (titleEl) titleEl.textContent = opts.title || '';
+        if (listEl){
+          listEl.innerHTML = (opts.rows || []).map(function(r){
+            return '<button class="ppop-row' + (r.selected ? ' on' : '') + '" data-ppop-val="' + esc(String(r.value)) + '"><span>' + esc(r.label || '') + '</span>' + (r.sub ? '<small>' + esc(r.sub) + '</small>' : '') + '</button>';
+          }).join('');
+        }
+        _ppopCur = opts;
+        p.hidden = false;
+      }
+      (function(){
+        var p = document.getElementById('player-popup');
+        if (!p) return;
+        var listEl = document.getElementById('ppop-list');
+        if (listEl) listEl.addEventListener('click', function(e){
+          var b = e.target.closest ? e.target.closest('[data-ppop-val]') : null;
+          if (!b) return;
+          var v = b.getAttribute('data-ppop-val');
+          var cur = _ppopCur; _ppopCur = null;
+          p.hidden = true;
+          if (cur && cur.onPick){ try{ cur.onPick(v); }catch(err){} }
+        });
+        var x = document.getElementById('ppop-x');
+        if (x) x.addEventListener('click', function(){ ZP_closePlayerPopup(); });
+        var bd = p.querySelector('.ppop-backdrop');
+        if (bd) bd.addEventListener('click', function(){ ZP_closePlayerPopup(); });
+      })();
       /* player menus: subtitles / audio / quality / speed — one system for all four */
       var SET_LABEL = { subs:'subs-label', audio:'audio-label', quality:'quality-label', speed:'speed-label', ratio:'ratio-label' };
       var SET_NAME = { subs:'Subtitle', audio:'Audio track', quality:'Resolution', speed:'Speed', ratio:'Aspect ratio' };
@@ -5696,10 +5779,21 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           else menus[i].classList.remove('open');
         }
       }
-      ['subs-btn','audio-btn','speed-btn','quality-btn','ratio-btn'].forEach(function(bid){
+      ['subs-btn','audio-btn','ratio-btn'].forEach(function(bid){
         var b = document.getElementById(bid);
-        if (b) b.addEventListener('click', function(){ if (bid === 'audio-btn') renderAudioMenu(); toggleMenu(bid.replace('-btn', '-menu')); });
+        if (!b) return;
+        if (bid === 'audio-btn'){ b.addEventListener('click', function(){ if (typeof ZP_playerPopup === 'function') openAudioPopup(); else { renderAudioMenu(); toggleMenu('audio-menu'); } }); return; }
+        if (bid === 'subs-btn'){ b.addEventListener('click', function(){ if (typeof ZP_playerPopup === 'function') openSubsPopup(); else { renderSubsMenu(); toggleMenu('subs-menu'); } }); return; }
+        b.addEventListener('click', function(){ toggleMenu(bid.replace('-btn', '-menu')); });
       });
+      /* (v1.0.22 ITEMS 5+6) Speed + Resolution open the shared glossy
+         player pop-up (ZP_playerPopup) — the old .quality-menu pickers
+         are no longer opened for these two. Subs/audio/ratio keep the
+         old menu system (Worker B owns server/audio/subtitle pop-ups). */
+      var speedBtnEl = document.getElementById('speed-btn');
+      if (speedBtnEl) speedBtnEl.addEventListener('click', function(){ openSpeedPopup(); });
+      var qualityBtnEl = document.getElementById('quality-btn');
+      if (qualityBtnEl) qualityBtnEl.addEventListener('click', function(){ openResolutionPopup(); });
       /* Aspect ratio: tap the Aspect button to cycle directly — Fit → Fill →
          16:9 → 4:3 → Fit … No menu opens for aspect ratio (tap only the
          aspect control and it changes at once). */
@@ -5710,6 +5804,27 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         { ratio:'43', val:'4:3', short:'4:3' }
       ];
       var curRatioIdx = 1; /* default Fill — matches the pill label + no stage class */
+      /* (v1.0.22 C ITEM 7) Live video size, from playerState (videoW/videoH):
+         the Fit frame needs the video's own aspect; unknown (0) falls back
+         to 16:9. Written by onEnginePlayerState. */
+      var curVideoW = 0, curVideoH = 0;
+      /* Frame of the video inside the stage (CSS px, relative to the stage's
+         top-left) for the current ratio mode: Fill is the whole stage; Fit
+         is the video's own aspect; 16:9 / 4:3 force that aspect. The native
+         TextureView is sized to this rect by reportStageRect, so the ratio
+         change really changes the video frame — not just the poster img. */
+      function ratioFrameRect(sw, sh){
+        var mode = (typeof RATIO_OPTS !== 'undefined' && RATIO_OPTS[curRatioIdx]) ? RATIO_OPTS[curRatioIdx].ratio : 'fill';
+        if (mode === 'fill' || sw <= 0 || sh <= 0) return { x: 0, y: 0, w: sw, h: sh };
+        var ar = 16 / 9;
+        if (mode === 'fit') ar = (curVideoW > 0 && curVideoH > 0) ? (curVideoW / curVideoH) : 16 / 9;
+        else if (mode === '169') ar = 16 / 9;
+        else if (mode === '43') ar = 4 / 3;
+        else return { x: 0, y: 0, w: sw, h: sh };
+        var w = sw, h = w / ar;
+        if (h > sh){ h = sh; w = h * ar; }
+        return { x: Math.round((sw - w) / 2), y: Math.round((sh - h) / 2), w: Math.round(w), h: Math.round(h) };
+      }
       function applyRatioOpt(opt, silent){
         var stg = document.querySelector('#scr-player .stage-video');
         stg.classList.remove('r-fit'); stg.classList.remove('r-169'); stg.classList.remove('r-43');
@@ -5719,6 +5834,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var lbl = document.getElementById('ratio-label');
         if (lbl) lbl.textContent = opt.short;
         if (!silent) toast(SET_NAME.ratio + ': ' + opt.val);
+        /* (v1.0.22 C ITEM 7) The CSS classes above only restyle the DOM
+           poster/img — the real video is the native TextureView, so the
+           ratio must also reach the live engine (stretch/crop/aspect) and
+           the stage rect must be re-reported so the surface is resized to
+           the new frame. No-op in the browser preview (no engine). */
+        try { engineCall('playerAspect', { ratio: opt.ratio }).catch(function(){}); } catch (e) {}
+        try { if (typeof reportStageRect === 'function') reportStageRect(); } catch (e) {}
       }
       /* (v1.0.4) Aspect ratio now opens its own small pop-up menu (#ratio-menu) via the button loop above — tap-to-cycle is gone; the menu click applies it (see the allMenus handler). */
       /* Source button (replaces the old in-player Resolution/quality picker):
@@ -5741,8 +5863,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (set === 'speed'){ var r = parseFloat(b.getAttribute('data-val')); if (isFinite(r) && r > 0){ curRate = r; playerSetRate(r); } }
           if (set === 'ratio'){ for (var ri = 0; ri < RATIO_OPTS.length; ri++) if (RATIO_OPTS[ri].val === b.getAttribute('data-val')){ curRatioIdx = ri; applyRatioOpt(RATIO_OPTS[ri], true); break; } }
           if (set === 'audio'){ var ac = audioCodeForVal(b.getAttribute('data-val')); if (ac){ PB.audio1 = ac; curAudioCode = ac; try{ enginePersistSetting('audio1', langOf(ac).nat); }catch(e){} try{ syncPBUI(); }catch(e){} if (curTitle) playFromServer(-1, true); } }
+          if (set === 'subs'){ applySubsMenuPick(b); }
           b.closest('.quality-menu').classList.remove('open');
-          toast(SET_NAME[set] + ': ' + b.getAttribute('data-val'));
+          if (set !== 'subs') toast(SET_NAME[set] + ': ' + b.getAttribute('data-val'));
         });
       }
       /* Resolution picker: the choice is saved as the preferred resolution
@@ -5758,6 +5881,88 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         /* re-play through the engine so the new resolution is ranked first */
         playFromServer(-1, true);
       });
+      /* (v1.0.22 ITEM 5) Speed picker via the shared glossy pop-up.
+         The six options are the only speeds offered — no invented rates. */
+      var SPEED_OPTS = [
+        { v:0.5, label:'0.5x', sub:'Slow' },
+        { v:0.75, label:'0.75x', sub:'' },
+        { v:1, label:'1.0x', sub:'Normal' },
+        { v:1.25, label:'1.25x', sub:'' },
+        { v:1.5, label:'1.5x', sub:'' },
+        { v:2, label:'2.0x', sub:'Fast' }
+      ];
+      function openSpeedPopup(){
+        ZP_playerPopup({
+          title:'Speed',
+          rows: SPEED_OPTS.map(function(o){
+            return { label:o.label, sub:o.sub, value:String(o.v), selected:(curRate === o.v) };
+          }),
+          onPick:function(v){
+            var r = parseFloat(v);
+            if (!isFinite(r) || r <= 0) return;
+            curRate = r;
+            playerSetRate(r);
+            var lbl = document.getElementById('speed-label');
+            if (lbl) lbl.textContent = r.toFixed(2).replace(/0$/, '') + 'x';
+            toast('Speed: ' + r + 'x');
+          }
+        });
+      }
+      /* (v1.0.22 ITEM 6) Resolution list = ONLY this video's own
+         resolutions: the distinct qualityLabel values of the loaded
+         servers (curServers), highest first. The old menu hardcoded
+         Auto/4K/2K/1080p/720p/480p/360p for every video, so it offered
+         resolutions the video does not have; picking one only re-ranked
+         servers by preference and the label lied when no server matched.
+         Picking a listed resolution now plays the server that actually
+         carries it (same audio first), so the resolution really changes;
+         Auto re-runs the normal auto-pick. */
+      var RES_SUB = { '4K':'Ultra HD', '2K':'Quad HD', '1080p':'FHD', '720p':'HD', '480p':'SD', '360p':'Data saver' };
+      function resHeight(q){
+        if (q === '4K') return 2160;
+        if (q === '2K') return 1440;
+        var m = /^(\d+)p$/.exec(String(q || ''));
+        return m ? parseInt(m[1], 10) : 0;
+      }
+      function availableResolutions(){
+        var out = [], seen = {};
+        (curServers || []).forEach(function(s){
+          var q = s && s.quality;
+          if (q && !seen[q]){ seen[q] = 1; out.push(q); }
+        });
+        out.sort(function(a, b){ return resHeight(b) - resHeight(a); });
+        return out;
+      }
+      function openResolutionPopup(){
+        var avail = availableResolutions();
+        var rows = [{ label:'Auto', sub:'Best quality for your network', value:'Auto', selected:(PB.res === 'Auto' || !PB.res) }];
+        avail.forEach(function(q){
+          rows.push({ label:q, sub:RES_SUB[q] || '', value:q, selected:(PB.res === q) });
+        });
+        ZP_playerPopup({ title:'Resolution', rows:rows, onPick:function(v){ applyResolution(v); } });
+      }
+      function applyResolution(val){
+        if (val === 'Auto'){
+          PB.res = 'Auto';
+          try{ syncPBUI(); }catch(e){}
+          enginePersistSetting('res', 'Auto');
+          playFromServer(-1, true);
+          return;
+        }
+        var idx = -1;
+        for (var i = 0; i < (curServers || []).length; i++){
+          if (curServers[i] && curServers[i].quality === val){
+            if (curServers[i].audio === curAudioCode){ idx = i; break; }
+            if (idx < 0) idx = i;
+          }
+        }
+        if (idx < 0){ toast('That resolution is not available for this video'); return; }
+        PB.res = val;
+        try{ syncPBUI(); }catch(e){}
+        enginePersistSetting('res', val);
+        setQualityFromServer(val);
+        playFromServer(idx, true);
+      }
 
       /* splash — logo #1 (Crimson Play): shows when the app opens, tap to skip, replayable */
       var splashEl = document.getElementById('splash');
@@ -6151,6 +6356,58 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* (v1.0.12 §10) Slider release: flush the throttled volume so the
          final value is sent exactly, even if the last input was <100 ms ago. */
       volRange.addEventListener('change', function(){ playerSetVolumeFlush(); });
+      /* (v1.0.22 C ITEM 8) System-volume echo: the native side watches
+         AudioManager STREAM_MUSIC (hardware buttons / system UI) and calls
+         this with the live 0..1 fraction. It updates ONLY the UI — never
+         calls playerSetVolume, so it cannot loop back into the engine. */
+      window.__zaynSystemVolume = function(frac){
+        try{
+          if (typeof frac !== 'number' || !isFinite(frac)) return;
+          var pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
+          var vr = document.getElementById('vol-range');
+          if (vr) vr.value = pct;
+          var vv = document.getElementById('vol-val');
+          if (vv) vv.textContent = pct;
+          engineMuted = pct <= 0;
+          var vb = document.getElementById('vol-btn');
+          if (vb) vb.innerHTML = engineMuted ? VOL_OFF : VOL_ON;
+        }catch(e){}
+      };
+      /* (v1.0.22 C ITEM 7+8) Player-open sync: the sliders must start from
+         the SYSTEM values, not from fixed defaults — brightness from the
+         system brightness, volume from STREAM_MUSIC. No-op in the browser
+         preview (no native bridge). Called from setFS(true). */
+      function syncPlayerSystemLevels(){
+        try{
+          if (window.ZaynAppNative && typeof window.ZaynAppNative.getSystemBrightness === 'function'){
+            var b = window.ZaynAppNative.getSystemBrightness();
+            if (typeof b === 'number' && isFinite(b) && b >= 0){
+              var bp = Math.max(1, Math.min(100, Math.round(b * 100)));
+              var br = document.getElementById('bri-range');
+              if (br) br.value = bp;
+              var bvl = document.getElementById('bri-val');
+              if (bvl) bvl.textContent = bp;
+              var si = document.getElementById('stage-img');
+              if (si) si.style.filter = 'brightness(' + (bp / 100) + ')';
+            }
+          }
+        }catch(e){}
+        try{
+          if (window.ZaynAppNative && typeof window.ZaynAppNative.getSystemVolume === 'function'){
+            var v = window.ZaynAppNative.getSystemVolume();
+            if (typeof v === 'number' && isFinite(v) && v >= 0){
+              var vp = Math.max(0, Math.min(100, Math.round(v * 100)));
+              var vr2 = document.getElementById('vol-range');
+              if (vr2) vr2.value = vp;
+              var vv2 = document.getElementById('vol-val');
+              if (vv2) vv2.textContent = vp;
+              engineMuted = vp <= 0;
+              var vb2 = document.getElementById('vol-btn');
+              if (vb2) vb2.innerHTML = engineMuted ? VOL_OFF : VOL_ON;
+            }
+          }
+        }catch(e){}
+      }
 
       /* CC button + gear settings sheet */
       function closeMenus(){
@@ -6254,7 +6511,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (!gState.bvOk) return;
           var delta = Math.round(dy / 1.6);
           if (side === 'left'){
-            var nb = Math.max(40, Math.min(130, gState.bri + delta));
+            var nb = Math.max(1, Math.min(100, gState.bri + delta));
             briRange.value = nb;
             document.getElementById('bri-val').textContent = nb;
             document.getElementById('stage-img').style.filter = 'brightness(' + (nb / 100) + ')';
@@ -6410,6 +6667,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           stageEl.style.transform = '';
           sizeFSStage();
           reportStageRect();
+          /* (v1.0.22 C ITEM 7+8) Player-open sync: sliders start from the
+             system brightness / STREAM_MUSIC volume, not fixed defaults. */
+          try { if (typeof syncPlayerSystemLevels === 'function') syncPlayerSystemLevels(); } catch (e) {}
           requestAnimationFrame(function(){ if (fsOn){ sizeFSStage(); reportStageRect(); } });
           /* the rotation re-lays the window and can drop the immersive
              hide: re-hide the bars once the rotation has settled */
@@ -6459,9 +6719,15 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (document.documentElement) document.documentElement.classList.toggle('native-video', visible);
           var hasNative = document.body.classList.contains('native-video');
           var r = stg ? stg.getBoundingClientRect() : null;
+          /* (v1.0.22 C ITEM 7) The native surface is sized to the video
+             FRAME inside the stage for the current ratio, not the whole
+             stage: Fill is the full stage, Fit/16:9/4:3 are letterboxed to
+             that aspect (ratioFrameRect). Without this the TextureView
+             never moved when the ratio changed. */
+          var fr = (typeof ratioFrameRect === 'function' && r) ? ratioFrameRect(r.width, r.height) : null;
           var cur = {
-            x: r ? r.left : 0, y: r ? r.top : 0,
-            w: r ? r.width : 0, h: r ? r.height : 0,
+            x: r ? r.left + (fr ? fr.x : 0) : 0, y: r ? r.top + (fr ? fr.y : 0) : 0,
+            w: fr ? fr.w : (r ? r.width : 0), h: fr ? fr.h : (r ? r.height : 0),
             visible: visible,
             vw: window.innerWidth || 0, vh: window.innerHeight || 0,
             fsOn: fsOn, stg: !!stg,
@@ -6523,7 +6789,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         { c:'sd', n:'Sindhi', nat:'सिन्धी', s:'SD' },
         { c:'mni', n:'Manipuri', nat:'মণিপুরি', s:'MNI' }
       ];
-      function langOf(code){ for (var i=0;i<AUDIO_LANGS.length;i++) if (AUDIO_LANGS[i].c === code) return AUDIO_LANGS[i]; return AUDIO_LANGS[0]; }
+      function langOf(code){ for (var i=0;i<AUDIO_LANGS.length;i++) if (AUDIO_LANGS[i].c === code) return AUDIO_LANGS[i]; /* (v1.0.22 B) Unknown code echoes itself — the old AUDIO_LANGS[0] fallback relabelled e.g. Japanese audio (audioFromName can return ja/ko/es/fr/..., none of which are in AUDIO_LANGS) as English. */ return { c: code, n: String(code || ''), nat: String(code || ''), s: String(code || '') }; }
       var PB = { mode:'auto', res:'Auto', audio1:'en', audio2:'bn', audio3:'none', player:'internal',
                  engine:'exoplayer', extApp:'VLC', timeout:'30s', reuse:true, reuseDur:'24h', buffer:'normal' };
       /* Phase C: servers come from the engine (links E12) — the old fake
@@ -6558,6 +6824,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           else p.timeoutSec = parseInt(PB.timeout, 10) || 30;
         }
         if (tt && tt.data) p.data = tt.data;
+        /* (v1.0.22 B) In-player subtitle pick survives a re-play: a provider subtitle picked in the player rides as subtitleUrl (the engine honours it over its Settings pick); Off rides as subtitleOff (no subtitle at all); a downloaded subtitle rides as subtitleText. Without a pick nothing is sent and the engine's Settings behaviour is unchanged. typeof guard: partial-extraction harnesses eval this function without the top-level vars. */
+        if (typeof curSubSel !== 'undefined' && curSubSel){
+          if (curSubSel.kind === 'provider' && curSubSel.url){ p.subtitleUrl = curSubSel.url; p.subtitleLang = curSubSel.lang || ''; }
+          else if (curSubSel.kind === 'off'){ p.subtitleOff = true; }
+          else if (curSubSel.kind === 'downloaded' && curSubSel.text){ p.subtitleText = curSubSel.text; p.subtitleLang = curSubSel.lang || ''; }
+        }
         if (extra) for (var k in extra) p[k] = extra[k];
         return p;
       }
@@ -6595,6 +6867,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return best;
       }
       var curTitle = '', curBaseSub = '', curServers = [], curServerIdx = -1, lastLinks = {}, bufTimer = null, curAudioCode = 'en', curTitleId = null;
+      /* (v1.0.22 B) Provider subtitles from the links/play replies (never invented); the in-player subtitle pick; native track inventories (null = not queried yet — pickers fall back to link audio / provider subtitles); prevSubsLabel restores the subtitle pill if a pick fails to apply; srvPopupOpen tracks whether the glossy server pop-up is showing. */
+      var curSubtitles = [], curSubSel = null, curAudioTracks = null, curSubTracks = null, prevSubsLabel = 'EN', srvPopupOpen = false;
       function pbValText(key){
         if (key === 'mode') return PB.mode === 'auto' ? 'Auto — Fastest' : 'Manual';
         if (key === 'res') return PB.res;
@@ -6646,10 +6920,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         for (var i=0;i<btns.length;i++) btns[i].classList.toggle('on', btns[i].getAttribute('data-short') === q);
       }
       function setAudioFromServer(code){
-        var l = langOf(code);
-        curAudioCode = code;
+        /* (v1.0.22 B) The label is the audio of the link that ACTUALLY plays. code null = the link carries no audio hint: label '—', never a guessed 'en' (the old `link.audio || 'en'` relabelled a hint-less Hindi link as EN while Hindi played). */
+        curAudioCode = code || null;
         var lbl = document.getElementById('audio-label');
-        if (lbl) lbl.textContent = l.s;
+        if (lbl) lbl.textContent = code ? langOf(code).s : '—';
         renderAudioMenu();
       }
       function availableAudioCodes(){
@@ -6666,34 +6940,213 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return null;
       }
       function renderAudioMenu(){
-        /* (v1.0.4) Build the Audio menu from the video's actual audio languages — a video with only Hindi shows only Hindi. */
+        /* (v1.0.22 B) Audio menu from the video's actual audio languages (availableAudioCodes: distinct per-link audios, first-seen order). Labels are the language's own name only — the old ' (Original)' / ' (Dubbed)' suffixes were invented (a Bengali-original film showed 'Bengali (Dubbed)'). The glossy pop-up (openAudioPopup) is the primary picker; this menu is its fallback when the shared pop-up is absent. */
         var m = document.getElementById('audio-menu'); if (!m) return;
         if (typeof AUDIO_LANGS === 'undefined') return;
         var cur = curAudioCode || (typeof PB !== 'undefined' && PB && PB.audio1) || 'en';
         var html = '';
         availableAudioCodes().forEach(function(code){
           var l = langOf(code);
-          var val = l.n + (code === 'en' ? ' (Original)' : ' (Dubbed)');
-          html += '<button data-set="audio" data-val="' + val + '" data-short="' + l.s + '"' + (code === cur ? ' class="on"' : '') + '><span>' + l.n + '</span><small>' + (code === 'en' ? 'Original' : 'Dubbed') + '</small></button>';
+          html += '<button data-set="audio" data-val="' + l.n + '" data-short="' + l.s + '"' + (code === cur ? ' class="on"' : '') + '><span>' + l.n + '</span><small>' + (l.nat && l.nat !== l.n ? l.nat : '') + '</small></button>';
         });
         m.innerHTML = html;
+      }
+      /* (v1.0.22 B) Native track inventories + audio/subtitle pickers.
+         playerTracks is the players' OWN track lists (ExoPlayer
+         currentTracks / libmpv track-list): the ONLY source for
+         in-manifest audio/subtitle tracks. Null = not queried yet or
+         the engine has nothing to report; the pickers then fall back
+         to link audio / provider subtitles, never to a hardcoded list.
+         Pop-up row values travel through a data- attribute, so onPick
+         receives STRINGS: audio/subtitle rows carry their row index and
+         the real pick object lives in audioPopupVals / subsPopupVals. */
+      var audioPopupVals = [], subsPopupVals = [];
+      async function refreshPlayerTracks(){
+        try {
+          var d = await engineCall('playerTracks', {}, 10000);
+          curAudioTracks = (d && d.audio) || [];
+          curSubTracks = (d && d.subtitles) || [];
+        } catch (e){ curAudioTracks = null; curSubTracks = null; }
+      }
+      function trackLabel(t){
+        if (t && t.label) return t.label;
+        if (t && t.lang) return langOf(t.lang).n;
+        return 'Track';
+      }
+      function selectedTrack(tracks){
+        if (!tracks) return null;
+        for (var i = 0; i < tracks.length; i++) if (tracks[i].selected) return tracks[i];
+        return null;
+      }
+      async function confirmTrack(tracks, sel){
+        /* Re-query and check the SELECTED track matches the pick. One retry (the track-change event can land after the control reply). No inventory = nothing to contradict the ok reply: trust it. */
+        for (var attempt = 0; attempt < 2; attempt++){
+          await refreshPlayerTracks();
+          var list = (tracks === 'audio') ? curAudioTracks : curSubTracks;
+          if (!list) return true;
+          var found = selectedTrack(list);
+          if (!found) return true;
+          if (sel.trackId && found.id === sel.trackId) return true;
+          if (sel.lang && found.lang === sel.lang) return true;
+          if (attempt === 0) await new Promise(function(r){ setTimeout(r, 350); });
+        }
+        return false;
+      }
+      async function openAudioPopup(){
+        await refreshPlayerTracks();
+        var rows = [];
+        audioPopupVals = [];
+        if (curAudioTracks && curAudioTracks.length){
+          rows = curAudioTracks.map(function(t, j){
+            audioPopupVals.push({ kind: 'track', lang: t.lang || '', trackId: t.id || '' });
+            return { label: trackLabel(t), sub: (t.lang ? langOf(t.lang).n : '') + (t.selected ? ' • Playing' : ''), value: String(j), selected: !!t.selected };
+          });
+        } else {
+          var counts = {};
+          (curServers || []).forEach(function(s){ if (s && s.audio) counts[s.audio] = (counts[s.audio] || 0) + 1; });
+          rows = availableAudioCodes().map(function(code, j){
+            var l = langOf(code);
+            audioPopupVals.push({ kind: 'link', lang: code });
+            var sub = (l.nat && l.nat !== l.n) ? l.nat : '';
+            if (counts[code] > 1) sub += (sub ? ' • ' : '') + counts[code] + ' servers';
+            return { label: l.n, sub: sub, value: String(j), selected: code === curAudioCode };
+          });
+        }
+        if (!rows.length){ toast('No audio info yet — play something first'); return; }
+        if (typeof ZP_playerPopup !== 'function'){ renderAudioMenu(); toggleMenu('audio-menu'); return; }
+        ZP_playerPopup({ title: 'Audio', rows: rows, onPick: function(v){ applyAudioPick(audioPopupVals[parseInt(v, 10)]); }, onClose: function(){} });
+      }
+      async function applyAudioPick(v){
+        if (!v) return false;
+        var lbl = document.getElementById('audio-label');
+        var prevLabel = lbl ? lbl.textContent : '';
+        try {
+          if (v.kind === 'track'){
+            await engineCall('playerControl', { action: 'setAudio', trackId: v.trackId, lang: v.lang });
+            var ok = await confirmTrack('audio', v);
+            if (!ok){ if (lbl) lbl.textContent = prevLabel; toast('Audio did not change — ' + (prevLabel || '') + ' is still playing'); return false; }
+            curAudioCode = v.lang || curAudioCode;
+            if (lbl) lbl.textContent = v.lang ? langOf(v.lang).s : prevLabel;
+            toast('Audio: ' + (v.lang ? langOf(v.lang).n : ''));
+            return true;
+          }
+          /* Link-audio pick: play the FIRST server (original order) that carries this audio — the same video, another server — and the label then follows the link that actually plays (setAudioFromServer in playFromServer). Same-audio-first, like Worker's A resolution pick. */
+          var idx = -1;
+          for (var i = 0; i < (curServers || []).length; i++){ if (curServers[i] && curServers[i].audio === v.lang){ idx = i; break; } }
+          if (idx < 0){ toast('That audio is not available for this video'); return false; }
+          playFromServer(idx, true);
+          return true;
+        } catch (e){ if (lbl) lbl.textContent = prevLabel; toast(engineErrText(e)); return false; }
+      }
+      async function openSubsPopup(){
+        await refreshPlayerTracks();
+        prevSubsLabel = (function(){ var l = document.getElementById('subs-label'); return l ? l.textContent : 'EN'; })();
+        var rows = [{ label: 'Off', sub: 'No subtitles', value: '0', selected: !!(curSubSel && curSubSel.kind === 'off') }];
+        subsPopupVals = [{ kind: 'off' }];
+        var seen = {};
+        (curSubtitles || []).forEach(function(s){
+          var key = (s.lang || '') + '|' + (s.url || '');
+          if (seen[key]) return; seen[key] = 1;
+          subsPopupVals.push({ kind: 'provider', lang: s.lang || '', url: s.url || '' });
+          rows.push({ label: langOf(s.lang).n, sub: 'Provider subtitle', value: String(subsPopupVals.length - 1), selected: !!(curSubSel && curSubSel.kind === 'provider' && curSubSel.url === s.url) });
+        });
+        (curSubTracks || []).forEach(function(t){
+          subsPopupVals.push({ kind: 'track', lang: t.lang || '', trackId: t.id || '' });
+          rows.push({ label: trackLabel(t), sub: (t.lang ? langOf(t.lang).n : 'In-video subtitle') + (t.selected ? ' • Showing' : ''), value: String(subsPopupVals.length - 1), selected: !!t.selected });
+        });
+        if (typeof ZP_playerPopup !== 'function'){ renderSubsMenu(); toggleMenu('subs-menu'); return; }
+        ZP_playerPopup({ title: 'Subtitles', rows: rows, onPick: function(v){ applySubtitlePick(subsPopupVals[parseInt(v, 10)]); }, onClose: function(){} });
+      }
+      async function applySubtitlePick(sel){
+        if (!sel) return false;
+        var lbl = document.getElementById('subs-label');
+        try {
+          if (sel.kind === 'off'){
+            await engineCall('playerControl', { action: 'setSubtitleOff' });
+            curSubSel = { kind: 'off' };
+            if (lbl) lbl.textContent = 'Off';
+            toast('Subtitles: Off');
+            return true;
+          }
+          if (sel.kind === 'provider'){
+            await engineCall('playerControl', { action: 'setSubtitleUrl', url: sel.url, lang: sel.lang });
+            curSubSel = { kind: 'provider', lang: sel.lang, url: sel.url };
+            if (lbl) lbl.textContent = langOf(sel.lang).s;
+            toast('Subtitles: ' + langOf(sel.lang).n);
+            return true;
+          }
+          if (sel.kind === 'track'){
+            await engineCall('playerControl', { action: 'setSubtitleTrack', trackId: sel.trackId, lang: sel.lang });
+            var ok = await confirmTrack('subs', sel);
+            if (!ok){ if (lbl) lbl.textContent = prevSubsLabel; toast('Subtitle did not change — ' + (prevSubsLabel || 'Off') + ' is still showing'); return false; }
+            curSubSel = { kind: 'track', lang: sel.lang, trackId: sel.trackId };
+            if (lbl) lbl.textContent = langOf(sel.lang).s;
+            toast('Subtitles: ' + langOf(sel.lang).n);
+            return true;
+          }
+        } catch (e){ if (lbl) lbl.textContent = prevSubsLabel; toast(engineErrText(e)); return false; }
+        return false;
+      }
+      function renderSubsMenu(){
+        /* (v1.0.22 B) Fallback subtitle menu, built ONLY from the content's actual subtitles (provider subs + native text tracks) + Off. The static 11-language buttons in the HTML are never used — they were a hardcoded list, and picking from them changed nothing. */
+        var m = document.getElementById('subs-menu'); if (!m) return;
+        prevSubsLabel = (function(){ var l = document.getElementById('subs-label'); return l ? l.textContent : 'EN'; })();
+        var html = '<button data-set="subs" data-sub-kind="off" data-val="Off" data-short="Off"' + ((curSubSel && curSubSel.kind === 'off') ? ' class="on"' : '') + '><span>Off</span><small>No subtitles</small></button>';
+        var seen = {};
+        (curSubtitles || []).forEach(function(s){
+          var key = (s.lang || '') + '|' + (s.url || '');
+          if (seen[key]) return; seen[key] = 1;
+          html += '<button data-set="subs" data-sub-kind="provider" data-sub-lang="' + esc(s.lang || '') + '" data-sub-url="' + esc(s.url || '') + '" data-val="' + esc(langOf(s.lang).n) + '" data-short="' + esc(langOf(s.lang).s) + '"' + ((curSubSel && curSubSel.kind === 'provider' && curSubSel.url === s.url) ? ' class="on"' : '') + '><span>' + esc(langOf(s.lang).n) + '</span><small>Provider subtitle</small></button>';
+        });
+        (curSubTracks || []).forEach(function(t){
+          html += '<button data-set="subs" data-sub-kind="track" data-sub-lang="' + esc(t.lang || '') + '" data-sub-track="' + esc(t.id || '') + '" data-val="' + esc(trackLabel(t)) + '" data-short="' + esc(langOf(t.lang).s) + '"' + (t.selected ? ' class="on"' : '') + '><span>' + esc(trackLabel(t)) + '</span><small>In-video subtitle</small></button>';
+        });
+        m.innerHTML = html;
+      }
+      function applySubsMenuPick(b){
+        /* (v1.0.22 B) Fallback-menu subtitle pick (same apply as the pop-up). The generic handler above already painted the picked short text — restore the previous label first, then set it ONLY from the confirmed apply. */
+        var lbl = document.getElementById('subs-label');
+        if (lbl) lbl.textContent = prevSubsLabel;
+        var kind = b.getAttribute('data-sub-kind') || 'off';
+        if (kind === 'off') applySubtitlePick({ kind: 'off' });
+        else if (kind === 'provider') applySubtitlePick({ kind: 'provider', lang: b.getAttribute('data-sub-lang') || '', url: b.getAttribute('data-sub-url') || '' });
+        else if (kind === 'track') applySubtitlePick({ kind: 'track', lang: b.getAttribute('data-sub-lang') || '', trackId: b.getAttribute('data-sub-track') || '' });
+      }
+      /* (v1.0.22 B) Server rows, in the ENGINE's order (curServers as returned — never re-sorted: the old srvCmp sort hid the provider's original order). One row per server, from measured data only: resolution = the link's qualityLabel ('' when the provider gives none — omitted, never blank-filled); audio = the link's audio code (null = unknown, shown as 'Audio unknown', never guessed English); ping = measured server-only TTFB, top-8 ranked links only (null for signed/unmeasured links — omitted, never invented); size when present. No speed: no speed is ever measured (bridgeLinkToServer sets speed null), so the old permanent '— Mbps' badge is gone — and with it the '⚡ Fastest' badge, which could never fire (fastestIdx needs a numeric speed). */
+      function srvRowParts(s, i, pick){
+        var parts = [];
+        if (s.quality) parts.push(s.quality);
+        parts.push(s.audio ? langOf(s.audio).n + ' audio' : 'Audio unknown');
+        if (typeof s.size === 'number') parts.push(Math.round(s.size) + ' MB');
+        if (typeof s.ping === 'number') parts.push(s.ping + ' ms');
+        if (i === pick) parts.push('★ Auto pick');
+        if (i === curServerIdx) parts.push('▶ Playing');
+        return parts;
+      }
+      function srvPopupRows(){
+        var pick = pickServerIdx(curServers, PB);
+        return curServers.map(function(s, i){
+          return { label: s.name, sub: srvRowParts(s, i, pick).join(' • '), value: String(i), selected: i === curServerIdx };
+        });
       }
       function renderSrvSheet(){
         var list = document.getElementById('srv-list'); if (!list) return;
         renderAudioMenu();
-        var pick = pickServerIdx(curServers, PB), fast = fastestIdx(curServers);
-        var order = curServers.map(function(s, i){ return i; }).sort(function(a, b){ return srvCmp(curServers[a], curServers[b], PB); });
+        var pick = pickServerIdx(curServers, PB);
         document.getElementById('srv-note').textContent = PB.mode === 'auto'
           ? 'Auto মোড: ★ Auto pick সার্ভারটাই নিজে থেকে প্লে হয় — ভাষা আগে, তারপর আপনার Resolution, তারপর সবচেয়ে ফাস্টটা। যেকোনো সার্ভারে ট্যাপ করলেও সেটা থেকেই প্লে হবে।'
           : 'Manual মোড: পছন্দের সার্ভারে ট্যাপ করুন — সেটা থেকেই প্লে হবে। ★ হলো আপনার সেটিংস অনুযায়ী সেরা মিল।';
-        list.innerHTML = order.map(function(i){
-          var s = curServers[i];
+        list.innerHTML = curServers.map(function(s, i){
           var badges = '';
           if (i === pick) badges += '<span class="srv-badge pick">★ Auto pick</span>';
-          if (i === fast) badges += '<span class="srv-badge fast">⚡ Fastest</span>';
           if (i === curServerIdx) badges += '<span class="srv-badge play">▶ Playing</span>';
-          return '<button class="srv-row' + (i === curServerIdx ? ' on' : '') + '" data-srv="' + i + '"><span class="srv-main"><b>' + s.name + '</b><small>' + s.quality + ' • ' + (s.audio ? langOf(s.audio).n + ' audio' : 'audio —') + ' • ' + (s.size ? Math.round(s.size) + ' MB' : '—') + (s.ping ? ' • ' + s.ping + ' ms' : '') + '</small></span>' + badges + '<span class="srv-badge">' + (s.speed ? s.speed + ' Mbps' : '—') + '</span></button>';
+          return '<button class="srv-row' + (i === curServerIdx ? ' on' : '') + '" data-srv="' + i + '"><span class="srv-main"><b>' + s.name + '</b><small>' + srvRowParts(s, i, pick).join(' • ') + '</small></span>' + badges + '</button>';
         }).join('');
+        /* (v1.0.22 B) The glossy pop-up shows the same rows: if it is visibly open, refresh it with the fresh list (same rows, same pick handler). The hidden check matters: Android back hides the pop-up directly (goBack), and a stale srvPopupOpen must not resurrect it. */
+        var _pp = document.getElementById('player-popup');
+        if (typeof srvPopupOpen !== 'undefined' && srvPopupOpen && _pp && !_pp.hidden && typeof ZP_playerPopup === 'function'){
+          ZP_playerPopup({ title: 'Source', rows: srvPopupRows(), onPick: function(v){ srvPopupOpen = false; playFromServer(parseInt(v, 10), true); }, onClose: function(){ srvPopupOpen = false; } });
+        }
       }
       async function openSrvSheet(){
         closeMenus(); sheetEl.classList.remove('open');
@@ -6703,8 +7156,15 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             var d = await engineCall('links', playParamsFor(curTitle, curTitleEntry()), 60000);
             BRIDGE_SERVERS = ((d && d.links) || []).map(bridgeLinkToServer);
             curServers = BRIDGE_SERVERS;
+            if (typeof curSubtitles !== 'undefined') curSubtitles = (d && d.subtitles) || [];
             hideServerLoading();
           } catch (e) { hideServerLoading(); toast(engineErrText(e)); return; }
+        }
+        /* (v1.0.22 B) Primary: the shared glossy pop-up (Worker A owns the component — this file only CALLS it, never defines it; values arrive at onPick as strings, so the server index is parsed back to a number). Fallback: the legacy bottom sheet, same rows. */
+        if (typeof ZP_playerPopup === 'function'){
+          srvPopupOpen = true;
+          ZP_playerPopup({ title: 'Source', rows: srvPopupRows(), onPick: function(v){ srvPopupOpen = false; playFromServer(parseInt(v, 10), true); }, onClose: function(){ srvPopupOpen = false; } });
+          return;
         }
         renderSrvSheet();
         document.getElementById('srv-sheet').classList.add('open');
@@ -6870,12 +7330,25 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var link = d && d.link;
           if (!_superseded && link){
             setQualityFromServer(link.qualityLabel || '');
-            setAudioFromServer(link.audio || 'en');
+            setAudioFromServer(link.audio || null);
+            /* (v1.0.22 ITEM 5) Re-assert the user's chosen speed on the
+               fresh native session: neither engine re-applies its saved
+               rate on a new play (a fresh Exo prepare / mpv loadfile
+               starts at 1x), so a server/audio/resolution re-play
+               silently dropped the speed while the label still showed
+               it. Native play() also re-applies its own lastRate; this
+               second send covers an engine switch, where the newly
+               active engine never saw the rate. */
+            if (typeof curRate === 'number' && curRate !== 1) playerSetRate(curRate);
             document.getElementById('p-vsub').textContent = curBaseSub + ' • ' + link.source;
             var slb = document.getElementById('source-label'); if (slb) slb.textContent = link.source;
             showBufferForLink(link, d.reused);
           }
-          if (!_superseded) renderSrvSheet();
+          if (!_superseded){
+            if (typeof curSubtitles !== 'undefined' && d.subtitles) curSubtitles = d.subtitles;
+            renderSrvSheet();
+            if (typeof refreshPlayerTracks === 'function') refreshPlayerTracks();
+          }
         } catch (e) { hideServerLoading(); hideSrvLoadScreen(); toast(engineErrText(e)); }
         if (playFromServer._token === _playToken) playFromServer._inFlight = false;
       }
@@ -6884,6 +7357,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         curTitle = title;
         curServers = [];
         curServerIdx = -1;
+        /* (v1.0.22 B) New title: drop the previous title's subtitles, subtitle pick and native track inventories. typeof guard: partial-extraction harnesses eval this function without the top-level vars. */
+        if (typeof curSubtitles !== 'undefined'){ curSubtitles = []; curSubSel = null; curAudioTracks = null; curSubTracks = null; srvPopupOpen = false; }
         var t = titleEntryFor(title, id);
         curTitleId = (id && TITLES[id]) ? id : keyByTitle(title);
         if (typeof autoAddWatching === 'function') autoAddWatching(title, id);
@@ -6904,6 +7379,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             var d = await engineCall('links', playParamsFor(title, t), 60000);
             BRIDGE_SERVERS = ((d && d.links) || []).map(bridgeLinkToServer);
             curServers = BRIDGE_SERVERS;
+            if (typeof curSubtitles !== 'undefined') curSubtitles = (d && d.subtitles) || [];
           } catch (e) { hideServerLoading(); hideSrvLoadScreen(); toast(engineErrText(e)); return; }
           if (typeof srvLoadGen === 'number' && _gen !== srvLoadGen) return; /* (v1.0.21 ITEM 4) cancelled while the links loaded: stay cancelled — never open the player or the server sheet for an abandoned load. */
           hideServerLoading();
@@ -8173,14 +8649,32 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         }).catch(function(e){ toast(engineErrText(e)); });
         toast('Next episode — E' + FEAT.ep);
       }
-      if (skipBtn) skipBtn.addEventListener('click', function(){ cur = Math.min(TOTAL, cur + 85); renderTime(); playerSeek(cur); skipBtn.hidden = true; toast('Intro skipped'); });
+      /* (v1.0.22 ITEM 1) Intro end: no provider supplies intro
+         markers, so Skip Intro jumps to the 90 s mark (the standard
+         series-intro length the old +85 s hop approximated) when still
+         inside the intro; past it, it hops +85 s as before. The latch
+         FEAT.introSkippedFor (per title+episode) is the fix for the
+         button staying on screen: the v1.0.21 ticker recomputed
+         visibility from isSeries && cur<1500 alone and overwrote the
+         click's hidden=true within one 600 ms tick. playerSeekNow (not
+         the 250 ms-debounced playerSeek) lands the seek at once. */
+      var INTRO_END_SEC = 90;
+      function introSkipKey(){ return (curTitle || '') + '|' + (curEpKey || ('E' + FEAT.ep)); }
+      if (skipBtn) skipBtn.addEventListener('click', function(){
+        var target = (cur < INTRO_END_SEC) ? INTRO_END_SEC : cur + 85;
+        if (TOTAL > 0) target = Math.min(target, TOTAL);
+        FEAT.introSkippedFor = introSkipKey();
+        skipBtn.hidden = true;
+        cur = target; renderTime(); playerSeekNow(target);
+        toast('Intro skipped');
+      });
       if (upBtn) upBtn.addEventListener('click', nextEp);
       setInterval(function(){
         if (!curTitle) { if (skipBtn) skipBtn.hidden = true; if (upBtn) upBtn.hidden = true; return; }
         var t = curTitleEntry();
         var isSeries = !!t && t.type === 'series';
         if (FEAT.introFor !== curTitle){ FEAT.introFor = curTitle; FEAT.ep = 1; }
-        if (skipBtn) skipBtn.hidden = !(isSeries && cur < 1500);
+        if (skipBtn) skipBtn.hidden = !(isSeries && cur < 1500) || FEAT.introSkippedFor === introSkipKey();
         var showUp = isSeries && autoplayOn() && cur > TOTAL - 300 && cur < TOTAL;
         if (upBtn){ upBtn.hidden = !showUp; if (showUp) upBtn.textContent = 'Up next • E' + (FEAT.ep + 1); }
         if (isSeries && autoplayOn() && cur >= TOTAL && playing) nextEp();
@@ -8308,6 +8802,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             FEAT.subdlDone[s.id] = true;
             sb.textContent = '✓ Downloaded';
             engineCall('playerControl', { action: 'setSubtitle', text: d.text, lang: s.lang }).catch(function(){});
+            /* (v1.0.22 B) Remember the downloaded subtitle as the current pick, so a later re-play keeps it (playParamsFor sends subtitleText) instead of the Settings pick. */
+            if (typeof curSubSel !== 'undefined'){ curSubSel = { kind: 'downloaded', lang: s.lang, text: d.text }; var _sl = document.getElementById('subs-label'); if (_sl) _sl.textContent = langOf(s.lang).s; }
             toast('Subtitle downloaded ✓');
           }).catch(function(e){ sb.textContent = 'Download'; toast(engineErrText(e)); });
           return;
@@ -10580,6 +11076,11 @@ if (window.ZP_setAppLang && !window.ZP_setAppLang.__v31){
         if (sh && sh.classList.contains('open')) { sh.classList.remove('open'); return true; }
         var sb = document.getElementById('srv-sheet');
         if (sb && sb.classList.contains('open')) { sb.classList.remove('open'); return true; }
+        /* (v1.0.22 B) Back while a player pop-up is open hides it (no navigation, no exit). DOM-only on purpose: the pop-up's own close runs its onClose; the visibility check in renderSrvSheet stops a stale srvPopupOpen from resurrecting it. */
+        var pp = document.getElementById('player-popup');
+        /* (v1.0.22 B) hidden === false, not !hidden: a stub/unknown element
+           has hidden undefined, and must never swallow a back press. */
+        if (pp && pp.hidden === false){ pp.hidden = true; return true; }
         var cur = document.querySelector('#phone .screen.on');
         if (cur && cur.id === 'scr-settings' && window.ZP_v31back && window.ZP_v31back()) return true;
         /* (v1.0.21 ITEM 5) Real back stack: one press = exactly one step
