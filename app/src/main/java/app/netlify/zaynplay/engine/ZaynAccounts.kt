@@ -18,6 +18,10 @@ import org.json.JSONObject
  * no credential form in 0.2.0, so Kitsu is gated the same way.
  * AnimeSkip has no login flow in this phase either.
  * accountStatus / accountLogout are real (they read/clear the store).
+ *
+ * (v1.0.18 P16-02) Tokens live in EncryptedSharedPreferences
+ * (ZaynSecureStore via EngineStore), never in the plaintext
+ * `rebuild_preference` file. Backup still excludes them.
  */
 class ZaynAccounts(private val store: EngineStore) {
 
@@ -32,7 +36,7 @@ class ZaynAccounts(private val store: EngineStore) {
     }
 
     fun status(): JSONObject {
-        val map = store.readJsonMap(EngineStore.KEY_ACCOUNTS)
+        val map = store.accountsMap()
         val arr = JSONArray()
         for (p in PROVIDERS) {
             val entry = map.optJSONObject(p)
@@ -61,14 +65,19 @@ class ZaynAccounts(private val store: EngineStore) {
     }
 
     fun logout(provider: String): JSONObject {
-        store.removeMapEntry(EngineStore.KEY_ACCOUNTS, provider)
+        store.removeAccount(provider)
         return JSONObject().put("provider", provider).put("loggedIn", false)
     }
 
-    /** Used by a later phase once keys exist: store a token + user name. */
+    /**
+     * Used by a later phase once keys exist: store a token + user name.
+     * (v1.0.18 P16-02) The token goes to the ENCRYPTED store — never
+     * to plaintext, never to a backup, never to a log. If the encrypted
+     * store is unavailable the token is NOT stored at all (fail-closed)
+     * and status() keeps reporting logged-out.
+     */
     fun storeToken(provider: String, token: String, userName: String) {
-        store.putMapEntry(
-            EngineStore.KEY_ACCOUNTS,
+        store.putAccount(
             provider,
             JSONObject().put("token", token).put("name", userName),
         )
