@@ -9,21 +9,16 @@ plugins {
 
 android {
     namespace = "app.netlify.zaynplay"
-    // (v1.0.10) compileSdk 36, NOT 37: the libmpv 1.4.0 AAR carries
-    // minCompileSdk=37 in its aar-metadata (verified from the published
-    // AAR; every other libmpv version is 37 too, except dev.jdtech 1.0.0
-    // at 36). But Android SDK Platform 37 is PREVIEW-CHANNEL ONLY
-    // (Android 17): the CI runner's stable sdkmanager cannot find
-    // platforms;android-37 at all (CI 46044264493: "Failed to find
-    // package 'platforms;android-37'"), and AGP does not auto-download
-    // it (CI 46043729671). So the build targets stable compileSdk 36
-    // and skips the AAR metadata check with
-    // android.experimental.disableCompileSdkChecks (gradle.properties)
-    // — the same fix another project used for the identical
-    // minCompileSdk=37 problem. Nothing in the AAR needs API 37 at
-    // compile time (thin JNI wrapper over old Surface APIs); if it
-    // did, javac would fail on a missing symbol and CI would say so.
-    // AGP 8.5.2 only WARNS about an untested compileSdk ("tested up to
+    // (v1.0.23) compileSdk 36, NOT 37: 36 was chosen for the removed
+    // second player's AAR (minCompileSdk=37 in its aar-metadata,
+    // verified from the published AAR). But Android SDK Platform 37 is
+    // PREVIEW-CHANNEL ONLY (Android 17): the CI runner's stable
+    // sdkmanager cannot find platforms;android-37 at all (CI
+    // 46044264493: "Failed to find package 'platforms;android-37'"),
+    // and AGP does not auto-download it (CI 46043729671). That player
+    // is gone in v1.0.23, but compileSdk 36 STAYS: it is proven
+    // building on CI and churning the toolchain buys nothing. AGP
+    // 8.5.2 only WARNS about an untested compileSdk ("tested up to
     // 34", suppressible — see gradle.properties), it does not fail.
     // targetSdk stays 34: compileSdk changes only what the app may
     // compile against, not runtime behaviour on devices.
@@ -31,9 +26,10 @@ android {
 
     defaultConfig {
         applicationId = "app.netlify.zaynplay"
-        // (v1.0.10) minSdk 26 REQUIRED by libmpv 1.4.0 (its manifest
-        // declares minSdkVersion 26; mpv uses API-26 pieces, so do NOT
-        // dodge with tools:overrideLibrary). Android 7.0/7.1 (API 24/25)
+        // (v1.0.23) minSdk 26: was REQUIRED by the removed second
+        // player (its manifest declared minSdkVersion 26). The player
+        // is gone, but 26 STAYS: the rhino and jackson-module-kotlin
+        // PINNED notes below both need 26. Android 7.0/7.1 (API 24/25)
         // can no longer install or update the app.
         minSdk = 26
         targetSdk = 34
@@ -43,8 +39,8 @@ android {
         // build MUST use versionCode >= 1000, so it can update-install
         // over every review build without an uninstall (Android refuses
         // a downgrade in versionCode even with the same signature).
-        versionCode = 1022
-        versionName = "1.0.22"
+        versionCode = 1023
+        versionName = "1.0.23"
     }
 
     // FIXED SIGNING (v0.2.10): every build — debug AND release — must be
@@ -124,16 +120,13 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // (v1.0.10) The libmpv 1.4.0 AAR's Kotlin metadata is mv 2.2.0, which
-        // kotlinc 1.9.24 refuses to read ("Module was compiled with an
-        // incompatible version of Kotlin", CI 46044585085) — even though no
-        // Kotlin code calls MPVLib (all MPVLib calls are from Java). Every
-        // published libmpv version is mv 2.2.0 (jdtech 1.0.0 verified the
-        // same), so downgrading the AAR cannot fix it and upgrading the
-        // Kotlin plugin would unfreeze the toolchain. This flag tells
-        // kotlinc to load the module anyway; MPVLib's API is plain classes
-        // with no 2.2-only metadata features, and the Java calls need no
-        // Kotlin metadata at all (javac ignores @Metadata).
+        // (v1.0.23) -Xskip-metadata-version-check: was added for the
+        // removed second player's AAR Kotlin metadata (mv 2.2.0, which
+        // kotlinc 1.9.24 refuses to read — "Module was compiled with an
+        // incompatible version of Kotlin", CI 46044585085). That player
+        // is gone, but the flag STAYS: it only relaxes a check, and
+        // removing it risks a CI failure if any other dep carries newer
+        // metadata. Revisit if the toolchain unfreezes.
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 
@@ -209,15 +202,10 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
     implementation("androidx.media3:media3-common:1.4.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
-    // (v1.0.10) libmpv 1.4.0 (Maven Central, AAR 50.7 MB: mpv 0.42.0 +
-    // FFmpeg 9.1 + libplacebo, all 4 ABIs). The AAR's transitive
-    // kotlinx-coroutines-core 1.11.0 is already stripped by the global
-    // exclude above (V1.0.4, load-bearing) — do NOT add a second one.
-    // Its kotlin-stdlib 2.2.10 is forced back to 1.9.24 by the
-    // resolutionStrategy below. MPVLib is called from JAVA only
-    // (ZaynMpvPlayer.java): its Kotlin metadata is mv 2.2.0, which
-    // kotlinc 1.9.24 rejects — javac never reads Kotlin metadata.
-    implementation("io.github.midasvo:libmpv:1.4.0")
+    // (v1.0.23) Second player engine REMOVED (user decision 2026-11-28:
+    // its AAR + bundled native libs took the APK from ~25 MB to 144 MB).
+    // ExoPlayer (media3 1.4.1 above) is the only player — do NOT
+    // re-add a second player engine.
     // PINNED: conscrypt-android 2.5.3 crashes everything.
     implementation("org.conscrypt:conscrypt-android:2.5.2")
     // OkHttp 4.12.0 for the vendored NiceHttp source (its 5.3.2 binary is
