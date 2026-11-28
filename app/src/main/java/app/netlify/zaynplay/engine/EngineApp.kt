@@ -80,12 +80,10 @@ object EngineApp {
         else -> 0
     }
 
-    /** Provider languages from the EngineStore "provLang" setting. */
-    fun providerLangs(): List<String> {
-        val s = store ?: return listOf("English", "Bengali", "Hindi")
-        return s.getSettingStringList("provLang", listOf("English", "Bengali", "Hindi"))
-    }
-
+    // (v1.0.19 REQ2) providerLangs() deleted with the provider-language
+    // setting: it had zero callers, and provider content now shows
+    // in ALL languages. The provider list was already ungated
+    // (v1.0.5 F "সব দেখাও"); home/search never read this either.
     // ---- key/value delegates (mirror CloudStreamApp.Companion) ----
 
     fun <T : Any> getKeyClass(path: String, valueType: Class<T>): T? {
