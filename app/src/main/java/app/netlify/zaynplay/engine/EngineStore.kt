@@ -211,7 +211,7 @@ class EngineStore(private val context: Context) {
             "resume" to { v -> isBool(v) },
             "mode" to { v -> isPick(v, "auto", "manual") },
             "res" to { v -> isPick(v, "Auto", "4K", "2K", "1080p", "720p", "480p", "360p") },
-            "aspectRatio" to { v -> isPick(v, "fit", "fill", "169", "43") },
+            "aspectRatio" to { v -> isPick(v, "fit", "fill", "zoom", "169", "43") },
             "audio1" to { v -> v is String && v in LANG_NATIVES_11 },
             "audio2" to { v -> v is String && (v in LANG_NATIVES_11 || v == "none") },
             "audio3" to { v -> v is String && (v in LANG_NATIVES_11 || v == "none") },
