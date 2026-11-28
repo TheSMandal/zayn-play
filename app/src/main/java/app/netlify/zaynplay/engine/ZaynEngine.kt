@@ -57,8 +57,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import java.util.Collections
 import kotlinx.coroutines.withTimeout
 import okhttp3.Request
 import org.json.JSONArray
@@ -563,7 +567,7 @@ class ZaynEngine(
             failPlaySession(ap, "retry re-resolve found no links — no retry left (attempts=${ap.attempts} ranked.size=${ap.ranked.size} session=${ap.session})")
             return
         }
-        val ranked = rankLinks(resolved.links)
+        val ranked = rankLinks(resolved.links, ap.params.optString("providerName", ""))
         if (ranked.isEmpty()) {
             failPlaySession(ap, "retry re-resolve found no playable links — no retry left (attempts=${ap.attempts} ranked.size=${ap.ranked.size} session=${ap.session})")
             return
@@ -577,7 +581,7 @@ class ZaynEngine(
                 next++
                 continue
             }
-            if (probePlayable(c.link)) {
+            if (probePlayable(c.link, ap.params.optString("providerName", ""))) {
                 candidate = c
                 break
             }
@@ -609,7 +613,7 @@ class ZaynEngine(
                 next++
                 continue
             }
-            if (!probePlayable(c.link)) {
+            if (!probePlayable(c.link, ap.params.optString("providerName", ""))) {
                 next++
                 continue
             }
@@ -703,6 +707,8 @@ class ZaynEngine(
                     params.optString("repoId", ""),
                     params.optString("providerName", ""),
                 )
+                "providerHealth" -> ok(JSONObject().put("records", store.providerHealthDetails()))
+                "providerHealthRecord" -> providerHealthRecord(params)
                 "providerHealthCheck" -> providerHealthCheck(params.optBoolean("onlyOn", true))
                 "homeFeed" -> homeFeed(
                     params.optString("providerName", ""),
@@ -836,7 +842,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.16")
+        .put("version", "1.0.17")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -1029,6 +1035,7 @@ class ZaynEngine(
             .put("on", store.isProviderOn(id, name))
             .put("autoOff", store.isProviderAutoOff(id, name))
             .put("health", store.providerHealth(id, name) ?: JSONObject.NULL)
+            .put("healthDetail", store.providerHealthDetail(id, name) ?: JSONObject.NULL)
             .put("hasSettings", (loadedPlugin as? Plugin)?.openSettings != null)
             .put("mainUrl", api?.mainUrl ?: JSONObject.NULL)
             .put("types", JSONArray(p.tvTypes ?: emptyList<String>()))
@@ -1239,6 +1246,7 @@ class ZaynEngine(
         // (v0.2.1-5) Never download a Down plugin; report it honestly
         // (extra "down" field, same ok shape — no download attempted).
         if (p.status == PROVIDER_STATUS_DOWN) {
+            recordHealth(repoId, providerName, JSONObject().put("load", false).put("linkResolution", false).put("lastError", "down"))
             return ok(
                 JSONObject()
                     .put("repoId", repoId)
@@ -1396,6 +1404,15 @@ class ZaynEngine(
                 error = "network_error"
             }
         }
+        // (v1.0.17 P15-01) Feed the Part H record: load / data-validation
+        // (content) / link-resolution (links found). Stream validation and
+        // playback are NOT claimed here — the Test never validates a stream
+        // or plays anything. A success clears the last error.
+        recordHealth(repoId, providerName, JSONObject()
+            .put("load", load)
+            .put("dataValidation", content)
+            .put("linkResolution", video)
+            .put("lastError", if (error != null) (detail ?: error) else JSONObject.NULL))
         return ok(
             JSONObject()
                 .put("repoId", repoId)
@@ -1404,6 +1421,7 @@ class ZaynEngine(
                 .put("content", content)
                 .put("feed", feed)
                 .put("video", video)
+                .put("links", video)
                 .put("error", error ?: JSONObject.NULL)
                 // (v0.2.6) Forensic detail, verbatim (a class name for
                 // load_class_missing); the row appends it after the
@@ -1418,6 +1436,53 @@ class ZaynEngine(
                 .put("detail", truncateReasonDetail(detail ?: loadDetail) ?: JSONObject.NULL)
         )
     }
+
+    /** (v1.0.17 P15-01) JS-side playback verdicts: only real playback may
+     * set playback success. playback=true stamps playback + the last
+     * successful-playback time and the summary "ok"; playback=false
+     * records the failure + last error but leaves the summary alone (one
+     * bad link is not proof the provider is dead). */
+    private fun providerHealthRecord(params: JSONObject): JSONObject {
+        val repoId = params.optString("repoId", "")
+        val name = params.optString("providerName", "")
+        if (repoId.isBlank() || name.isBlank()) return err("invalid_input", "Missing provider")
+        val update = JSONObject()
+        if (params.has("playback") && !params.isNull("playback")) {
+            val okPlay = params.optBoolean("playback", false)
+            update.put("playback", okPlay)
+            if (okPlay) {
+                update.put("lastSuccessAtMs", System.currentTimeMillis())
+                store.setProviderHealth(repoId, name, "ok")
+            }
+        }
+        if (params.has("lastError") && !params.isNull("lastError")) update.put("lastError", params.optString("lastError"))
+        if (params.has("playerPrep") && !params.isNull("playerPrep")) update.put("playerPrep", params.optBoolean("playerPrep", false))
+        store.updateProviderHealthDetail(repoId, name, update)
+        return ok(JSONObject().put("repoId", repoId).put("providerName", name))
+    }
+
+    /** (v1.0.17 P15-01/P15-08) Resolve a provider NAME to its repo id for
+     * health recording from the play path (which only carries the name). */
+    private fun repoIdForProviderName(name: String): String? {
+        for (repo in RepositoryManager.getRepositories()) {
+            val id = repoId(repo.url)
+            val wrappers = try { RepositoryManager.getRepoPlugins(repo) } catch (e: Exception) { null } ?: continue
+            for (w in wrappers) {
+                val apis = apisForPlugin(repo, w.plugin)
+                if (apis.any { it.name == name }) return id
+                if (apis.isEmpty() && w.plugin.name == name) return id
+            }
+        }
+        return null
+    }
+
+    private fun recordHealthByName(name: String, update: JSONObject) {
+        val repoId = repoIdForProviderName(name) ?: return
+        store.updateProviderHealthDetail(repoId, name, update)
+    }
+
+    private fun recordHealth(repoId: String, name: String, update: JSONObject) =
+        store.updateProviderHealthDetail(repoId, name, update)
 
     /**
      * (v0.2.1-l, v0.2.2) Content check shared by providerTest and
@@ -1588,19 +1653,34 @@ class ZaynEngine(
         val results = JSONArray()
         val autoOff = JSONArray()
         val autoOn = JSONArray()
-        // Concurrency ~4 (design §5.3).
-        for (chunk in filtered.chunked(4)) {
-            val chunkResults = coroutineScope {
-                chunk.map { t ->
-                    async { healthProbe(t) }
-                }.awaitAll()
-            }
-            for (probe in chunkResults) {
-                results.put(probe)
-                when (probe.optString("change", "")) {
-                    "off" -> autoOff.put(probe.optString("providerName", ""))
-                    "on" -> autoOn.put(probe.optString("providerName", ""))
+        // (v1.0.17 P15-07) Bounded pool (4 in flight, design §5.3) instead
+        // of sequential chunks, with a 100 s overall cap (inside the JS
+        // 120 s wait) and partial results: one hung provider can no longer
+        // make the whole sweep report nothing.
+        var partial = false
+        var deferreds: List<Deferred<JSONObject>> = emptyList()
+        try {
+            withTimeout(100_000) {
+                coroutineScope {
+                    val sem = Semaphore(4)
+                    val jobs = filtered.map { t ->
+                        async { sem.withPermit { healthProbe(t) } }
+                    }
+                    deferreds = jobs
+                    jobs.awaitAll()
                 }
+            }
+        } catch (e: TimeoutCancellationException) {
+            partial = true
+            EngineLogger.log("bridge", "health sweep timed out — partial results")
+        }
+        for (d in deferreds) {
+            if (!d.isCompleted) continue
+            val probe = try { d.getCompleted() } catch (e: Exception) { continue }
+            results.put(probe)
+            when (probe.optString("change", "")) {
+                "off" -> autoOff.put(probe.optString("providerName", ""))
+                "on" -> autoOn.put(probe.optString("providerName", ""))
             }
         }
         return ok(
@@ -1608,6 +1688,7 @@ class ZaynEngine(
                 .put("results", results)
                 .put("autoOff", autoOff)
                 .put("autoOn", autoOn)
+                .put("partial", partial)
         )
     }
 
@@ -1682,11 +1763,26 @@ class ZaynEngine(
             .coerceIn(5_000L, 30_000L)
         var healthy = false
         var transportFailed = false
+        var loadOk: Boolean? = null
+        var probeError: String? = null
         try {
             withTimeout(probeTimeoutMs) {
                 val probe = firstContentItem(api)
                 healthy = probe.item != null
                 transportFailed = probe.transportFailed
+                // (v1.0.17 P15-04) Probe "ok" must mean more than "the home
+                // page answered": load the first item too, inside the same
+                // timeout box, so ok means content actually loads.
+                if (probe.item != null && !transportFailed) {
+                    val loaded = APIRepository(api).load(probe.item.url)
+                    loadOk = (loaded as? Resource.Success<*>) != null
+                    if (loaded is Resource.Failure) {
+                        if (loaded.isNetworkError) transportFailed = true
+                        else probeError = "load_failed"
+                    }
+                }
+                if (loadOk == false) healthy = false
+                if (probe.item == null && !transportFailed) probeError = "no_content"
             }
         } catch (e: CancellationException) {
             // (v0.2.9) Fix D: a cancelled probe propagates; only a probe
@@ -1709,6 +1805,13 @@ class ZaynEngine(
             return probeJson(t.repoId, name, previousHealth, wasOn, wasAutoOff, "")
         }
         store.setProviderHealth(t.repoId, name, if (healthy) "ok" else "fail")
+        // (v1.0.17 P15-01) Feed the Part H record. Skipped / transport-
+        // failed probes return earlier and record nothing (no verdict).
+        recordHealth(t.repoId, name, JSONObject()
+            .put("load", loadOk ?: JSONObject.NULL)
+            .put("dataValidation", healthy)
+            .put("lastError", if (healthy) JSONObject.NULL else (probeError ?: "no_content"))
+            .put("summary", if (healthy) "ok" else "fail"))
         var change = ""
         // (v0.2.9) Fix F: AUTO-OFF IS REMOVED. Upstream has no auto-off at
         // all, and this probe turned a provider OFF whenever
@@ -1929,15 +2032,23 @@ class ZaynEngine(
         val failures = JSONArray()
         var partial = false
         var hasNext = false
-        // (v1.0.14 P4 G2.3) Chunks completed before the 60 s cap — the
-        // in-flight chunk was attempted; later chunks were never started.
-        var chunksDone = 0
+        // (v1.0.17 P14-01/P14-02) No more sequential chunks: every provider
+        // is one async job under a Semaphore(8) permit, so one slow
+        // provider cannot starve later providers, and results are
+        // collected per provider from the finished jobs — a timeout keeps
+        // what was already fetched instead of discarding the whole
+        // in-flight chunk (the V1.0.14 not_attempted fix covered only
+        // later chunks). The 60 s overall cap is unchanged.
+        val started = Collections.synchronizedSet(mutableSetOf<String>())
+        var deferreds: List<Deferred<Triple<String, SearchResponseList?, String?>>> = emptyList()
         try {
             withTimeout(60_000) {
-                for (chunk in ordered.chunked(8)) {
-                    val chunkOut = coroutineScope {
-                        chunk.map { (repoId, name) ->
-                            async<Triple<String, SearchResponseList?, String?>> {
+                coroutineScope {
+                    val sem = Semaphore(8)
+                    val jobs = ordered.map { (repoId, name) ->
+                        async<Triple<String, SearchResponseList?, String?>> {
+                            sem.withPermit {
+                                started.add(name)
                                 val api = resolveApi(name, null, repoId)
                                     ?: return@async Triple(name, null, "unresolved")
                                 val res = try {
@@ -1949,36 +2060,47 @@ class ZaynEngine(
                                     ?: return@async Triple(name, null, "error")
                                 Triple(name, list, null)
                             }
-                        }.awaitAll()
-                    }
-                    for ((name, list, reason) in chunkOut) {
-                        if (list == null) {
-                            partial = true
-                            failures.put(
-                                JSONObject()
-                                    .put("provider", name)
-                                    .put("reason", reason ?: "error")
-                            )
-                            continue
                         }
-                        hasNext = hasNext || list.hasNext
-                        perProvider.put(JSONObject().put("provider", name).put("count", list.items.size))
-                        for (item in list.items) results.put(searchItemJson(item))
                     }
-                    chunksDone++
+                    deferreds = jobs
+                    jobs.awaitAll()
                 }
             }
         } catch (e: TimeoutCancellationException) {
             partial = true
-            // (v1.0.14 P4 G2.3) Providers in chunks after the in-flight
-            // one were never attempted — record them as not_attempted so
-            // the UI can say "not tried" instead of silently dropping
-            // them (the v1.0.3 D2 defect: never attempted, never listed).
-            val unattempted = ordered.drop((chunksDone + 1) * 8)
-            for ((_, name) in unattempted) {
+            EngineLogger.log("bridge", "search fan-out timed out")
+        }
+        // Collect per provider from finished jobs; unfinished jobs are
+        // timed_out (started, in flight) or not_attempted (never started).
+        // Every ordered provider lands in perProvider or failures — none
+        // vanishes.
+        val byName = mutableMapOf<String, Triple<String, SearchResponseList?, String?>>()
+        for (d in deferreds) {
+            if (!d.isCompleted) continue
+            try {
+                val t = d.getCompleted()
+                byName[t.first] = t
+            } catch (e: Exception) { /* cancelled job: handled below via started */ }
+        }
+        for ((_, name) in ordered) {
+            val done = byName[name]
+            if (done != null) {
+                val (_, list, reason) = done
+                if (list == null) {
+                    partial = true
+                    failures.put(JSONObject().put("provider", name).put("reason", reason ?: "error"))
+                } else {
+                    hasNext = hasNext || list.hasNext
+                    perProvider.put(JSONObject().put("provider", name).put("count", list.items.size))
+                    for (item in list.items) results.put(searchItemJson(item))
+                }
+            } else if (started.contains(name)) {
+                partial = true
+                failures.put(JSONObject().put("provider", name).put("reason", "timed_out"))
+            } else {
+                partial = true
                 failures.put(JSONObject().put("provider", name).put("reason", "not_attempted"))
             }
-            EngineLogger.log("bridge", "search fan-out timed out chunksDone=$chunksDone unattempted=${unattempted.size}")
         }
         return ok(
             JSONObject()
@@ -2141,10 +2263,10 @@ class ZaynEngine(
         val providerName = params.optString("providerName", "")
         val api = resolveApi(providerName, null) ?: return null to "provider_not_found"
         // (v1.0.13 P2-C P1) Provider Loaded.
-        providerDiag("P1", "Provider Loaded", "provider=$providerName")
+        providerDiag("P1", "Provider Loaded", "provider=$providerName", providerName)
         val data = resolveLinkData(params, api) ?: return null to "no_data"
         // (v1.0.13 P2-C P2) LoadData Completed.
-        providerDiag("P2", "LoadData Completed", "shape=${loadDataShape(data)}")
+        providerDiag("P2", "LoadData Completed", "shape=${loadDataShape(data)}", providerName)
         val dataSource = when {
             params.optString("episodeData", "").isNotBlank() -> "episodeData"
             params.optString("data", "").isNotBlank() -> "data"
@@ -2290,11 +2412,17 @@ class ZaynEngine(
         // (v1.0.13 P2-C P3) LoadLinks Completed — only when a loadLinks call
         // actually returned ok (direct or fallback).
         if (loadLinksOk) {
-            providerDiag("P3", "LoadLinks Completed", "links=${foundLinks.size} partial=$partial")
+            providerDiag("P3", "LoadLinks Completed", "links=${foundLinks.size} partial=$partial", providerName)
         }
         // (v1.0.13 P2-C P4) Extractor Completed — the extraction result as
         // assembled (links + subtitles), whatever the outcome.
-        providerDiag("P4", "Extractor Completed", "links=${foundLinks.size} subs=${foundSubs.size} loadLinksAttempts=$loadLinksAttempts")
+        providerDiag("P4", "Extractor Completed", "links=${foundLinks.size} subs=${foundSubs.size} loadLinksAttempts=$loadLinksAttempts", providerName)
+        // (v1.0.17 P15-01) Link-resolution verdict for the play path.
+        if (providerName.isNotBlank()) {
+            val upd = JSONObject().put("linkResolution", foundLinks.isNotEmpty()).put("dataValidation", true)
+            if (foundLinks.isEmpty()) upd.put("lastError", linksError ?: "no_links")
+            recordHealthByName(providerName, upd)
+        }
         return ResolvedLinks(api, foundLinks, foundSubs, partial, timedOut) to null
     }
 
@@ -2475,13 +2603,28 @@ class ZaynEngine(
      * play's session id is fixed at play time, so on the INITIAL play they
      * carry the previous session's counter; P7 (after playActive) carries
      * the new one. Correlate P1–P6 by ts. */
-    private fun providerDiag(code: String, name: String, note: String = "") {
+    private fun providerDiag(code: String, name: String, note: String = "", providerName: String = "") {
         EngineLogger.log(
             "player",
             "diag $code $name session=$playSessionCounter engine=${if (isMpv()) "libmpv" else "exoplayer"} " +
                 "ts=${System.currentTimeMillis()}" +
                 if (note.isNotEmpty()) " $note" else "",
         )
+        // (v1.0.17 P15-01/P15-08) Feed the Part H record from the play
+        // path. Only VERIFIED stream validation counts (P6): fail-open /
+        // signed-direct notes say UNVERIFIED and set nothing. P2/P4/P5
+        // only move lastStage — their verdicts are recorded where the
+        // outcome is known (resolveLinks / P3).
+        if (providerName.isNotBlank()) {
+            val update = JSONObject().put("lastStage", code)
+            when (code) {
+                "P1" -> update.put("load", true)
+                "P3" -> update.put("linkResolution", true)
+                "P6" -> if (note.startsWith("VERIFIED")) update.put("streamValidation", true)
+                "P7" -> update.put("playerPrep", true)
+            }
+            recordHealthByName(providerName, update)
+        }
     }
 
     private fun parseSeconds(raw: String): Int =
@@ -2569,7 +2712,7 @@ class ZaynEngine(
      * below the +100 quality tier — a playable alternative always wins.
      * The FINAL order itself is unchanged.
      */
-    private suspend fun rankLinks(links: List<ExtractorLink>): List<RankedLink> {
+    private suspend fun rankLinks(links: List<ExtractorLink>, providerName: String = ""): List<RankedLink> {
         val resPref = store.getSettingString("res", "Auto")
         val a1 = audioCodeOf(store.getSettingString("audio1", "English"))
         val a2 = audioCodeOf(store.getSettingString("audio2", "বাংলা"))
@@ -2614,7 +2757,7 @@ class ZaynEngine(
         )
         // (v1.0.13 P2-C P5) Stream Resolved.
         if (ranked.isNotEmpty()) {
-            providerDiag("P5", "Stream Resolved", "links=${ranked.size}")
+            providerDiag("P5", "Stream Resolved", "links=${ranked.size}", providerName)
         }
         return ranked
     }
@@ -2681,7 +2824,7 @@ class ZaynEngine(
      * fetch of that URL, and its result is cached per URL instance, so a
      * retry that re-probes the same URL does not fetch (or burn) it again.
      */
-    private suspend fun probePlayable(link: ExtractorLink): Boolean {
+    private suspend fun probePlayable(link: ExtractorLink, providerName: String = ""): Boolean {
         val isManifest = link.type == ExtractorLinkType.M3U8 ||
             link.type == ExtractorLinkType.DASH
         if (isManifest) {
@@ -2690,7 +2833,7 @@ class ZaynEngine(
                 // Validation unavailable (transport error/timeout) — no
                 // verdict; fail open and let ExoPlayer decide.
                 EngineLogger.log("player", "probe ok (validation unavailable, fail-open) ${link.source} url=${redactUrlForLog(link.url)}${tokenAgeSuffix(link.url)}")
-                providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code validation-unavailable source=${link.source}")
+                providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code validation-unavailable source=${link.source}", providerName)
                 return true
             }
             if (!validated.ok) {
@@ -2701,7 +2844,7 @@ class ZaynEngine(
             EngineLogger.log("player", "probe ok ${link.source} url=${redactUrlForLog(link.url)}${tokenAgeSuffix(link.url)}")
             // (v1.0.13 P3-A) P6 VERIFIED — the real parser validated this
             // manifest (type, multivariant yes/no, children checked).
-            providerDiag("P6", "Stream Validated", "VERIFIED type=${validated.manifestType} multivariant=${validated.isMultivariant} childrenChecked=${validated.childrenChecked} source=${link.source}")
+            providerDiag("P6", "Stream Validated", "VERIFIED type=${validated.manifestType} multivariant=${validated.isMultivariant} childrenChecked=${validated.childrenChecked} source=${link.source}", providerName)
             return true
         }
         if (ZaynHeaderManager.isSignedUrl(link.url)) {
@@ -2710,7 +2853,7 @@ class ZaynEngine(
             // the player. There is no manifest to validate, so P6 stays
             // UNVERIFIED-by-code for this link.
             EngineLogger.log("player", "probe skipped signed URL (no pre-play fetch) ${link.source} url=${redactUrlForLog(link.url)}")
-            providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code signed-direct source=${link.source}")
+            providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code signed-direct source=${link.source}", providerName)
             return true
         }
         return try {
@@ -2746,7 +2889,7 @@ class ZaynEngine(
                         false
                     } else {
                         EngineLogger.log("player", "probe ok ${link.source} url=${redactUrlForLog(link.url)}${tokenAgeSuffix(link.url)}")
-                        providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code direct-video source=${link.source}")
+                        providerDiag("P6", "Stream Validated", "UNVERIFIED-by-code direct-video source=${link.source}", providerName)
                         true
                     }
                 }
@@ -3212,7 +3355,7 @@ class ZaynEngine(
             return if (resolved.timedOut) err("timeout", "Loading the links timed out — try again")
             else err("no_links", "No playable links found")
         }
-        val ranked = rankLinks(resolved.links)
+        val ranked = rankLinks(resolved.links, params.optString("providerName", ""))
         if (ranked.isEmpty()) {
             // (v0.2.11) C-8: links existed but all were torrent/magnet.
             return err("torrent_only", "This provider only has torrent links, which are not supported")
@@ -3280,7 +3423,7 @@ class ZaynEngine(
             return if (resolved.timedOut) reject("timeout", "Loading the links timed out — try again", requestId)
             else reject("no_links", "No playable links found", requestId)
         }
-        val ranked = rankLinks(resolved.links)
+        val ranked = rankLinks(resolved.links, params.optString("providerName", ""))
         if (ranked.isEmpty()) return reject("torrent_only", "This provider only has torrent links, which are not supported", requestId)
         val linkIndex = if (params.has("linkIndex") && !params.isNull("linkIndex")) params.optInt("linkIndex", -1) else -1
         if (mode == "manual" && linkIndex < 0) {
@@ -3299,7 +3442,7 @@ class ZaynEngine(
             for (i in 0 until probeLimit) {
                 val c = ranked[i]
                 if (c.link is DrmExtractorLink) continue
-                if (probePlayable(c.link)) {
+                if (probePlayable(c.link, params.optString("providerName", ""))) {
                     pickedIdx = i
                     break
                 }
@@ -3413,7 +3556,7 @@ class ZaynEngine(
         mpvPlayer.setDiagSessionId(session)
         playActive(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
         // (v1.0.13 P2-C P7) Player Selected.
-        providerDiag("P7", "Player Selected", "engine=$lastActiveEngine")
+        providerDiag("P7", "Player Selected", "engine=$lastActiveEngine", params.optString("providerName", ""))
         // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
         // name the picked link (URL + type + quality) in the log.
         // (v1.0.13 P6-C) A new play clears the dead-session latch from any
@@ -3543,7 +3686,7 @@ class ZaynEngine(
             return if (reason == "no_data") err("no_data", "This title has no playable data")
             else err("provider_not_found", "Provider not found")
         }
-        val ranked = rankLinks(resolved.links)
+        val ranked = rankLinks(resolved.links, params.optString("providerName", ""))
         val picked = ranked.firstOrNull() ?: return err("no_links", "No playable links found")
         if (picked.link is DrmExtractorLink) {
             return err("playback_error", "This stream uses DRM, which is not supported")
@@ -3633,7 +3776,7 @@ class ZaynEngine(
             return if (reason == "no_data") err("no_data", "This title has no playable data")
             else err("provider_not_found", "Provider not found")
         }
-        val ranked = rankLinks(resolved.links)
+        val ranked = rankLinks(resolved.links, params.optString("providerName", ""))
         if (ranked.isEmpty()) return err("no_links", "No downloadable links found")
         val wantQ = store.getSettingString("dlQuality", "Auto")
         val picked = if (wantQ != "Auto") {
