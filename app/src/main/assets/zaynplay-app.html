@@ -568,6 +568,12 @@ body.native-video #phone{ background:transparent; }
       .player-info{ padding:16px 18px 90px; }
       .player-info h3{ margin:0 0 4px; font-size:17px; }
       .player-info p{ margin:0; color:var(--app-ink-2); font-size:13.5px; line-height:1.6; }
+      /* (v1.0.18 P17-09) showInfo OFF hides the below-stage info block
+         (episodes, More Like This and the mini-actions stay visible). */
+      .player-info.no-info #p-info-title, .player-info.no-info #p-meta, .player-info.no-info #p-info-sub,
+      .player-info.no-info #p-syn, .player-info.no-info #p-facts,
+      .player-info.no-info .p-sec, .player-info.no-info #p-cast{ display:none; }
+      #p-vsub.no-info{ display:none; }
 
       /* ---------- downloads / library / settings shared ---------- */
       .page-title{ padding:14px 18px 4px; font-family:"Sora",sans-serif; font-size:21px; margin:0; }
@@ -955,6 +961,12 @@ body.native-video #phone{ background:transparent; }
       .seek-pill.left{ left:16px; } .seek-pill.right{ right:16px; }
       .seek-pill svg{ width:17px; height:17px; fill:#fff; flex:none; }
       .seek-pill small{ color:#cfd6df; font-weight:500; }
+      /* (v1.0.18 P17-09) Subtitle overlay: ExoPlayer cues arrive via the
+         subtitleCues bridge event (there is no SubtitleView); mpv styles
+         itself natively. Pointer-events none — it never blocks taps. */
+      #sub-overlay{ position:absolute; left:0; right:0; bottom:16%; z-index:4; display:flex; justify-content:center; pointer-events:none; padding:0 12px; }
+      #sub-overlay span{ display:none; max-width:92%; text-align:center; font-size:20px; font-weight:700; line-height:1.45; color:#fff; text-shadow:0 1px 2px #000, 0 0 4px #000; padding:2px 10px; border-radius:8px; }
+      #sub-overlay.on span{ display:inline-block; }
       /* vertical glass volume rail */
       .vol-rail{
         position:absolute; right:10px; top:50%; z-index:6;
@@ -1959,7 +1971,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.17</p>
+                  <p class="splash-ver">Zayn Play v1.0.18</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2304,6 +2316,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                     </div>
                     <button class="tap-zone left" id="zone-l" aria-label="Double-tap to rewind 10 seconds"></button>
                     <button class="tap-zone right" id="zone-r" aria-label="Double-tap to forward 10 seconds"></button>
+                    <div id="sub-overlay" aria-hidden="true"><span id="sub-overlay-text"></span></div>
                     <div class="seek-pill" id="seek-pill" aria-hidden="true"></div>
                     <div class="time-pill" id="time-pill" aria-hidden="true"></div>
                     <div class="rate-pill" id="rate-pill" aria-hidden="true"><span>2x</span></div>
@@ -2609,12 +2622,16 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          enabled); a full disk cache is out of scope for V1.0.17. */
       var posterPreloadCache = {};
       function preloadPosters(urls){
+        var fresh = [];
         (urls || []).forEach(function(u){
           if (!u || posterPreloadCache[u]) return;
           var _keys = Object.keys(posterPreloadCache);
           if (_keys.length >= 200) delete posterPreloadCache[_keys[0]];
-          try{ var im = new Image(); im.src = u; posterPreloadCache[u] = im; }catch(e){}
+          try{ var im = new Image(); im.src = u; posterPreloadCache[u] = im; fresh.push(u); }catch(e){}
         });
+        /* (v1.0.18 P16-07) Also warm the native 100 MB disk cache so the
+           posters survive a restart — best-effort, at most 30 per call. */
+        if (fresh.length){ try{ engineCall('posterPrefetch', { urls: fresh.slice(0, 30) }).catch(function(){}); }catch(e){} }
       }
       /* (v1.0.16 P12-09) Real episode label from provider data — never a
          hardcoded "S1 E1". Season is omitted when the provider gave none. */
@@ -2719,7 +2736,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var v = document.getElementById('primary-color-val'); if (v) v.textContent = c.name;
         var rows = document.querySelectorAll('#phone [data-color-opt]');
         for (var j=0;j<rows.length;j++) rows[j].classList.toggle('on', rows[j].getAttribute('data-color-opt') === c.name);
-        try{ localStorage.setItem('zayn-primary-color', c.name); }catch(e){}
+        /* (v1.0.18 P17-12) No localStorage write: the accent lives in
+           the engine store; the accent click handler persists it. */
       }
       function zpSetPref(p){ ZPTheme.pref = p; zpApplyTheme(); }
       function zpSetSys(m){ ZPTheme.sys = m; ZPTheme.sysDemo = true; zpApplyTheme(); }
@@ -2857,6 +2875,23 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var f = e.target.closest ? e.target.closest('button, input, [data-open-player]') : null;
         if (f) tvSetFocus(f);
       });
+      /* (v1.0.18 P17-12) Card meta follows the stored posterUI setting:
+         the small line is ' • '-split and a segment is dropped when its
+         toggle is off — ★… when Rating is off, the title's year when
+         Year is off. Anything else (genre, duration, provider) is kept. */
+      function cardMetaFor(t, small){
+        var ui = v31Bool('posterUI', ['রেটিং','সাল']);
+        if (!Array.isArray(ui)) ui = ['রেটিং','সাল'];
+        var showRating = ui.indexOf('রেটিং') >= 0, showYear = ui.indexOf('সাল') >= 0;
+        if (showRating && showYear) return small || '';
+        return String(small || '').split(' • ').filter(function(seg){
+          seg = seg.trim();
+          if (!seg) return false;
+          if (!showRating && seg.indexOf('★') === 0) return false;
+          if (!showYear && t && t.year && seg === String(t.year)) return false;
+          return true;
+        }).join(' • ');
+      }
       function cardHTML(key, smallText, rank){
         var t = TITLES[key];
         /* (v1.0.17 P13-01) Home rails / Trending / See All go through
@@ -2864,7 +2899,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var inner = rank
           ? '<span class="rank-wrap">' + posterImgHTML(t.poster, t.title + ' poster', 'poster') + '<span class="rank">' + rank + '</span></span>'
           : posterImgHTML(t.poster, t.title + ' poster', 'poster');
-        return inner + '<p>' + t.title + '</p><small>' + smallText + '</small>';
+        var small = cardMetaFor(t, smallText);
+        /* (v1.0.18 P17-12) bottomTitles OFF hides the title line under
+           the poster; an empty small line omits the <small> entirely. */
+        var titleOn = v31Bool('bottomTitles', true) !== false;
+        return inner + (titleOn ? '<p>' + t.title + '</p>' : '') + (small ? '<small>' + small + '</small>' : '');
       }
       function fillRail(el, keys, mode){
         el.innerHTML = '';
@@ -3231,9 +3270,31 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          the network answers. 24 h staleness cap + corrupt-entry guard;
          a save that exceeds the localStorage quota is skipped silently. */
       var FEED_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+      var FEED_CACHE_MAX_PROVIDERS = 5, FEED_CACHE_MAX_BYTES = 512 * 1024;
       function feedCacheKey(k){ return 'zayn-feed-cache:' + k; }
       function saveFeedCache(k, feed){
-        try{ localStorage.setItem(feedCacheKey(k), JSON.stringify({ at: Date.now(), feed: feed })); }catch(e){}
+        try{
+          var json = JSON.stringify({ at: Date.now(), feed: feed });
+          if (json.length > FEED_CACHE_MAX_BYTES){ console.log('[feed] cache skipped provider=' + k + ' reason=oversize bytes=' + json.length); return; }
+          localStorage.setItem(feedCacheKey(k), json);
+        }catch(e){ console.log('[feed] cache skipped provider=' + k + ' reason=quota'); }
+      }
+      /* (v1.0.18 P16-06) Boot sweep: drop stale entries first (TTL 24 h),
+         then the oldest beyond the 5-provider cap. Called from boot. */
+      function sweepFeedCache(){
+        try{
+          var keys = [];
+          for (var i = 0; i < localStorage.length; i++){ var kk = localStorage.key(i); if (kk && kk.indexOf('zayn-feed-cache:') === 0) keys.push(kk); }
+          var now = Date.now(), fresh = [];
+          keys.forEach(function(kk){
+            var raw = null; try{ raw = localStorage.getItem(kk); }catch(e){}
+            var at = 0; try{ at = (JSON.parse(raw || '{}') || {}).at || 0; }catch(e){}
+            if (!raw || (now - at > FEED_CACHE_TTL_MS)){ try{ localStorage.removeItem(kk); }catch(e){} console.log('[feed] cache swept key=' + kk + ' reason=stale'); }
+            else fresh.push({ k: kk, at: at });
+          });
+          fresh.sort(function(a, b){ return a.at - b.at; });
+          while (fresh.length > FEED_CACHE_MAX_PROVIDERS){ var ev = fresh.shift(); try{ localStorage.removeItem(ev.k); }catch(e){} console.log('[feed] cache swept key=' + ev.k + ' reason=over-cap'); }
+        }catch(e){}
       }
       function loadFeedCache(k){
         var raw = null;
@@ -3762,7 +3823,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             TITLES[it.id] = rt;
             var b = document.createElement('button'); b.className = 'card';
             b.setAttribute('data-open', it.id);
-            b.innerHTML = posterImgHTML(rt.poster, rt.title + ' poster') + '<p>' + rt.title + '</p><small>' + rt.star + ' • ' + rt.year + '</small>';
+            b.innerHTML = cardHTML(it.id, rt.star + ' • ' + rt.year, 0);
             more.appendChild(b);
           });
         } else {
@@ -4021,10 +4082,59 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (typeof curTitleId !== 'undefined' && curTitleId && TITLES[curTitleId]) return TITLES[curTitleId];
         return titleByName(curTitle) || TITLES[keyByTitle(curTitle)];
       }
+      /* (v1.0.18 P17-09) Player settings helpers: read the stored v31
+         setting (instances[0].set) with a default when it is absent. */
+      function v31Bool(k, def){ try{ return (typeof window.ZP_v31setting === 'function') ? window.ZP_v31setting(k, def) : def; }catch(e){ return def; } }
+      function seekAmtVal(){ var v = parseInt(v31Bool('seekAmt', 10), 10); if (isNaN(v)) v = 10; return Math.max(5, Math.min(60, v)); }
+      function syncSeekLabels(){
+        var n = seekAmtVal();
+        var dt = v31Bool('gDtSeek', false) !== false;
+        var sb = document.getElementById('seek-back'); if (sb) sb.setAttribute('aria-label', 'Back ' + n + ' seconds');
+        var sf = document.getElementById('seek-fwd'); if (sf) sf.setAttribute('aria-label', 'Forward ' + n + ' seconds');
+        var zl = document.getElementById('zone-l'); if (zl) zl.setAttribute('aria-label', dt ? 'Double-tap to rewind ' + n + ' seconds' : 'Tap to show or hide controls');
+        var zr = document.getElementById('zone-r'); if (zr) zr.setAttribute('aria-label', dt ? 'Double-tap to forward ' + n + ' seconds' : 'Tap to show or hide controls');
+      }
+      function truncTitle(t){
+        var s = String(t || '');
+        var n = v31Bool('titleChars', '50');
+        if (n === '0' || n === 0) return s;
+        var lim = parseInt(n, 10); if (isNaN(lim) || lim <= 0) return s;
+        return (s.length > lim) ? s.slice(0, lim) + '…' : s;
+      }
+      function applyShowInfo(){
+        var on = v31Bool('showInfo', true) !== false;
+        var pi = document.querySelector('.player-info'); if (pi) pi.classList.toggle('no-info', !on);
+        var vs = document.getElementById('p-vsub'); if (vs) vs.classList.toggle('no-info', !on);
+      }
+      var SUB_COLOR_HEX = { 'সাদা':'#FFFFFF', 'হলুদ':'#FFFF00', 'সবুজ':'#4ADE80', 'আকাশি':'#7DD3FC', 'গোলাপি':'#F472B6' };
+      function applySubtitleStyle(){
+        var ov = document.getElementById('sub-overlay'); if (!ov) return;
+        var sp = ov.querySelector('span'); if (!sp) return;
+        var col = SUB_COLOR_HEX[v31Bool('subColor', 'সাদা')] || '#FFFFFF';
+        var sty = v31Bool('subStyle', 'outline');
+        var sz = v31Bool('subSize', 'medium');
+        var pv = v31Bool('subPosV', 'bottom'), ph = v31Bool('subPosH', 'center');
+        sp.style.color = col;
+        sp.style.fontSize = (sz === 'small' ? 16 : sz === 'large' ? 26 : sz === 'xlarge' ? 32 : 20) + 'px';
+        if (sty === 'shadow'){ sp.style.textShadow = '0 2px 6px rgba(0,0,0,.85)'; sp.style.background = 'rgba(0,0,0,.35)'; }
+        else if (sty === 'none'){ sp.style.textShadow = 'none'; sp.style.background = 'transparent'; }
+        else { sp.style.textShadow = '0 1px 2px #000, 0 0 4px #000'; sp.style.background = 'transparent'; }
+        ov.style.top = ''; ov.style.bottom = '';
+        if (pv === 'top'){ ov.style.top = '8%'; } else if (pv === 'middle'){ ov.style.top = '46%'; } else { ov.style.bottom = '16%'; }
+        ov.style.justifyContent = (ph === 'left' ? 'flex-start' : ph === 'right' ? 'flex-end' : 'center');
+      }
+      function showSubtitleCue(text){
+        var ov = document.getElementById('sub-overlay'); if (!ov) return;
+        var sp = ov.querySelector('span'); if (!sp) return;
+        if (text){ sp.textContent = text; ov.classList.add('on'); }
+        else { sp.textContent = ''; ov.classList.remove('on'); }
+      }
       function populatePlayer(title, id){
         var t = titleEntryFor(title, id);
         document.getElementById('p-title').textContent = title;
-        document.getElementById('p-info-title').textContent = title;
+        document.getElementById('p-info-title').textContent = truncTitle(title);
+        if (typeof applyShowInfo === 'function') applyShowInfo();
+        if (typeof applySubtitleStyle === 'function') applySubtitleStyle();
         if (!t) return;
         document.getElementById('p-vsub').textContent = (t.type === 'series' ? 'Series' : 'Movie') + ' • ' + t.genre + ' • ' + t.year;
         if (ST.health && currentProvider && ST.health[currentProvider] === 'bad') document.getElementById('p-vsub').textContent += ' — ⚠ সমস্যা আছে';
@@ -4070,7 +4180,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             TITLES[it.id] = rt;
             var b = document.createElement('button'); b.className = 'card';
             b.setAttribute('data-open', it.id);
-            b.innerHTML = posterImgHTML(rt.poster, rt.title + ' poster') + '<p>' + rt.title + '</p><small>' + rt.star + ' • ' + rt.year + '</small>';
+            b.innerHTML = cardHTML(it.id, rt.star + ' • ' + rt.year, 0);
             more.appendChild(b);
           });
         } else {
@@ -4264,6 +4374,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       function onEngineEvent(name, data){
         try{
           if (name === 'pluginsChanged'){ rebuildCatalog(); if (typeof runAppUpdateCheck === 'function') runAppUpdateCheck('boot'); return; }
+          if (name === 'subtitleCues'){ showSubtitleCue(data && data.text ? data.text : ''); return; }
           if (name === 'playerState'){ onEnginePlayerState(data); return; }
           if (name === 'playerError'){ onEnginePlayerError(data); return; }
           if (name === 'playerEnded'){ onEnginePlayerEnded(data); return; }
@@ -4475,6 +4586,28 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (typeof syncPBUI === 'function') syncPBUI();
         }catch(e){}
       }
+      /* (v1.0.18 D-6) Single writer for player settings: native store
+         -> PB -> UI. Callers persist via enginePersistSetting; this only
+         updates the live PB object and refreshes the sheet UI. */
+      function applyPBSetting(pk, pv){
+        try{
+          if (typeof PB === 'undefined') return;
+          var PB_KEYS = ['player','mode','res','engine','extApp','timeout','reuse','reuseDur','buffer','audio1','audio2'];
+          if (PB_KEYS.indexOf(pk) < 0) return;
+          if (pk === 'audio1' || pk === 'audio2'){
+            if (pk === 'audio2' && pv === 'none'){ PB.audio2 = 'none'; }
+            else {
+              var code = null, langs = (typeof AUDIO_LANGS !== 'undefined' ? AUDIO_LANGS : []);
+              langs.forEach(function(a){ if (a.c === pv) code = a.c; });
+              if (!code) langs.forEach(function(a){ if (a.nat === pv) code = a.c; });
+              if (code) PB[pk] = code;
+            }
+          } else {
+            PB[pk] = pv;
+          }
+          if (typeof syncPBUI === 'function') syncPBUI();
+        }catch(e){}
+      }
       function applyEngineSettings(set){
         try{
           var _insts = (typeof window !== 'undefined' && window.__v31Instances) || [];
@@ -4482,6 +4615,37 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             Object.keys(set || {}).forEach(function(k){ if (k in inst.set) inst.set[k] = (k === 'media') ? normMediaList(set[k]) : set[k]; });
           });
           try{ if (set && set.media) window.ZP_MEDIA = normMediaList(set.media); }catch(e){}
+          /* (v1.0.18 P17-12/13/14) One source of truth: theme, accent
+             colour and app language live in the engine store; the UI
+             mirrors them here. The v31 setPrimaryColor wrapper syncs
+             SHARED.accent from --app-accent, so no separate hook is needed. */
+          try{
+            if (set && set.theme && typeof zpSetPref === 'function') zpSetPref(set.theme);
+            if (set && set.primaryColor && typeof setPrimaryColor === 'function'){
+              var _pcn = null;
+              (typeof PRIMARY_COLORS !== 'undefined' ? PRIMARY_COLORS : []).forEach(function(c){ if (c.a === set.primaryColor) _pcn = c.name; });
+              if (_pcn) setPrimaryColor(_pcn);
+            }
+            if (set && set.appLang && typeof window.ZP_setAppLang === 'function') window.ZP_setAppLang(set.appLang);
+          }catch(e){}
+          /* benene + lastBackup are inst-level, not inst.set keys. */
+          try{
+            _insts.forEach(function(inst){
+              if (set && typeof set.benene === 'number') inst.benene = set.benene;
+              if (set && typeof set.lastBackup === 'string') inst.lastBackup = set.lastBackup;
+            });
+          }catch(e){}
+          /* Arrange order + pins survive a restart (P17-13). */
+          try{
+            if (set && set.providerOrder) ST.provOrder = set.providerOrder;
+            if (set && set.providerPin) ST.pin = set.providerPin;
+            if (set && (set.providerOrder || set.providerPin) && typeof rebuildCatalog === 'function') rebuildCatalog();
+          }catch(e){}
+          /* (v1.0.18) Player chrome follows the stored settings too
+             (boot / restore / reset all land here). */
+          if (typeof syncSeekLabels === 'function') syncSeekLabels();
+          if (typeof applySubtitleStyle === 'function') applySubtitleStyle();
+          if (typeof applyShowInfo === 'function') applyShowInfo();
           /* render() lives inside the v31 IIFE — re-render through its hook. */
           if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
           syncPBFromSettings(set);
@@ -4629,7 +4793,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           b.setAttribute('data-open', it.id);
           b.setAttribute('data-name', (tt.title + ' ' + (tt.prov || '')).toLowerCase());
           b.setAttribute('data-genres', (tt.genre || '').toLowerCase());
-          b.innerHTML = posterImgHTML(tt.poster, tt.title + ' poster', 'poster') + '<p>' + tt.title + '</p><small>' + tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov + '</small>';
+          b.innerHTML = cardHTML(it.id, tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov, 0);
           grid.appendChild(b);
         });
         applySearch();
@@ -4660,7 +4824,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           TITLES[it.id] = tt;
           var b = document.createElement('button'); b.className = 'card';
           b.setAttribute('data-open', it.id); b.setAttribute('data-name', tt.title.toLowerCase());
-          b.innerHTML = posterImgHTML(tt.poster, tt.title + ' poster', 'poster') + '<p>' + tt.title + '</p><small>' + tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov + '</small>';
+          b.innerHTML = cardHTML(it.id, tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov, 0);
           g.appendChild(b);
         });
         applyPSearch();
@@ -4830,6 +4994,16 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       function clearProgress(title, id){ if (!title) return; delete PROGRESS[progKey(title, id)]; delete PROGRESS[progKeyEp(title, id)]; var _t2 = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null; engineCall('progressSet', { title: title, posSec: 0, durSec: 0, url: (_t2 && _t2.url) || '', providerName: (_t2 && _t2.prov) || '', ep: curEpKey || '' }).catch(function(){}); }
       function resumePos(title, id, ep){
+        /* (v1.0.18 P17-05) The resume setting is authoritative on the JS
+           path too: with resume OFF, no saved position is ever returned,
+           so openPlayer starts at 0 and the Resume button never shows.
+           The native fallback already gates on the same setting; an
+           explicit resumeSeek (a Resume tap that already passed a
+           startAt) is untouched — this function is only the stored-
+           position lookup. Guarded: ZP_v31setting is assigned by the
+           last script block and instances[0] may not exist yet in the
+           Node gate harness. */
+        try { if (typeof window !== 'undefined' && typeof window.ZP_v31setting === 'function' && window.ZP_v31setting('resume', true) === false) return 0; } catch (e) {}
         /* (v1.0.14 G1) In-session entry first (progKey, episode-scoped),
            then a boot-loaded native entry (content key via javaHash).
            Library items have no main URL, so contentKeyFor returns null
@@ -4861,7 +5035,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           b.setAttribute('data-open', k);
           b.setAttribute('data-name', (t.title + ' ' + (t.prov || '')).toLowerCase());
           b.setAttribute('data-genres', (t.genre || '').toLowerCase());
-          b.innerHTML = posterImgHTML(t.poster, t.title + ' poster', 'poster') + '<p>' + t.title + '</p><small>' + t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov + '</small>';
+          b.innerHTML = cardHTML(k, t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov, 0);
           grid.appendChild(b);
         });
         applySearch();
@@ -4976,7 +5150,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (!t) return;
           var b = document.createElement('button'); b.className = 'card';
           b.setAttribute('data-open', k); b.setAttribute('data-name', t.title.toLowerCase());
-          b.innerHTML = posterImgHTML(t.poster, t.title + ' poster', 'poster') + '<p>' + t.title + '</p><small>' + t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov + '</small>';
+          b.innerHTML = cardHTML(k, t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov, 0);
           g.appendChild(b);
         });
         applyPSearch();
@@ -5041,7 +5215,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (it.progressSec > 0){
             progTxt = Math.round(it.progressSec / 60) + 'm watched' + (it.progressEp ? ' • ' + it.progressEp : '');
           }
-          b.innerHTML = posterImgHTML(it.poster || '', it.title + ' poster', 'poster') + '<p>' + it.title + '</p><small>' + progTxt + '</small>';
+          b.innerHTML = cardHTML(key, progTxt, 0);
           libGrid.appendChild(b);
         });
         filterLibrary(libFilter);
@@ -5252,8 +5426,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (pbo){
           var pk = pbo.getAttribute('data-pb');
           var pv = pbo.getAttribute('data-v');
-          PB[pk] = pv;
-          syncPBUI();
+          if (typeof applyPBSetting === 'function') applyPBSetting(pk, pv);
+          else { PB[pk] = pv; syncPBUI(); }
           enginePersistSetting(pk, pv);
           toast(pbToastFor(pk));
           return;
@@ -5288,8 +5462,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var on = sw2.getAttribute('aria-checked') === 'true';
           sw2.setAttribute('aria-checked', on ? 'false' : 'true');
           if (sw2.hasAttribute('data-pb-switch')){
-            PB.reuse = !on;
-            enginePersistSetting('reuse', PB.reuse);
+            if (typeof applyPBSetting === 'function') applyPBSetting('reuse', !on);
+            else PB.reuse = !on;
+            enginePersistSetting('reuse', !on);
             toast('Reuse last link ' + (!on ? 'চালু — একই ভিডিও আবার খুললে সাথে সাথে প্লে হবে' : 'বন্ধ করা হয়েছে'));
             return;
           }
@@ -5466,7 +5641,23 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       function finishSetup(){
         applyProfile();
-        try{ var _fm = readSetupMedia(); window.ZP_MEDIA = _fm; enginePersistSetting('media', _fm); }catch(e){}
+        try{ var _fm = (typeof window.ZP_readSetupMedia === 'function') ? window.ZP_readSetupMedia() : readSetupMedia(); window.ZP_MEDIA = _fm; enginePersistSetting('media', _fm); }catch(e){}
+        /* (v1.0.18 P17-13/14) Setup choices persist to the engine store:
+           provider languages, app language, theme and the profile card. */
+        try{ if (typeof window.ZP_readSetupPlang === 'function') enginePersistSetting('provLang', window.ZP_readSetupPlang()); }catch(e){}
+        try{
+          var _alm = {en:'English',bn:'Bengali',hi:'Hindi',mr:'Marathi',te:'Telugu',ta:'Tamil',gu:'Gujarati',ur:'Urdu',kn:'Kannada',or:'Odia',ml:'Malayalam'};
+          enginePersistSetting('appLang', _alm[window.ZP_LANG || 'en'] || 'English');
+        }catch(e){}
+        try{ enginePersistSetting('theme', (typeof ZPTheme !== 'undefined' && ZPTheme.pref) || 'system'); }catch(e){}
+        try{
+          var _pn = profileState.name.trim() || 'Zayn';
+          enginePersistSetting('profileName', _pn);
+          enginePersistSetting('profileBg', profileState.bg || 'linear-gradient(135deg,#ff5147,#b3000c)');
+          var _finsts = (typeof window !== 'undefined' && window.__v31Instances) || [];
+          _finsts.forEach(function(inst){ inst.set.profileName = _pn; inst.set.profileBg = profileState.bg; });
+          if (typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
+        }catch(e){}
         setupDone = true;
         try{ localStorage.setItem('zayn-setup-done','1'); }catch(e){}
         setupEl.classList.add('hide');
@@ -5602,14 +5793,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         playerSeek(cur);
         renderTime();
         var side = delta < 0 ? 'left' : 'right';
-        /* repeated taps on the same side accumulate: +10, +20, +40… */
+        /* repeated taps on the same side accumulate: +N, +2N, +4N… (N = seekAmt) */
         if (accumSide === side && pillEl.classList.contains('show')) accumTotal += Math.abs(delta);
         else { accumSide = side; accumTotal = Math.abs(delta); }
         showPill(side, (side === 'left' ? -1 : 1) * accumTotal);
         pulseZoom();
       }
-      document.getElementById('seek-back').addEventListener('click', function(){ doSeek(-10); });
-      document.getElementById('seek-fwd').addEventListener('click', function(){ doSeek(10); });
+      document.getElementById('seek-back').addEventListener('click', function(){ doSeek(-seekAmtVal()); });
+      document.getElementById('seek-fwd').addEventListener('click', function(){ doSeek(seekAmtVal()); });
       /* (v1.0.4) Seek bar seeks: the bar was display-only (renderTime just
          moved the fill/knob) — click jumps to that point, drag scrubs with
          the knob following live, engine seek on release. stopPropagation
@@ -5653,10 +5844,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       var suppressTapUntil = 0;
       /* single tap = show / hide the controls (never seeks); double-tap =
-         ±10s seek. A tap waits ~280ms: a second tap on the same side turns
-         it into a double-tap seek, otherwise the single tap toggles the
-         controls. The ±10s buttons and the centre play/pause button work
-         as before. */
+         ±seekAmt seek — ONLY when the Gestures toggle (gDtSeek) is on.
+         A tap waits ~280ms: a second tap on the same side turns it into
+         a double-tap seek, otherwise the single tap toggles the controls.
+         The seek buttons and the centre play/pause button work as before. */
       var tapTimer = null, tapSide = null;
       function toggleControls(){
         var stg = document.querySelector('#scr-player .stage-video');
@@ -5667,7 +5858,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (Date.now() < suppressTapUntil) return;
         if (tapTimer && tapSide === side){
           clearTimeout(tapTimer); tapTimer = null; tapSide = null;
-          doSeek(side === 'left' ? -10 : 10);
+          /* (v1.0.18 P17-09) Double-tap seek honours its toggle: off means
+             the double-tap just toggles the controls, like a single tap. */
+          if (v31Bool('gDtSeek', false) !== false) doSeek(side === 'left' ? -seekAmtVal() : seekAmtVal());
+          else toggleControls();
           return;
         }
         if (tapTimer){ clearTimeout(tapTimer); tapTimer = null; tapSide = null; }
@@ -5676,10 +5870,20 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       /* a tap on the middle of the stage (not on a button) also toggles the
          controls — the tap zones cover the sides, .v-center covers the rest */
+      var stageTapTimer = null;
       stageEl.addEventListener('click', function(e){
         if (e.target.closest('button, input, a, .quality-menu, .vol-rail, .glass-sheet')) return;
         if (Date.now() < suppressTapUntil) return;
-        toggleControls();
+        /* (v1.0.18 P17-09) Centre double-tap pauses/plays — ONLY when the
+           Gestures toggle (gDtPause) is on; a single tap toggles the
+           controls, as before. Same 280 ms window as the tap zones. */
+        if (stageTapTimer){
+          clearTimeout(stageTapTimer); stageTapTimer = null;
+          if (v31Bool('gDtPause', false) !== false && typeof setPlaying === 'function') setPlaying(!playing, true);
+          else toggleControls();
+          return;
+        }
+        stageTapTimer = setTimeout(function(){ stageTapTimer = null; toggleControls(); }, 280);
       })
       document.getElementById('zone-l').addEventListener('click', function(){ zoneTap('left'); });
       document.getElementById('zone-r').addEventListener('click', function(){ zoneTap('right'); });
@@ -5791,7 +5995,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         zone.addEventListener('pointerdown', function(e){
           gState = { side: side, x: e.clientX, y: e.clientY, mode: null, moved: false,
                      startCur: cur,
-                     vol: parseInt(volRange.value, 10), bri: parseInt(briRange.value, 10) };
+                     vol: parseInt(volRange.value, 10), bri: parseInt(briRange.value, 10),
+                     /* (v1.0.18 P17-09) Read the gesture toggles once per
+                        swipe so a mid-swipe settings change cannot split it. */
+                     seekOk: v31Bool('gSwipeSeek', true) !== false,
+                     bvOk: v31Bool('gSwipeBV', true) !== false };
           try { zone.setPointerCapture(e.pointerId); } catch (err) {}
         });
         zone.addEventListener('pointermove', function(e){
@@ -5808,6 +6016,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             gState.moved = true;
           }
           if (gState.mode === 'scrub'){
+            /* (v1.0.18 P17-09) Swipe-seek honours its toggle. */
+            if (!gState.seekOk) return;
             /* horizontal drag scrubs through the video — progress moves
                live and the seek pill shows the offset and target time */
             var t = Math.max(0, Math.min(TOTAL, gState.startCur + Math.round(dx * 2)));
@@ -5816,6 +6026,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             showPill(side, cur - gState.startCur);
             return;
           }
+          /* (v1.0.18 P17-09) Brightness/volume swipe honours its toggle. */
+          if (!gState.bvOk) return;
           var delta = Math.round(dy / 1.6);
           if (side === 'left'){
             var nb = Math.max(40, Math.min(130, gState.bri + delta));
@@ -6089,9 +6301,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       ];
       function langOf(code){ for (var i=0;i<AUDIO_LANGS.length;i++) if (AUDIO_LANGS[i].c === code) return AUDIO_LANGS[i]; return AUDIO_LANGS[0]; }
       var PB = { mode:'auto', res:'Auto', audio1:'en', audio2:'bn', player:'internal',
-                 engine:'exoplayer', extApp:'VLC', timeout:'10s', reuse:true, reuseDur:'24h', buffer:'normal' };
-      var SRV_NAMES = ['VidCloud','StreamWish','FileMoon','Voe','DoodStream','MixDrop','StreamTape','VidHide','UpCloud','MegaPlay','FastServe','TurboVid'];
-      var SRV_AUDS = ['en','hi','bn','en','hi','ta','te','bn','ml','en'];
+                 engine:'exoplayer', extApp:'VLC', timeout:'30s', reuse:true, reuseDur:'24h', buffer:'normal' };
       /* Phase C: servers come from the engine (links E12) — the old fake
          generator is gone. BRIDGE_SERVERS holds the last fetched list in the
          same shape the sheet renders (speed is null: never invented). */
@@ -6115,7 +6325,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         /* (v0.2.11) C-6: the stored Stream-timeout setting finally reaches
            the engine (it was stored but never read — playback always died
            at the 10 s default while the UI waited 60/90 s). */
-        if (typeof PB !== 'undefined' && PB.timeout) p.timeoutSec = parseInt(PB.timeout, 10) || 30;
+        /* (v1.0.18 P17-07) Named timeouts are real seconds now: Instant =
+           1 s, Unlimited = the documented 300 s cap — the old parseInt
+           gave 30 s for both, lying about what the setting meant. */
+        if (typeof PB !== 'undefined' && PB.timeout){
+          if (PB.timeout === 'Instant') p.timeoutSec = 1;
+          else if (PB.timeout === 'Unlimited') p.timeoutSec = 300;
+          else p.timeoutSec = parseInt(PB.timeout, 10) || 30;
+        }
         if (tt && tt.data) p.data = tt.data;
         if (extra) for (var k in extra) p[k] = extra[k];
         return p;
@@ -6461,7 +6678,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (window.ZP_MEDIA && window.ZP_MEDIA.length) m = window.ZP_MEDIA;
           else if (window.__v31Instances && window.__v31Instances.length && window.__v31Instances[0].set && window.__v31Instances[0].set.media) m = window.__v31Instances[0].set.media;
           if (m) return normMediaList(m).indexOf('NSFW') !== -1;
-          var picked = readSetupMedia(); if (picked && picked.length) return picked.indexOf('NSFW') !== -1;
+          var picked = (typeof window.ZP_readSetupMedia === 'function') ? window.ZP_readSetupMedia() : null; if (picked && picked.length) return picked.indexOf('NSFW') !== -1;
         }catch(e){}
         return false;
       }
@@ -6575,6 +6792,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return extra ? base + ' • ' + extra : base;
       }
       function dlStateText(it){
+        /* (v1.0.18 P16-05) The file was deleted outside the app — the row
+           stays, but it must not pretend the download is still there. */
+        if (it.fileMissing) return 'ফাইল পাওয়া যায়নি';
         if (it.status === 'done') return 'Downloaded';
         if (it.status === 'paused') return 'Paused • ' + dlProgressText(it);
         if (it.status === 'failed') return 'Failed — ' + (it.error || 'try again');
@@ -6605,8 +6825,20 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             if (barEl) barEl.style.width = Math.round(used / si.totalBytes * 100) + '%';
           } else if (stEl) { stEl.textContent = 'Storage info unavailable'; }
         } catch (e) {}
+        /* (v1.0.18 P16-05) Orphan sweep: files in the download folder with
+           no row. The banner offers a one-tap cleanup; the names ride on
+           window.ZP_ORPHANS for the confirm handler. */
+        var orphanHtml = '';
+        try {
+          var orph = await engineCall('orphanSweep', {});
+          var ob = (orph && orph.orphanBytes) || 0;
+          if (ob > 0){
+            window.ZP_ORPHANS = (orph && orph.orphanFiles) || [];
+            orphanHtml = '<div class="dl-orphan"><span>অনাথ ফাইল: ' + fmtMB(ob) + ' জায়গা নিচ্ছে — কোনো ডাউনলোডের সাথে নেই।</span> <button class="dl-open" data-orphan-clean>মুছে ফেলুন</button></div>';
+          }
+        } catch (e) {}
         if (!items.length){
-          list.innerHTML = '<p class="dl-none">কোনো ডাউনলোড নেই — আগে Extensions থেকে প্রোভাইডার ON করুন, তারপর এখানে ডাউনলোড করা কনটেন্ট দেখাবে।</p>';
+          list.innerHTML = orphanHtml + '<p class="dl-none">কোনো ডাউনলোড নেই — আগে Extensions থেকে প্রোভাইডার ON করুন, তারপর এখানে ডাউনলোড করা কনটেন্ট দেখাবে।</p>';
           return;
         }
         items.forEach(function(it){
@@ -6623,9 +6855,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           else if (it.status === 'queued') ctrls = ' <button class="dl-open" data-dlctl="cancel" data-dlid="' + it.id + '">Cancel</button>';
           else if (it.status === 'paused') ctrls = ' <button class="dl-open" data-dlctl="resume" data-dlid="' + it.id + '">Resume</button> <button class="dl-open" data-dlctl="cancel" data-dlid="' + it.id + '">Cancel</button>';
           else if (it.status === 'failed') ctrls = ' <button class="dl-open" data-dlctl="retry" data-dlid="' + it.id + '">Retry</button> <button class="dl-open" data-dlctl="cancel" data-dlid="' + it.id + '">Cancel</button>';
-          d.innerHTML = posterImgHTML(it.poster || '', '') + '<div><p class="dl-t">' + it.title + '</p><small>' + (it.providerName || '') + ' • ' + sizeTxt + '</small>' + bar + '<span class="dl-state">' + dlStateText(it) + '</span>' + (it.status === 'done' ? ' <button class="dl-open" data-dlopen="' + it.id + '">Open</button>' : '') + ctrls + ' <button class="dl-del" data-dldel="' + it.id + '">Delete</button></div>';
+          d.innerHTML = posterImgHTML(it.poster || '', '') + '<div><p class="dl-t">' + it.title + '</p><small>' + (it.providerName || '') + ' • ' + sizeTxt + '</small>' + bar + '<span class="dl-state">' + dlStateText(it) + '</span>' + (it.status === 'done' ? (it.fileMissing ? ' <button class="dl-open" data-dlredl="' + it.id + '">আবার ডাউনলোড করুন</button>' : ' <button class="dl-open" data-dlopen="' + it.id + '">Open</button>') : '') + ctrls + ' <button class="dl-del" data-dldel="' + it.id + '">Delete</button></div>';
           list.appendChild(d);
         });
+        if (orphanHtml) list.insertAdjacentHTML('afterbegin', orphanHtml);
       }
       /* (v1.0.14 P5 F1) Single-flight rebuildCatalog: concurrent callers
          (boot, pluginsChanged, toggles) share ONE in-flight run instead of
@@ -7292,6 +7525,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var a = full.indexOf(key), b = full.indexOf(other);
         var tmp = full[a]; full[a] = full[b]; full[b] = tmp;
         ST.provOrder = full.slice();
+        try{ enginePersistSetting('providerOrder', ST.provOrder); }catch(e){}
         rebuildCatalog();
         if (document.getElementById('prov-sheet').classList.contains('open')) renderPicker();
       }
@@ -7299,6 +7533,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var p = PROVIDERS[key]; if (!p) return;
         if (ST.pin[key]){ delete ST.pin[key]; toast(p.name + ' — আনপিন করা হয়েছে'); }
         else { ST.pin[key] = true; toast(p.name + ' — পিন করা হয়েছে ✓ সবার আগে থাকবে'); }
+        try{ enginePersistSetting('providerPin', ST.pin); }catch(e){}
         rebuildCatalog();
         if (document.getElementById('prov-sheet').classList.contains('open')) renderPicker();
       }
@@ -7557,6 +7792,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var items = [];
         try {
           var lang = (typeof PB !== 'undefined' && PB.audio1) ? PB.audio1 : 'en';
+          /* (v1.0.18 P17-02) The subtitle filter picks the search language:
+             set to Hindi, the list shows Hindi only. */
+          var _sf = v31Bool('subFilter', 'All');
+          if (_sf && _sf !== 'All'){
+            var _sfc = null;
+            (typeof AUDIO_LANGS !== 'undefined' ? AUDIO_LANGS : []).forEach(function(a){ if (a.nat === _sf) _sfc = a.c; });
+            if (_sfc) lang = _sfc;
+          }
           var d = await engineCall('subtitlesSearch', { title: curTitle, lang: lang }, 60000);
           items = (d && d.subtitles) || [];
         } catch (e) { items = []; }
@@ -7627,6 +7870,28 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           });
           return;
         }
+        var dlr = e.target.closest('[data-dlredl]');
+        if (dlr){
+          /* (v1.0.18 P16-05) Best-effort re-download from the stored page
+             URL (mediaId): the engine re-resolves links; if the provider
+             no longer has it, the error toasts honestly. */
+          var rid = dlr.getAttribute('data-dlredl');
+          var rent = (typeof DL_BY_ID !== 'undefined' && DL_BY_ID[rid]) || null;
+          if (rent) engineCall('downloadStart', { title: rent.title, url: rent.mediaId, type: rent.type, providerName: rent.providerName }, 120000).then(function(){ buildDownloads(); }).catch(function(e){ toast(engineErrText(e)); });
+          return;
+        }
+        var orc = e.target.closest('[data-orphan-clean]');
+        if (orc){
+          var names = window.ZP_ORPHANS || [];
+          zpConfirm('অনাথ ফাইল মুছবেন?', names.length + 'টি ফাইল মুছে ফেলা হবে।').then(function(ok){
+            if (!ok) return;
+            engineCall('orphanDelete', { names: names }).then(function(d){
+              toast('মুছে ফেলা হয়েছে ✓ — ' + fmtMB((d && d.freedBytes) || 0) + ' খালি');
+              buildDownloads();
+            }).catch(function(e){ toast(engineErrText(e)); });
+          });
+          return;
+        }
         var so = e.target.closest('[data-subdl-open]');
         if (so){
           closeMenus(); renderSubdl();
@@ -7651,16 +7916,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (act){
           var a = act.getAttribute('data-act');
           if (a === 'Back up data'){
-            engineCall('backupExport', {}, 60000).then(function(d){
-              var blob = new Blob([(d && d.json) || '{}'], { type: 'application/json' });
-              var url = URL.createObjectURL(blob);
-              var link = document.createElement('a');
-              link.href = url; link.download = (d && d.fileName) || 'zaynplay-backup-0.2.0.json';
-              document.body.appendChild(link); link.click(); link.remove();
-              setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+            /* (v1.0.18 P16-04) Native save — the old blob-click could
+               never save a file in WebView; toast only on confirmed write. */
+            engineCall('backupSave', {}, 60000).then(function(d){
               var bs = document.getElementById('backup-status');
-              if (bs) bs.textContent = 'Last backup: ' + new Date().toLocaleString();
-              toast('Backup saved ✓');
+              if (bs) bs.textContent = 'Last backup: ' + ((d && d.fileName) || new Date().toLocaleString());
+              toast('Backup saved ✓ — ' + ((d && d.fileName) || ''));
             }).catch(function(e){ toast(engineErrText(e)); });
           }
           if (a === 'Restore data from backup'){
@@ -7676,8 +7937,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var file = rf.files && rf.files[0]; if (!file) return;
         var rd = new FileReader();
         rd.onload = function(){
-          engineCall('backupImport', { json: String(rd.result || '') }, 120000).then(function(d){
-            toast('Backup restored ✓ — ' + ((d && d.reposInstalled) || 0) + 'টি রিপো');
+          engineCall('backupRestore', { json: String(rd.result || '') }, 120000).then(function(d){
+            toast('Backup restored ✓ — লাইব্রেরি ' + ((d && d.libraryMerged) || 0) + ' • অগ্রগতি ' + ((d && d.progressMerged) || 0) + ' • ডাউনলোড ' + ((d && d.downloadsMerged) || 0));
+            engineCall('settingsGet', {}).then(function(sd){ var set = (sd && sd.settings) || null; if (set) applyEngineSettings(set); }).catch(function(){});
             if (typeof rebuildCatalog === 'function') rebuildCatalog();
           }).catch(function(e){ toast(engineErrText(e)); });
           rf.value = '';
@@ -7703,13 +7965,31 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (typeof buildCW === 'function') buildCW();
       }).catch(function(){});
       engineCall('accountStatus', {}).then(function(d){
-        var acc = (d && d.accounts) || {};
+        /* (v1.0.18 P17-19) accounts is an ARRAY of {provider, name,
+           loggedIn} — the old code iterated its numeric keys "0".."6"
+           and never set any login state. */
+        var acc = (d && d.accounts) || [];
         var _insts2 = (typeof window !== 'undefined' && window.__v31Instances) || [];
         _insts2.forEach(function(inst){
-          Object.keys(acc).forEach(function(k){ inst.acc[k] = !!(acc[k] && acc[k].loggedIn); });
+          acc.forEach(function(a){ if (a && a.provider) inst.acc[a.provider] = !!a.loggedIn; });
         });
         if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
       }).catch(function(){});
+      /* (v1.0.18 P17-23) Cloned/added sites come back from Room. */
+      engineCall('customSitesGet', {}).then(function(d){
+        try{ if (d && d.sites){ ST.customSites = d.sites; if (typeof zpReloadFromBridge === 'function') zpReloadFromBridge(); } }catch(e){}
+      }).catch(function(){});
+      /* (v1.0.18 P17-21) About shows the real native version. */
+      engineCall('engineStatus', {}).then(function(d){
+        try{
+          var v = (d && d.version) || '';
+          var _i3 = (typeof window !== 'undefined' && window.__v31Instances) || [];
+          _i3.forEach(function(inst){ inst.appVersion = v; });
+          if (typeof window !== 'undefined' && typeof window.ZP_v31refresh === 'function') window.ZP_v31refresh();
+        }catch(e){}
+      }).catch(function(){});
+      /* (v1.0.18 P16-06) Drop stale/over-cap feed cache entries at boot. */
+      if (typeof sweepFeedCache === 'function') sweepFeedCache();
       go('home');
       /* Zayn Play app boot (UI-only build): the native splash already showed,
          so ?bootsplash=0 skips the in-WebView splash; setup shows only on
@@ -8043,8 +8323,7 @@ var PICK = {
     ['1h','১ ঘণ্টা',''], ['6h','৬ ঘণ্টা',''], ['24h','২৪ ঘণ্টা',''], ['7d','৭ দিন',''] ] },
   srcPrio: { title:'সোর্সের অগ্রাধিকার', desc:'কোন ধরনের সোর্স আগে লোড হবে।', opts:[
     ['quality','মান আগে','সবচেয়ে ভালো মানের সোর্স আগে'],
-    ['speed','গতি আগে','সবচেয়ে ফাস্ট সোর্স আগে'],
-    ['size','ছোট সাইজ আগে','কম ডেটা খরচের সোর্স আগে'] ] },
+    ['speed','গতি আগে','সবচেয়ে ফাস্ট সোর্স আগে'] ] },
   subLang: { title:'সাবটাইটেলের ভাষা', desc:'ভিডিওতে এই ভাষার সাবটাইটেল আগে আসবে।', opts: langOpts([['Off','বন্ধ','সাবটাইটেল আসবে না']]) },
   subFilter: { title:'কোন ভাষার সাবটাইটেল দেখাবে', desc:'শুধু বাছাই করা ভাষার সাবটাইটেলই তালিকায় আসবে।', opts: langOpts([['All','সব ভাষা','যেকোনো ভাষার সাবটাইটেল চলবে']]) },
   subColor: { title:'সাবটাইটেলের রং', desc:'সাবটাইটেলের লেখার রং।', opts:[
@@ -8061,19 +8340,8 @@ var PICK = {
     ['left','বামে',''], ['center','মাঝখানে',''], ['right','ডানে',''] ] },
   subSize: { title:'সাবটাইটেলের লেখার সাইজ', desc:'লেখা কত বড় দেখাবে।', opts:[
     ['small','ছোট',''], ['medium','মাঝারি',''], ['large','বড়',''], ['xlarge','অনেক বড়',''] ] },
-  castStyle: { title:'TV-তে সাবটাইটেলের ধরন', desc:'Chromecast দিয়ে TV-তে পাঠালে লেখা কেমন দেখাবে।', opts:[
-    ['outline','Outline','লেখার চারপাশে ধার'], ['shadow','Shadow','লেখার নিচে ছায়া'],
-    ['raised','Raised','লেখা উঁচু করে দেখায়'], ['depressed','Depressed','লেখা বসানো দেখায়'], ['none','কিছু না','শুধু লেখা'] ] },
-  castColor: { title:'TV-তে সাবটাইটেলের রং', desc:'TV-তে সাবটাইটেলের লেখার রং।', opts:[
-    ['সাদা','সাদা',''], ['হলুদ','হলুদ',''], ['সবুজ','সবুজ',''], ['আকাশি','আকাশি',''], ['গোলাপি','গোলাপি',''] ] },
-  castSize: { title:'TV-তে সাবটাইটেলের সাইজ', desc:'TV-তে লেখা কত বড় দেখাবে।', opts:[
-    ['small','ছোট',''], ['medium','মাঝারি',''], ['large','বড়',''], ['xlarge','অনেক বড়',''] ] },
   bufDisk: { title:'ডিস্কে বাফারের জায়গা', desc:'ভিডিও আগে থেকে নামিয়ে রাখতে কত জায়গা ব্যবহার হবে।', opts:[
     ['100 MB','100 MB',''], ['250 MB','250 MB',''], ['500 MB','500 MB',''], ['1 GB','1 GB',''] ] },
-  bufSize: { title:'মেমোরিতে বাফার (RAM)', desc:'চলমান ভিডিওর জন্য মেমোরিতে কতটা বাফার থাকবে।', opts:[
-    ['32 MB','32 MB',''], ['64 MB','64 MB',''], ['128 MB','128 MB',''], ['256 MB','256 MB',''] ] },
-  bufLen: { title:'বাফারের লম্বা', desc:'ভিডিও কত সেকেন্ড আগে থেকে লোড হয়ে থাকবে।', opts:[
-    ['30s','৩০ সেকেন্ড',''], ['50s','৫০ সেকেন্ড',''], ['90s','৯০ সেকেন্ড',''], ['120s','১২০ সেকেন্ড',''] ] },
 buffer: { title:'বাফারিং', desc:'ভিডিও কতটা আগে থেকে লোড হয়ে থাকবে। কম হলে তাড়াতাড়ি শুরু হয়, বেশি হলে মসৃণ চলে।', opts:[
     ['verylow','Very low','সবচেয়ে কম বাফার — সাথে সাথে শুরু'],
     ['low','Low','কম বাফার — তাড়াতাড়ি শুরু'],
@@ -8085,13 +8353,11 @@ buffer: { title:'বাফারিং', desc:'ভিডিও কতটা আ�
     ['dark','Dark','সবসময় ডার্ক'], ['light','Light','সবসময় লাইট'] ] },
   layout: { title:'অ্যাপের ধরন', desc:'কোন ডিভাইসের সাজানো দেখাবে।', opts:[
     ['phone','Phone','ফোনের সাজানো'], ['tv','TV','TV-র বড় সাজানো'], ['auto','Auto','ডিভাইস দেখে নিজে থেকে'] ] },
-  hideQual: { title:'সার্চে এই মান লুকানো', desc:'বাছাই করা মানের ভিডিও সার্চের ফলাফলে আসবে না।', opts:[
-    ['none','কিছুই না','সব মানই দেখাবে'], ['360p','360p',''], ['480p','480p',''], ['720p','720p',''], ['1080p','1080p',''], ['2K','2K',''], ['4K','4K',''] ] },
   appLang: { title:'অ্যাপের ভাষা', desc:'পুরো অ্যাপ এই ভাষায় দেখাবে।', opts: langOpts() },
-  dubsub: { title:'ডাব / সাব দেখানো', desc:'অ্যানিমেতে ডাব করা, সাব করা, নাকি দুটোই দেখাবে।', opts:[
-    ['both','দুটোই','ডাব আর সাব — দুটোই'], ['dub','শুধু ডাব','শুধু ডাব করা'], ['sub','শুধু সাব','শুধু সাব করা'] ] },
   dns: { title:'নিরাপদ DNS', desc:'ব্লক থাকা সাইট খুলতে সাহায্য করে (DNS over HTTPS)।', opts:[
-    ['off','বন্ধ',''], ['cloudflare','Cloudflare',''], ['google','Google',''], ['quad9','Quad9',''] ] },
+    ['system','System','ফোনের নিজের DNS — ডিফল্ট'], ['cloudflare','Cloudflare',''], ['google','Google',''],
+    ['adguard','AdGuard',''], ['dnswatch','DNSWatch',''], ['quad9','Quad9',''],
+    ['dnssb','DNS.SB',''], ['canadianshield','Canadian Shield',''] ] },
   backupFreq: { title:'নিজে থেকে ব্যাকআপ', desc:'কতদিন পরপর নিজে থেকে ব্যাকআপ হবে।', opts:[
     ['never','কখনো না','শুধু হাতে নিলে'], ['daily','প্রতিদিন',''], ['weekly','প্রতি সপ্তাহে',''], ['monthly','প্রতি মাসে',''] ] },
   dlQuality: { title:'ডাউনলোডের মান', desc:'নামানোর সময় এই মানের ভিডিও নামবে।', opts:[
@@ -8116,28 +8382,17 @@ var MULTI = {
     ['Music','Music','গান'], ['AudioBook','Audio Book','অডিও বই'], ['CustomMedia','Custom Media','কাস্টম মিডিয়া'],
     ['Audio','Audio','অডিও'], ['Podcast','Podcast','পডকাস্ট'], ['Video','Video','ভিডিও'] ] },
   posterUI: { title:'পোস্টারে যা যা দেখাবে', desc:'হোমের পোস্টারের উপর কোন তথ্যগুলো থাকবে।', opts:[
-    ['রেটিং','রেটিং','তারকা রেটিং'], ['কোয়ালিটি','কোয়ালিটি ব্যাজ','HD / 4K ব্যাজ'],
-    ['সাল','সাল','তৈরির বছর'], ['ডাব/সাব','ডাব / সাব ব্যাজ','ডাব বা সাব লেখা'] ] }
+    ['রেটিং','রেটিং','তারকা রেটিং'], ['সাল','সাল','তৈরির বছর'] ] }
 };
 var ACCENTS = [
   ['#e8261c','লাল','Red'], ['#16a34a','সবুজ','Green'], ['#2563eb','নীল','Blue'], ['#7c3aed','বেগুনি','Purple'],
   ['#db2777','গোলাপি','Pink'], ['#ea580c','কমলা','Orange'], ['#0d9488','টিল','Teal'], ['#d97706','অ্যাম্বার','Amber']
 ];
-var SERVERS = [
-  { n:'VidCloud', q:'1080p', a:'English', s:'1.2 GB', auto:true, fast:true },
-  { n:'FileMoon', q:'1080p', a:'English', s:'1.1 GB' },
-  { n:'StreamWish', q:'720p', a:'Hindi', s:'700 MB' },
-  { n:'Voe', q:'720p', a:'English', s:'650 MB' },
-  { n:'DoodStream', q:'480p', a:'English', s:'350 MB' }
-];
 var ACCOUNTS = [
   { id:'mal', name:'MyAnimeList', color:'#2e51a2', mark:'M', desc:'অ্যানিমের দেখার হিসাব মিলিয়ে রাখে' },
   { id:'kitsu', name:'Kitsu', color:'#e75e3d', mark:'K', desc:'অ্যানিমের তালিকা আর অগ্রগতি মিলিয়ে রাখে' },
   { id:'anilist', name:'AniList', color:'#02a9ff', mark:'A', desc:'অ্যানিমে ও মাঙ্গার হিসাব রাখে' },
-  { id:'simkl', name:'Simkl', color:'#3a3f4d', mark:'S', desc:'সিনেমা-সিরিজের দেখার হিসাব রাখে' },
-  { id:'osub', name:'OpenSubtitles', color:'#475569', mark:'OS', desc:'সাবটাইটেল পেতে লগইন লাগে' },
-  { id:'subdl', name:'SubDL', color:'#0891b2', mark:'SD', desc:'সাবটাইটেল নামাতে লগইন লাগে' },
-  { id:'askip', name:'AnimeSkip', color:'#7c3aed', mark:'AS', desc:'ইন্ট্রো এড়ানোর সময় এখান থেকে আসে' }
+  { id:'simkl', name:'Simkl', color:'#3a3f4d', mark:'S', desc:'সিনেমা-সিরিজের দেখার হিসাব রাখে' }
 ];
 var BN_DESC = {
   cspr:'Zayn Play-এর অফিসিয়াল রিপো — Dailymotion, Invidious আর Twitch আছে',
@@ -8168,20 +8423,20 @@ var BN_DESC = {
 var CHIP_LABEL = { all:'সব', official:'Official', english:'English', hindi:'Hindi', multilang:'Multilang', arabic:'Arabic', indonesian:'Indonesian', italian:'Italian', turkish:'Turkish', german:'German', french:'French' };
 function defaults(){
     var d = {
-      player:'internal', extApp:'VLC', engine:'exoplayer', titleChars:'50', showInfo:true, hideNames:false, resume:true,
-      mode:'auto', res:'Auto', audio1:'English', audio2:'বাংলা', timeout:'10s', reuse:true, reuseDur:'24h', srcPrio:'quality',
+      player:'internal', extApp:'VLC', engine:'exoplayer', titleChars:'50', showInfo:true, resume:true,
+      mode:'auto', res:'Auto', audio1:'English', audio2:'বাংলা', timeout:'30s', reuse:true, reuseDur:'24h', srcPrio:'quality',
       subLang:'বাংলা', subFilter:'All', subColor:'সাদা', subStyle:'outline', subPosV:'bottom', subPosH:'center', subSize:'medium',
-      castStyle:'outline', castColor:'সাদা', castSize:'medium',
       gSwipeSeek:true, gSwipeBV:true, gDtSeek:false, gDtPause:false, gHold2x:true, seekAmt:10,
-      bufDisk:'250 MB', bufSize:'64 MB', bufLen:'50s', buffer:'normal', tvSeekShown:30, tvSeekHidden:10,
-      theme:'system', layout:'phone', bottomTitles:true, hideQual:'none', confirmExit:false,
-      posterUI:['রেটিং','কোয়ালিটি'], rowTrend:true, rowCW:true, rowTop10:true,
+      bufDisk:'250 MB', buffer:'normal',
+      theme:'system', layout:'auto', bottomTitles:true, confirmExit:false,
+      posterUI:['রেটিং','সাল'], rowTrend:true, rowCW:true,
       appLang:'English', provLang:['English','Bengali','Hindi'],
-      media: readSetupMedia(), dubsub:'both',
+      media: readSetupMedia(),
+      profileName:'Zayn', profileBg:'linear-gradient(135deg,#ff5147,#b3000c)', primaryColor:'#e8261c',
+      providerOrder:[], providerPin:{},
       bioLock:false,
       updNotify:true, plugAutoUpd:true, backupFreq:'weekly', backupFolder:'/Zayn Play/Backup',
-      dlQuality:'Auto', wifiOnly:false, autoNextEp:false, dns:'cloudflare',
-      swDec:false
+      dlQuality:'Auto', wifiOnly:false, dns:'system'
     };
     try{
       if (typeof ZPTheme !== 'undefined' && ZPTheme.pref) d.theme = ZPTheme.pref;
@@ -8234,8 +8489,8 @@ function rGo(page, label, desc, icon, color, valText){
     '<span class="v31-row-d">' + esc(desc) + '</span></span>' +
     '<span class="v31-val">' + (valText ? esc(valText) : '') + CHEV + '</span></button>';
 }
-function rAct(act, label, desc, icon, color, valText, cls){
-  return '<button class="v31-row' + (cls ? ' ' + cls : '') + '" data-v31-act="' + act + '">' + mi(icon, color, true) +
+function rAct(act, label, desc, icon, color, valText, cls, url){
+  return '<button class="v31-row' + (cls ? ' ' + cls : '') + '" data-v31-act="' + act + '"' + (url ? ' data-v31-url="' + esc(url) + '"' : '') + '>' + mi(icon, color, true) +
     '<span class="v31-row-tx"><span class="v31-row-t">' + esc(label) + '</span>' +
     '<span class="v31-row-d">' + esc(desc) + '</span></span>' +
     '<span class="v31-val">' + (valText ? esc(valText) : '') + CHEV + '</span></button>';
@@ -8275,7 +8530,7 @@ var GROUPS = [
 ];
 function rHub(inst){
   var h = '<h2 class="v31-ptitle">সেটিংস</h2>' +
-    '<div class="v31-profile"><span class="v31-avatar">Z</span><div><h3>Zayn</h3><p>Local account • Not synced</p></div><span class="v31-free">LOCAL</span></div>' +
+    '<div class="v31-profile"><span class="v31-avatar" style="background:' + esc(inst.set.profileBg || 'linear-gradient(135deg,#ff5147,#b3000c)') + '">' + esc(((inst.set.profileName || 'Zayn').charAt(0) || 'Z').toUpperCase()) + '</span><div><h3>' + esc(inst.set.profileName || 'Zayn') + '</h3><p>Local account • Not synced</p></div><span class="v31-free">LOCAL</span></div>' +
     '<div class="v31-search">' + IC.search + '<input type="search" data-v31-hubq placeholder="সেটিংসে খুঁজুন… যেমন: সাবটাইটেল, রং, ডাউনলোড" autocomplete="off" /></div>' +
     '<div data-v31-hubmain>' + hubMain(inst) + '</div>' +
     '<p class="v31-foot">Zayn Play</p>';
@@ -8298,8 +8553,6 @@ function rPlay(inst){
       rPick(inst, 'engine', 'প্লেয়ারের ইঞ্জিন', 'ভিডিও চালানোর ভেতরের ইঞ্জিন', IC.gear, '#0891b2') +
       rPick(inst, 'titleChars', 'নামের সর্বোচ্চ লম্বা', 'প্লেয়ারে ভিডিওর নাম কত অক্ষর পর্যন্ত দেখাবে', IC.rows, '#475569') +
       rTog(inst, 'showInfo', 'ভিডিওর তথ্য দেখানো', 'নাম, রেজোলিউশন আর মিডিয়া তথ্য প্লেয়ারে দেখায়', IC.info, '#2563eb') +
-      rTog(inst, 'hideNames', 'কন্ট্রোলের নাম লুকানো', 'প্লেয়ারের বোতামগুলোর পাশে নাম লেখা থাকে না', IC.rows, '#475569') +
-      rTog(inst, 'swDec', 'সফটওয়্যার ডিকোডিং', 'হার্ডওয়্যারের বদলে সফটওয়্যার ডিকোডিং', IC.sliders, '#475569') +
       rTog(inst, 'resume', 'যেখানে থেমেছি সেখান থেকে চালু', 'ভিডিও বন্ধ করে গেলে আবার খুললে ঠিক সেখান থেকেই চলবে — Play নয়, Resume আসবে', IC.hist, '#059669', true)
     ) +
     secT('ভিডিও চলা ও সার্ভার') + card(
@@ -8308,11 +8561,9 @@ function rPlay(inst){
       rPick(inst, 'audio1', 'প্রথম পছন্দের অডিও ভাষা', 'এই ভাষার অডিও থাকলে সেটাই আগে চলবে', IC.chat, '#059669') +
       rPick(inst, 'audio2', 'দ্বিতীয় পছন্দের অডিও ভাষা', 'প্রথম ভাষা না থাকলে এই ভাষার অডিও চলবে', IC.chat, '#0891b2') +
       rPick(inst, 'timeout', 'সার্ভারের জন্য অপেক্ষা', 'সার্ভার উত্তর না দিলে কতক্ষণ চেষ্টা করবে', IC.clock, '#d97706') +
-      rPick(inst, 'buffer', 'বাফারিং', 'কতটা আগে থেকে লোড হবে — কম হলে তাড়াতাড়ি শুরু, বেশি হলে মসৃণ চলবে', IC.clock, '#e8261c') +
       rTog(inst, 'reuse', 'আগের লিংক আবার ব্যবহার', 'একই ভিডিও আবার খুললে আগের লিংকেই সাথে সাথে চলে', IC.link, '#059669') +
       rPick(inst, 'reuseDur', 'লিংক কতক্ষণ মনে রাখবে', 'আগের লিংকটা কতক্ষণ পর্যন্ত আবার ব্যবহার হবে', IC.clock, '#7c3aed') +
-      rPick(inst, 'srcPrio', 'সোর্সের অগ্রাধিকার', 'কোন ধরনের সোর্স আগে লোড হবে', IC.sliders, '#db2777') +
-      rGo('servers', 'সার্ভারের তালিকা', 'সব সার্ভার একসাথে দেখুন — চাপ দিলে সেটা থেকেই চলবে', IC.server, '#475569')
+      rPick(inst, 'srcPrio', 'সোর্সের অগ্রাধিকার', 'কোন ধরনের সোর্স আগে লোড হবে', IC.sliders, '#db2777')
     ) +
     secT('আরও') + card(
       rGo('play-subs', 'সাবটাইটেল', 'সাবটাইটেলের ভাষা, রং, ধরন, জায়গা আর সাইজ', IC.cc, '#0891b2') +
@@ -8330,11 +8581,6 @@ function rSubs(inst){
       rPick(inst, 'subPosV', 'জায়গা (উপর-নিচ)', 'লেখা স্ক্রিনের উপরে, মাঝে, নাকি নিচে থাকবে', IC.layout, '#475569') +
       rPick(inst, 'subPosH', 'জায়গা (ডান-বাম)', 'লেখা বামে, মাঝে, নাকি ডানে থাকবে', IC.layout, '#475569') +
       rPick(inst, 'subSize', 'লেখার সাইজ', 'লেখা কত বড় দেখাবে', IC.search, '#059669')
-    ) +
-    secT('TV-তে পাঠালে (Chromecast)') + card(
-      rPick(inst, 'castStyle', 'TV-তে লেখার ধরন', 'TV-তে সাবটাইটেল কেমন দেখাবে', IC.tv, '#0891b2') +
-      rPick(inst, 'castColor', 'TV-তে লেখার রং', 'TV-তে সাবটাইটেলের লেখার রং', IC.palette, '#d97706') +
-      rPick(inst, 'castSize', 'TV-তে লেখার সাইজ', 'TV-তে লেখা কত বড় দেখাবে', IC.tv, '#059669')
     );
 }
 function rGesture(inst){
@@ -8352,32 +8598,14 @@ function rCache(inst){
   return head('ক্যাশে ও বাফার', 'ভিডিও আগে থেকে লোড রাখা') +
     secT('বাফার') + card(
       rPick(inst, 'buffer', 'বাফারিং', 'কতটা আগে থেকে লোড হবে — কম হলে তাড়াতাড়ি শুরু, বেশি হলে মসৃণ চলবে', IC.clock, '#e8261c') +
-      rPick(inst, 'bufDisk', 'ডিস্কে বাফারের জায়গা', 'ভিডিও আগে থেকে নামিয়ে রাখতে কত জায়গা ব্যবহার হবে', IC.db, '#475569') +
-      rPick(inst, 'bufSize', 'মেমোরিতে বাফার (RAM)', 'চলমান ভিডিওর জন্য মেমোরিতে কতটা বাফার থাকবে', IC.db, '#0891b2') +
-      rPick(inst, 'bufLen', 'বাফারের লম্বা', 'ভিডিও কত সেকেন্ড আগে থেকে লোড হয়ে থাকবে', IC.clock, '#7c3aed')
+      rPick(inst, 'bufDisk', 'ডিস্কে বাফারের জায়গা', 'ভিডিও আগে থেকে নামিয়ে রাখতে কত জায়গা ব্যবহার হবে', IC.db, '#475569')
     ) +
     secT('ক্যাশে') + card(
       '<div class="v31-row">' + mi(IC.trash, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">ভিডিও ক্যাশে মুছে ফেলুন</span>' +
-      '<span class="v31-row-d">জমে থাকা ভিডিও আর ছবির ক্যাশে — এখন জমা আছে ' + bnNum(inst.cacheMB) + ' MB</span></span>' +
+      '<span class="v31-row-d">জমে থাকা ভিডিও, WebView আর পোস্টারের ক্যাশে — এখন জমা আছে ' + (inst.cacheMB == null ? '—' : bnNum(Math.round(inst.cacheMB)) + ' MB') + '</span></span>' +
       '<button class="v31-btn danger sm" data-v31-act="clearCache" style="flex:none">মুছুন</button></div>'
-    ) +
-    secT('Android TV', 'শুধু TV-তে কাজ করে') + card(
-      rSlider(inst, 'tvSeekShown', 'TV — মেনু খোলা থাকলে seek', 'TV-তে মেনু দেখা গেলে একবারে কত সেকেন্ড আগাবে-পেছাবে', 5, 60, 5, 'সেকেন্ড', IC.tv, '#0d9488') +
-      rSlider(inst, 'tvSeekHidden', 'TV — মেনু বন্ধ থাকলে seek', 'TV-তে মেনু না থাকলে একবারে কত সেকেন্ড আগাবে-পেছাবে', 5, 60, 5, 'সেকেন্ড', IC.tv, '#0d9488')
     );
-}
-function rServers(inst){
-  var rows = SERVERS.map(function(sv){
-    var sel = inst.selServer === sv.n;
-    return '<button class="v31-row" data-v31-server="' + esc(sv.n) + '">' + mi(IC.server, sel ? '#e8261c' : '#475569', true) +
-      '<span class="v31-row-tx"><span class="v31-row-t">' + esc(sv.n) +
-      (sv.auto ? '<span class="v31-srv-badge">★ নিজে থেকে বাছাই</span>' : '') +
-      (sv.fast ? '<span class="v31-srv-badge fast">⚡ সবচেয়ে ফাস্ট</span>' : '') + '</span>' +
-      '<span class="v31-row-d">' + esc(sv.q) + ' • ' + esc(sv.a) + ' অডিও • ' + esc(sv.s) + '</span></span>' +
-      (sel ? '<span class="v31-done">✓ চলছে</span>' : '<span class="v31-val">' + CHEV + '</span>') + '</button>';
-  }).join('');
-  return head('সার্ভারের তালিকা', 'যে সার্ভারে চাপ দেবেন, ভিডিও সেটা থেকেই চলবে') + '<div class="v31-card" style="margin-top:12px">' + rows + '</div>';
 }
 function rLook(inst){
   var acc = ACCENTS.filter(function(a){ return a[0] === SHARED.accent; })[0] || ACCENTS[0];
@@ -8391,15 +8619,13 @@ function rLook(inst){
     ) +
     secT('পোস্টার') + card(
       rTog(inst, 'bottomTitles', 'পোস্টারের নিচে নাম', 'প্রতিটা পোস্টারের নিচে নাম লেখা থাকে', IC.rows, '#0891b2') +
-      rMulti(inst, 'posterUI', 'পোস্টারে যা যা দেখাবে', 'রেটিং, মানের ব্যাজ — যা বাছবেন তাই পোস্টারে থাকবে', IC.film, '#059669')
+      rMulti(inst, 'posterUI', 'পোস্টারে যা যা দেখাবে', 'রেটিং আর সাল — যা বাছবেন তাই পোস্টারে থাকবে', IC.film, '#059669')
     ) +
     secT('হোমের সারি') + card(
       rTog(inst, 'rowTrend', 'Trending সারি', 'হোমে Trending Now সারিটা দেখাবে', IC.bolt, '#e8261c', true) +
-      rTog(inst, 'rowCW', 'Continue Watching সারি', 'হোমে অর্ধেক-দেখা ভিডিওর সারিটা দেখাবে', IC.hist, '#2563eb', true) +
-      rTog(inst, 'rowTop10', 'Top 10 সারি', 'হোমে Top 10 সারিটা দেখাবে', IC.pulse, '#d97706', true)
+      rTog(inst, 'rowCW', 'Continue Watching সারি', 'হোমে অর্ধেক-দেখা ভিডিওর সারিটা দেখাবে', IC.hist, '#2563eb', true)
     ) +
     secT('আরও') + card(
-      rPick(inst, 'hideQual', 'সার্চে এই মান লুকানো', 'বাছাই করা মানের ভিডিও সার্চের ফলাফলে আসবে না', IC.search, '#475569') +
       rTog(inst, 'confirmExit', 'বের হওয়ার আগে জিজ্ঞেস করা', 'ভুল করে অ্যাপ থেকে বের হয়ে যাওয়া আটকায়', IC.ext, '#db2777')
     );
 }
@@ -8422,8 +8648,7 @@ function rLang(inst){
 function rProv(inst){
   return head('প্রোভাইডার ও এক্সটেনশন', 'কোথা থেকে কনটেন্ট আসবে') +
     secT('প্রোভাইডার') + card(
-      rMulti(inst, 'media', 'কী ধরনের জিনিস দেখাবে', 'সিনেমা, সিরিজ, অ্যানিমে — যা বাছবেন তাই আগে আসবে', IC.film, '#e8261c') +
-      rPick(inst, 'dubsub', 'ডাব / সাব দেখানো', 'অ্যানিমেতে ডাব করা, সাব করা, নাকি দুটোই দেখাবে', IC.cc, '#7c3aed')
+      rMulti(inst, 'media', 'কী ধরনের জিনিস দেখাবে', 'সিনেমা, সিরিজ, অ্যানিমে — যা বাছবেন তাই আগে আসবে', IC.film, '#e8261c')
     ) +
     extHTML(inst);
 }
@@ -8445,12 +8670,15 @@ function rAccountPage(inst, id){
   var a = ACCOUNTS.filter(function(x){ return x.id === id; })[0];
   if (!a) return head('অ্যাকাউন্ট');
   var on = !!inst.acc[id];
+  /* (v1.0.18 P17-19) All four logins are backend-less (no client key
+     exists for any provider) — the page says "Coming soon" and shows
+     NO Login button, so it never promises a login that errors. */
   return head(a.name, a.desc) +
     '<div class="v31-card" style="margin-top:12px"><div class="v31-form">' +
     '<p style="margin:0;font-size:13.5px;line-height:1.65">' + (on
       ? 'এই অ্যাকাউন্টে লগইন করা আছে — আপনার দেখার হিসাব এখানে মিলিয়ে রাখা হয়।'
-      : 'লগইন করলে আপনার দেখার হিসাব আর তালিকা এই অ্যাকাউন্টে মিলিয়ে রাখা হবে।') + '</p>' +
-    '<button class="v31-btn" data-v31-act="accLogin" data-v31-k="' + a.id + '">' + (on ? 'লগআউট করুন' : 'লগইন করুন') + '</button>' +
+      : 'এই অ্যাকাউন্টের লগইন শীঘ্রই আসছে — এখনো চালু হয়নি।') + '</p>' +
+    (on ? '<button class="v31-btn" data-v31-act="accLogin" data-v31-k="' + a.id + '">লগআউট করুন</button>' : '') +
     '</div></div>';
 }
  function updCardHtml(){
@@ -8466,16 +8694,23 @@ function rAccountPage(inst, id){
     rAct('updReinstall', 'আবার বসান (Reinstall)', 'ডাউনলোড করা আপডেটটি আবার ইনস্টল করবে', IC.refresh, '#475569')
   );
 }
+/* (v1.0.18 P16-04) The stored lastBackup is the backup file name
+   (zaynplay-backup-YYYYMMDD-HHMMSS.json) — show its stamp, not the
+   whole file name, in the row. */
+function backupShort(fn){
+  var m = /(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(fn || '');
+  if (!m) return fn || '';
+  return m[3] + '/' + m[2] + '/' + m[1] + ' ' + m[4] + ':' + m[5];
+}
  function rUpd(inst){
   return head('আপডেট ও ব্যাকআপ', 'নতুন ভার্সন আর সবকিছু সেভ রাখা') +
     secT('অ্যাপের আপডেট') + card(
       rAct('checkUpdate', 'নতুন আপডেট আছে কিনা দেখুন', 'নতুন ভার্সন এলে এখান থেকে বসানো যাবে', IC.down, '#0891b2', '') +
-      rTog(inst, 'updNotify', 'আপডেট এলে জানানো', 'নতুন ভার্সন এলে হোমে ব্যানার আর এখানে কার্ড দেখাবে', IC.chat, '#2563eb') +
-      rAct('preRelease', 'পরীক্ষামূলক ভার্সন বসান', 'সবার আগের নতুন (pre-release) ভার্সন — মাঝে মাঝে সমস্যা থাকতে পারে', IC.bolt, '#d97706')
+      rTog(inst, 'updNotify', 'আপডেট এলে জানানো', 'নতুন ভার্সন এলে হোমে ব্যানার আর এখানে কার্ড দেখাবে', IC.chat, '#2563eb')
     ) +
     updCardHtml() +
     secT('ব্যাকআপ') + card(
-      rAct('backupNow', 'এখনই ব্যাকআপ নিন', 'সব সেটিংস, তালিকা আর হিসাব সেভ করে রাখুন', IC.save, '#7c3aed', inst.lastBackup ? inst.lastBackup : '') +
+      rAct('backupNow', 'এখনই ব্যাকআপ নিন', 'সব সেটিংস, তালিকা আর হিসাব সেভ করে রাখুন', IC.save, '#7c3aed', inst.lastBackup ? backupShort(inst.lastBackup) : '') +
       rPick(inst, 'backupFreq', 'নিজে থেকে ব্যাকআপ', 'কতদিন পরপর নিজে থেকে ব্যাকআপ হবে', IC.hist, '#7c3aed') +
       rAct('restore', 'ব্যাকআপ থেকে ফিরিয়ে আনুন', 'আগের সেভ করা অবস্থায় ফিরে যান', IC.hist, '#0891b2') +
       rPick(inst, 'backupFolder', 'ব্যাকআপের ফোল্ডার', 'ব্যাকআপ ফাইল এই ফোল্ডারে থাকবে', IC.folder, '#475569')
@@ -8490,7 +8725,6 @@ function rGen(inst){
     secT('ডাউনলোড') + card(
       rPick(inst, 'dlQuality', 'ডাউনলোডের মান', 'নামানোর সময় এই মানের ভিডিও নামবে', IC.down, '#2563eb', true) +
       rTog(inst, 'wifiOnly', 'শুধু Wi-Fi-তে ডাউনলোড', 'মোবাইল ডেটা বাঁচে — Wi-Fi ছাড়া নামবে না', IC.wifi, '#0891b2', true) +
-      rTog(inst, 'autoNextEp', 'পরের পর্ব নিজে থেকে নামানো', 'Wi-Fi থাকলে পরের পর্ব আগে থেকে নেমে থাকে', IC.down, '#059669', true) +
       rAct('battery', 'ব্যাটারি বাঁচানো বন্ধ করুন', 'ডাউনলোড মাঝপথে থেমে গেলে এটা চাপুন', IC.battery, '#16a34a')
     ) +
     secT('আইএসপি বাইপাস') + card(
@@ -8526,8 +8760,8 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.17</span></div>' +
-      rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
+      '<span class="v31-val">Version ' + esc(inst.appVersion || '—') + '</span></div>' +
+      rAct('link', 'Zayn Play ওয়েবসাইট', 'অফিসিয়াল ওয়েবসাইট — ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '', 'https://zaynplay.netlify.app') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
     secT('ডেভেলপার') + card(
@@ -8539,11 +8773,10 @@ function rAbout(inst){
       '<span class="v31-row-tx"><span class="v31-row-t">Give a benene to the devs</span><span class="v31-row-d">মজার কাউন্টার — চাপ দিলেই বাড়ে</span></span>' +
       '<button class="v31-btn ghost sm" data-v31-act="benene" style="flex:none">' + bnNum(inst.benene) + ' টা দিন</button></div>') +
     secT('যোগাযোগ') + card(
-      rAct('link', 'Github', 'সোর্স কোড — Zayn Play', IC.link, '#334155', '', '') +
-      rAct('link', 'libmpv — লাইসেন্স ও সোর্স', 'mpv 0.42.0 + FFmpeg 9.1 — GPL-3.0-or-later — সোর্স: github.com/midasvo/libmpv-android (libmpv-1.4.0-sources.tar.xz)', IC.link, '#334155', '', '') +
-      rAct('link', 'Join Discord', 'কমিউনিটিতে যোগ দিন', IC.chat, '#5865f2', '', '')
+      rAct('link', 'Github', 'সোর্স কোড — Zayn Play', IC.link, '#334155', '', '', 'https://github.com/TheSMandal/zayn-play') +
+      rAct('link', 'libmpv — লাইসেন্স ও সোর্স', 'mpv 0.42.0 + FFmpeg 9.1 — GPL-3.0-or-later — সোর্স: github.com/midasvo/libmpv-android (libmpv-1.4.0-sources.tar.xz)', IC.link, '#334155', '', '', 'https://github.com/midasvo/libmpv-android')
     ) +
-    '<p class="v31-psub" style="margin-top:10px">ডেভেলপারের সঙ্গে যোগাযোগের মাধ্যম এই দুটোই — অ্যাপে আলাদা কোনো ইমেইল, ফোন নম্বর বা Telegram নেই।</p>';
+    '<p class="v31-psub" style="margin-top:10px">ডেভেলপারের সঙ্গে যোগাযোগের মাধ্যম এগুলোই — অ্যাপে আলাদা কোনো ইমেইল, ফোন নম্বর বা Telegram নেই।</p>';
 }
 function rDisclaimer(){
   return head('আইনি কথা (Disclaimer)', '') +
@@ -8914,15 +9147,10 @@ function rPickPage(inst, key){
   return head(p.title, p.desc) + '<div class="v31-card" style="margin-top:12px">' + rows + '</div>';
 }
 function multiOpts(inst, key){
-  if (key === 'plugRepos'){
-    return allRepos(inst).filter(function(r){ return inst.installed[r.id]; }).map(function(r){ return [r.id, r.name, provCountTxt(repoProvNames(inst, r, r.id).length)]; });
-  }
   return MULTI[key] ? MULTI[key].opts : [];
 }
 function rMultiPage(inst, key){
-  var meta = key === 'plugRepos'
-    ? { title:'কোন রিপো থেকে নিজে থেকে নামবে', desc:'বাছাই করা রিপোর প্লাগিন নিজে থেকে নেমে যাবে।' }
-    : MULTI[key];
+  var meta = MULTI[key];
   if (!meta) return head('বাছুন');
   var arr = inst.set[key] || [];
   var rows = multiOpts(inst, key).map(function(o){
@@ -8936,7 +9164,7 @@ function rMultiPage(inst, key){
 }
 var PAGES = {
   'hub': rHub, 'g-play': rPlay, 'play-subs': rSubs, 'play-gesture': rGesture, 'play-cache': rCache,
-  'servers': rServers, 'g-look': rLook, 'accent': rAccent, 'g-lang': rLang, 'g-prov': rProv,
+  'g-look': rLook, 'accent': rAccent, 'g-lang': rLang, 'g-prov': rProv,
   'g-acc': rAcc, 'g-upd': rUpd, 'g-gen': rGen, 'g-about': rAbout, 'clone': rClone, 'disclaimer': rDisclaimer, 'logcat': rLogcat,
   'addsite': rAddSite, 'testall': rTestAll
 };
@@ -9021,7 +9249,18 @@ function render(inst, keepScroll){
   v31ApplyLang(inst);
   if (_scr) _scr.scrollTop = keepScroll ? st : 0; else inst.view.scrollTop = keepScroll ? st : 0;
 }
-function nav(inst, p, k){ inst.stack.push({ p: p, k: k }); if (p === 'g-upd' && typeof runAppUpdateCheck === 'function') runAppUpdateCheck('page'); render(inst); }
+/* (v1.0.18 P16-06) The Cache page shows the real measured size — app
+   cache + WebView + poster disk cache — refreshed on every visit. */
+function refreshCacheSize(inst){
+  try{
+    engineCall('cacheSize', {}).then(function(d){
+      var total = ((d && d.cacheMB) || 0) + ((d && d.webViewMB) || 0) + ((d && d.posterMB) || 0);
+      inst.cacheMB = total;
+      if (inst.stack && inst.stack[inst.stack.length - 1].p === 'play-cache') render(inst, true);
+    }).catch(function(){});
+  }catch(e){}
+}
+function nav(inst, p, k){ inst.stack.push({ p: p, k: k }); if (p === 'g-upd' && typeof runAppUpdateCheck === 'function') runAppUpdateCheck('page'); if (p === 'play-cache') refreshCacheSize(inst); render(inst); }
 function goBack(inst){ if (inst.stack.length > 1) inst.stack.pop(); render(inst); }
 function toast(inst, msg){
   var t = inst.toastEl;
@@ -9074,10 +9313,14 @@ function doAct(inst, act, el){
     engineCall('cacheClear', {}).then(function(d){
       var mb = (d && typeof d.freedMB === 'number') ? d.freedMB : 0;
       inst.cacheMB = 0;
-      toast(inst, mb > 0 ? 'ক্যাশে মুছে ফেলা হয়েছে ✓ — ' + mb.toFixed(1) + ' MB খালি' : 'ক্যাশে আগে থেকেই খালি');
+      toast(inst, mb > 0 ? 'ক্যাশে মুছে ফেলা হয়েছে ✓ — ' + mb.toFixed(1) + ' MB খালি' + ((d && d.webViewCleared) ? ' (WebView ক্যাশেসহ)' : '') : 'ক্যাশে আগে থেকেই খালি');
       render(inst, true);
     }).catch(function(e){ toast(inst, engineErrText(e)); });
-  } else if (act === 'battery'){ toast(inst, 'ফোনের ব্যাটারি সেটিংস খুলবে');
+  } else if (act === 'battery'){
+    /* (v1.0.18 P17-21) The Battery row used to toast and do nothing —
+       it now opens the system Battery-optimization list natively. */
+    if (window.ZaynAppNative && ZaynAppNative.openBatterySettings) ZaynAppNative.openBatterySettings();
+    else toast(inst, 'ফোনের ব্যাটারি সেটিংস খুলবে');
   } else if (act === 'testAll'){ nav(inst, 'testall'); v31RunTestAll(inst);
   } else if (act === 'checkUpdate'){
     toast(inst, 'আপডেট দেখা হচ্ছে…');
@@ -9096,17 +9339,13 @@ function doAct(inst, act, el){
     }).catch(function(e){ toast(inst, engineErrText(e)); });
   } else if (act === 'updInstall'){ if (typeof startAppUpdateDownload === 'function') startAppUpdateDownload();
   } else if (act === 'updReinstall'){ if (typeof startAppUpdateReinstall === 'function') startAppUpdateReinstall();
-  } else if (act === 'preRelease'){ toast(inst, 'পরীক্ষামূলক ভার্সন এই মুহূর্তে নেই');
   } else if (act === 'backupNow'){
-    engineCall('backupExport', {}, 60000).then(function(d){
-      var blob = new Blob([(d && d.json) || '{}'], { type: 'application/json' });
-      var url = URL.createObjectURL(blob);
-      var link = document.createElement('a');
-      link.href = url; link.download = (d && d.fileName) || 'zaynplay-backup-0.2.0.json';
-      document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-      inst.lastBackup = todayBN();
-      toast(inst, 'ব্যাকআপ নেওয়া হয়েছে ✓ — ' + inst.lastBackup);
+    /* (v1.0.18 P16-04) Native save: the file is written by the engine
+       into backupFolder; the toast fires ONLY on a confirmed write
+       (path + bytes). The old blob-click could never save in WebView. */
+    engineCall('backupSave', {}, 60000).then(function(d){
+      inst.lastBackup = (d && d.fileName) || inst.lastBackup;
+      toast(inst, 'ব্যাকআপ নেওয়া হয়েছে ✓ — ' + ((d && d.fileName) || '') + ' (' + ((d && typeof d.bytes === 'number') ? Math.round(d.bytes / 1024) + ' KB' : '') + ')');
       render(inst, true);
     }).catch(function(e){ toast(inst, engineErrText(e)); });
   } else if (act === 'restore'){
@@ -9116,8 +9355,15 @@ function doAct(inst, act, el){
       var f = inp.files && inp.files[0]; if (!f) return;
       var rd = new FileReader();
       rd.onload = function(){
-        engineCall('backupImport', { json: String(rd.result || '') }, 120000).then(function(d){
-          toast(inst, 'ব্যাকআপ ফিরিয়ে আনা হয়েছে ✓ — ' + ((d && d.reposInstalled) || 0) + 'টি রিপো');
+        engineCall('backupRestore', { json: String(rd.result || '') }, 120000).then(function(d){
+          /* Per-section merge counts — the import merges, never
+             wholesale-replaces. Unknown (removed-schema) keys are
+             skipped, not an error. */
+          var msg = 'ব্যাকআপ ফিরিয়ে আনা হয়েছে ✓ — লাইব্রেরি ' + bnNum((d && d.libraryMerged) || 0) + ' • অগ্রগতি ' + bnNum((d && d.progressMerged) || 0) + ' • ডাউনলোড ' + bnNum((d && d.downloadsMerged) || 0);
+          if (d && d.settingsSkippedUnknown) msg += ' • অচেনা সেটিংস এড়ানো: ' + bnNum(d.settingsSkippedUnknown);
+          toast(inst, msg);
+          /* Settings may have changed — re-read them from the engine. */
+          engineCall('settingsGet', {}).then(function(sd){ var set = (sd && sd.settings) || null; if (set) applyEngineSettings(set); }).catch(function(){});
           if (typeof rebuildCatalog === 'function') rebuildCatalog();
           render(inst, true);
         }).catch(function(e){ toast(inst, engineErrText(e)); });
@@ -9147,7 +9393,20 @@ function doAct(inst, act, el){
       if (navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done, function(){ toast(inst, 'লগ কপি করা যায়নি'); }); }
       else { var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { toast(inst, 'লগ কপি করা যায়নি'); } ta.remove(); }
     }).catch(function(e){ toast(inst, engineErrText(e)); });
-  } else if (act === 'redoSetup'){ if (typeof playSetup === 'function') playSetup(); else nav(inst, 'setup');
+  } else if (act === 'redoSetup'){
+    /* (v1.0.18 P17-21) A real reset now: ask on the in-app sheet
+       (window.confirm() never shows — no onJsConfirm), reset settings
+       to defaults (settings only — library/progress/downloads stay),
+       then reopen setup. */
+    if (typeof zpConfirm === 'function'){
+      zpConfirm('সেটআপ আবার করবেন?', 'এখনকার সেটিংস ডিফল্টে ফিরে যাবে — লাইব্রেরি আর ডাউনলোড থাকবে।').then(function(ok){
+        if (!ok) return;
+        engineCall('settingsReset', {}).then(function(){
+          engineCall('settingsGet', {}).then(function(sd){ var set = (sd && sd.settings) || null; if (set) applyEngineSettings(set); }).catch(function(){});
+          if (typeof playSetup === 'function') playSetup(); else nav(inst, 'setup');
+        }).catch(function(e){ toast(inst, engineErrText(e)); });
+      });
+    } else if (typeof playSetup === 'function') playSetup();
   } else if (act === 'setupSkip'){ toast(inst, 'বাদ দেওয়া হলো — পরে সেটিংস → প্রোভাইডার ও এক্সটেনশন থেকে যোগ করা যাবে');
   } else if (act === 'setupNext'){ toast(inst, 'পরের ধাপ: প্রোভাইডারের ভাষা (প্রিভিউতে এই সোর্স ধাপটাই দেখানো হয়েছে)');
   } else if (act === 'accLogin'){
@@ -9161,6 +9420,8 @@ function doAct(inst, act, el){
       }).catch(function(e){ toast(inst, (e && e.code === 'auth_failed') ? 'লগইন এখনো চালু হয়নি' : engineErrText(e)); });
     }
   } else if (act === 'link'){
+    var url = el.getAttribute('data-v31-url');
+    if (url){ window.location.href = url; return; }
     var t = el.querySelector('.v31-row-t');
     toast(inst, (t ? t.textContent.trim() : 'লিংক') + ' — ব্রাউজারে খুলবে');
   } else if (act === 'cloneSite'){
@@ -9181,6 +9442,7 @@ function doAct(inst, act, el){
     render(inst, true);
   } else if (act === 'benene'){
     inst.benene++;
+    enginePersistSetting('benene', inst.benene);
     el.textContent = v31tr(bnNum(inst.benene) + ' টা দিন');
     if (inst.benene === 1) toast(inst, 'ধন্যবাদ! — ডেভেলপারদের benene দেওয়া হলো');
   }
@@ -9343,17 +9605,14 @@ function bindInstance(inst){
     }
     if ((el = ev.target.closest('[data-v31-accent]'))){
       SHARED.accent = el.getAttribute('data-v31-accent');
+      /* (v1.0.18 P17-12) The accent is a persisted setting now — it
+         survives a restart instead of living only in localStorage. */
+      enginePersistSetting('primaryColor', SHARED.accent);
       try{ var _an = (ACCENTS.filter(function(a){ return a[0] === SHARED.accent; })[0] || ACCENTS[0])[2]; if (typeof setPrimaryColor === 'function') setPrimaryColor(_an); }catch(e){}
       applyAccent();
       render(inst, true);
       var nm = (ACCENTS.filter(function(a){ return a[0] === SHARED.accent; })[0] || ACCENTS[0])[1];
       toast(inst, 'প্রধান রং এখন ' + nm);
-      return;
-    }
-    if ((el = ev.target.closest('[data-v31-server]'))){
-      inst.selServer = el.getAttribute('data-v31-server');
-      toast(inst, inst.selServer + ' থেকে ভিডিও চলবে');
-      render(inst, true);
       return;
     }
     if ((el = ev.target.closest('[data-v31-act]'))){ doAct(inst, el.getAttribute('data-v31-act'), el); return; }
@@ -9520,7 +9779,8 @@ function bindInstance(inst){
       inst.set[k] = parseInt(el.value, 10);
       enginePersistSetting(k, inst.set[k]);
       var lbl = root.querySelector('[data-v31-sval="' + k + '"]');
-      if (lbl) lbl.textContent = v31tr(bnNum(el.value) + (k === 'seekAmt' || k.indexOf('tvSeek') === 0 ? ' সেকেন্ড' : ''));
+      if (lbl) lbl.textContent = v31tr(bnNum(el.value) + (k === 'seekAmt' ? ' সেকেন্ড' : ''));
+      if (k === 'seekAmt' && typeof syncSeekLabels === 'function') syncSeekLabels();
       return;
     }
   });
@@ -9639,6 +9899,8 @@ function bindInstance(inst){
     }catch(e){}
     return def;
   }
+  window.ZP_readSetupPlang = readSetupPlang;
+  window.ZP_readSetupMedia = readSetupMedia;
   function mirrorMediaToSetup(inst){
     try{
       var panel = document.querySelector('[data-media-panel]');
@@ -9675,25 +9937,26 @@ function bindInstance(inst){
   function v31AfterToggle(inst, k){
     try{
       if (k === 'reuse' && typeof PB !== 'undefined') PB.reuse = !!inst.set.reuse;
-      if (k === 'rowTrend' || k === 'rowCW' || k === 'rowTop10') applyHomeRows(inst);
+      if (k === 'rowTrend' || k === 'rowCW') applyHomeRows(inst);
+      if (k === 'showInfo' && typeof applyShowInfo === 'function') applyShowInfo();
+      if (k === 'titleChars' && typeof truncTitle === 'function'){
+        var _pt = document.getElementById('p-info-title');
+        if (_pt && typeof curTitle !== 'undefined') _pt.textContent = truncTitle(curTitle);
+      }
+      if (k === 'gDtSeek' && typeof syncSeekLabels === 'function') syncSeekLabels();
     }catch(e){}
   }
   function v31AfterPick(inst, pk, pv){
     try{
-      if (typeof PB === 'undefined') return;
-      if (pk === 'player') PB.player = pv;
-      else if (pk === 'mode') PB.mode = pv;
-      else if (pk === 'res') PB.res = pv;
-      else if (pk === 'engine') PB.engine = pv;
-      else if (pk === 'extApp') PB.extApp = pv;
-      else if (pk === 'timeout') PB.timeout = pv;
-      else if (pk === 'reuseDur') PB.reuseDur = pv;
-      else if (pk === 'audio1' || pk === 'audio2'){
-        var code = null;
-        try{ (typeof AUDIO_LANGS !== 'undefined' ? AUDIO_LANGS : []).forEach(function(a){ if (a.nat === pv) code = a.c; }); }catch(e){}
-        if (code) PB[pk] = code;
+      if (pk === 'layout'){
+        /* (v1.0.18 P17-12) Layout is a native form factor — the WebView
+           must reload so MainActivity re-reads the setting. */
+        if (window.ZaynAppNative && ZaynAppNative.reloadApp) ZaynAppNative.reloadApp();
+        return;
       }
-      if (typeof syncPBUI === 'function') syncPBUI();
+      if (typeof applyPBSetting === 'function') applyPBSetting(pk, pv);
+      else if (typeof PB !== 'undefined' && pk in PB) PB[pk] = pv;
+      if (pk && pk.indexOf('sub') === 0 && typeof applySubtitleStyle === 'function') applySubtitleStyle();
     }catch(e){}
   }
   function v31AfterProvToggle(inst, pr, pn, nowOn, el){
@@ -9744,6 +10007,7 @@ function bindInstance(inst){
       var key = ro.id + '|' + prov;
       ST.customSites[key] = ST.customSites[key] || [];
       ST.customSites[key].push({ name: name, url: url, lang: lang || 'বাংলা' });
+      try{ engineCall('customSitesSet', { sites: ST.customSites }).catch(function(){}); }catch(e){}
       zpReloadFromBridge();
     }catch(e){}
   }
@@ -9758,7 +10022,10 @@ function bindInstance(inst){
           if (arr[i].name === name){ arr.splice(i, 1); done = true; break; }
         }
       });
-      if (done) zpReloadFromBridge();
+      if (done){
+        try{ engineCall('customSitesSet', { sites: ST.customSites }).catch(function(){}); }catch(e){}
+        zpReloadFromBridge();
+      }
     }catch(e){}
   }
 
@@ -9770,7 +10037,7 @@ function newInstance(rootEl){
     toastEl: rootEl.querySelector('[data-v31-toast]'),
     stack: [{ p: 'hub' }],
     set: defaults(),
-    cacheMB: 248, benene: 0, lastBackup: '', selServer: 'VidCloud',
+    cacheMB: null, benene: 0, lastBackup: '', appVersion: '',
     acc: {},
     installed: (typeof ST !== 'undefined' && ST && ST.installed) ? ST.installed : {},
     provOn: {},
@@ -9779,7 +10046,6 @@ function newInstance(rootEl){
     clone: { prov: '', name: '', url: '', err: '', ok: '' },
     toastTimer: null
   };
-  inst.set.plugRepos = [];
   syncProvFromST(inst);
   syncSitesFromST(inst);
   syncUpdAtFromST(inst);
@@ -9813,6 +10079,8 @@ if (instances.length) buildSearchIndex(instances[0]);
   window.ZP_v31plugAuto = function(){ var inst = instances[0]; return inst ? !!inst.set.plugAutoUpd : true; };
   window.ZP_v31updNotify = function(){ var inst = instances[0]; return inst ? inst.set.updNotify !== false : true; };
   window.ZP_v31hold2x = function(){ var inst = instances[0]; return inst ? inst.set.gHold2x !== false : true; };
+  /* (v1.0.18) Read a stored v31 setting from outside the IIFE. */
+  window.ZP_v31setting = function(k, def){ var inst = instances[0]; return (inst && inst.set && (k in inst.set)) ? inst.set[k] : def; };
   window.ZP_v31resetHub = function(){
     var inst = instances[0]; if (!inst) return;
     if (inst.stack.length !== 1 || inst.stack[0].p !== 'hub'){ inst.stack = [{ p: 'hub' }]; render(inst, true); }
@@ -9851,31 +10119,53 @@ if (window.ZP_setAppLang && !window.ZP_setAppLang.__v31){
 /* Zayn Play app boot additions (UI-only build): persist theme + language
    choices, restore them on launch, and expose the Android back bridge. */
 (function(){
+  /* (v1.0.18 P17-12) One source of truth: theme / app language / accent
+     colour live in the engine store now. A value still sitting in
+     localStorage from an older version is applied locally (no flash),
+     migrated ONCE into the engine store, then the key is deleted. */
   try {
     var tp = localStorage.getItem('zayn-theme-pref');
-    if (tp === 'system' || tp === 'dark' || tp === 'light') { ZPTheme.pref = tp; zpApplyTheme(); }
+    if (tp === 'system' || tp === 'dark' || tp === 'light') {
+      ZPTheme.pref = tp; zpApplyTheme();
+      try{ if (typeof enginePersistSetting === 'function') enginePersistSetting('theme', tp); }catch(e){}
+      try{ localStorage.removeItem('zayn-theme-pref'); }catch(e){}
+    }
   } catch(e){}
   try {
     var _zpSetPref = zpSetPref;
-    zpSetPref = function(p){ try{ localStorage.setItem('zayn-theme-pref', p); }catch(e){} _zpSetPref(p); };
+    zpSetPref = function(p){ try{ if (typeof enginePersistSetting === 'function') enginePersistSetting('theme', p); }catch(e){} _zpSetPref(p); };
   } catch(e){}
   try {
     var lg = localStorage.getItem('zayn-lang');
     if (lg && window.ZP_setAppLang) window.ZP_setAppLang(lg);
+    if (lg){
+      try{ if (typeof enginePersistSetting === 'function') enginePersistSetting('appLang', lg); }catch(e){}
+      try{ localStorage.removeItem('zayn-lang'); }catch(e){}
+    }
   } catch(e){}
   try {
     var _setLang = window.ZP_setAppLang;
-    window.ZP_setAppLang = function(name){ try{ localStorage.setItem('zayn-lang', name); }catch(e){} _setLang(name); };
+    window.ZP_setAppLang = function(name){ try{ if (typeof enginePersistSetting === 'function') enginePersistSetting('appLang', name); }catch(e){} _setLang(name); };
   } catch(e){}
   try {
     var pc = localStorage.getItem('zayn-primary-color');
     if (pc && typeof setPrimaryColor === 'function') setPrimaryColor(pc);
+    if (pc){
+      var _pch = null;
+      (typeof PRIMARY_COLORS !== 'undefined' ? PRIMARY_COLORS : []).forEach(function(c){ if (c.name === pc) _pch = c.a; });
+      if (_pch){ try{ if (typeof enginePersistSetting === 'function') enginePersistSetting('primaryColor', _pch); }catch(e){} }
+      try{ localStorage.removeItem('zayn-primary-color'); }catch(e){}
+    }
   } catch(e){}
   /* Android back button: MainActivity calls ZaynApp.goBack(). Returns true
      when the app handled the press (sheet closed / back to Home). */
   window.ZaynApp = {
     goBack: function(){
       try {
+        /* (v1.0.18 P17-09) A Back press while the confirm sheet is open
+           closes it (answers "no") instead of re-asking underneath it. */
+        var zc = document.getElementById('zp-confirm');
+        if (zc && zc.classList.contains('open')){ if (typeof zpConfirmDone === 'function') zpConfirmDone(false); return true; }
         var sh = document.getElementById('prov-sheet');
         if (sh && sh.classList.contains('open')) { sh.classList.remove('open'); return true; }
         var sb = document.getElementById('srv-sheet');
@@ -9883,6 +10173,22 @@ if (window.ZP_setAppLang && !window.ZP_setAppLang.__v31){
         var cur = document.querySelector('#phone .screen.on');
         if (cur && cur.id === 'scr-settings' && window.ZP_v31back && window.ZP_v31back()) return true;
         if (cur && cur.id && cur.id !== 'scr-home') { go('home'); return true; }
+        /* (v1.0.18 P17-09) Confirm-exit: on Home with nothing left to go
+           back to, ask on the in-app sheet — only when the setting is on.
+           window.confirm() never shows (no onJsConfirm), and goBack is
+           synchronous while the sheet is async: stay now (true) and finish
+           via the native exitApp bridge only when the user confirms. If
+           the sheet is unavailable, fall through and exit without asking
+           rather than trapping the user. */
+        try{
+          var _ce = (typeof window.ZP_v31setting === 'function') ? window.ZP_v31setting('confirmExit', false) : false;
+          if (_ce && typeof zpConfirm === 'function'){
+            zpConfirm('অ্যাপ থেকে বের হবেন?', '').then(function(ok){
+              if (ok && window.ZaynAppNative && ZaynAppNative.exitApp) ZaynAppNative.exitApp();
+            });
+            return true;
+          }
+        }catch(e){}
       } catch(e){}
       return false;
     },
