@@ -36,7 +36,15 @@ import kotlin.math.min
 object CommonActivity {
 
     private var _activity: WeakReference<Activity>? = null
-    var activity
+    // (v1.0.21 assembly fix) The explicit `: Activity?` is REQUIRED:
+    // the 1.0.20 getter was an expression body (`get() = _activity?.get()`)
+    // from which Kotlin inferred the type; the v1.0.21 donation gate
+    // needs a block-body getter, and a block-body getter cannot infer
+    // the property type — without the annotation CI failed with
+    // "This property must either have a type annotation..." at 39:5
+    // plus 4 unresolved runOnUiThread/getString errors (all downstream
+    // of the untyped property). Behaviour unchanged.
+    var activity: Activity?
         get() {
             // (v1.0.21) Donation suppression, prong 2 of 2 — the
             // Activity is withheld ONLY from donation code. Proven
