@@ -105,6 +105,7 @@ class ZaynLibrary(private val store: EngineStore) {
         type: String,
         poster: String,
         year: String = "",
+        syn: String = "",
     ): JSONObject {
         if (url.isBlank()) return JSONObject().put("status", JSONObject.NULL)
         var id = bookmarkId(url, providerName).toString()
@@ -133,6 +134,7 @@ class ZaynLibrary(private val store: EngineStore) {
             .put("type", type)
             .put("poster", poster)
             .put("year", year)
+            .put("syn", syn.ifBlank { kept?.optString("syn", "") ?: "" })
             .put("status", clean)
             .put("providerName", providerName)
             .put("url", url)
@@ -220,6 +222,7 @@ class ZaynLibrary(private val store: EngineStore) {
         providerName: String = "",
         poster: String = "",
         ep: String = "",
+        syn: String = "",
     ): JSONObject {
         if (title.isBlank()) return JSONObject().put("saved", false)
         // (v1.0.14 G1) Store under the content key when the caller sent
@@ -246,6 +249,7 @@ class ZaynLibrary(private val store: EngineStore) {
                     .put("posSec", durSec).put("durSec", durSec)
                     .put("title", title).put("url", url)
                     .put("providerName", providerName).put("poster", poster).put("ep", ep)
+                    .put("syn", syn.ifBlank { kept?.optString("syn", "") ?: "" })
                     .put("completed", true)
                     .put("addedAt", kept?.optLong("addedAt", now) ?: now)
                     .put("updatedAt", now),
@@ -263,6 +267,7 @@ class ZaynLibrary(private val store: EngineStore) {
                 .put("posSec", posSec).put("durSec", durSec)
                 .put("title", title).put("url", url)
                 .put("providerName", providerName).put("poster", poster).put("ep", ep)
+                .put("syn", syn.ifBlank { kept?.optString("syn", "") ?: "" })
                 .put("addedAt", kept?.optLong("addedAt", now) ?: now)
                 .put("updatedAt", now),
         )
