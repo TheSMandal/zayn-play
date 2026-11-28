@@ -30,7 +30,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.trackselection.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.drm.DrmSession.DrmSessionException
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -944,8 +944,8 @@ class ZaynPlayer(
             )
             // (v1.0.22 B) A new play starts from a clean slate: a track override or subtitle-Off from the previous title must not leak into this one (overrides are per-player, not per-item; buildUpon keeps Worker A's maxVideoSize cap).
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-                .clearOverrideForType(C.TRACK_TYPE_AUDIO)
-                .clearOverrideForType(C.TRACK_TYPE_TEXT)
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .build()
             // (v1.0.4) NO-SWITCH rule: pin ExoPlayer's audio-track selector
@@ -1135,7 +1135,7 @@ class ZaynPlayer(
             val isText = group.type == C.TRACK_TYPE_TEXT
             if (!isAudio && !isText) continue
             for (t in 0 until group.length) {
-                val f = group.getFormat(t)
+                val f = group.getTrackFormat(t)
                 val entry = JSONObject()
                     .put("id", (if (isAudio) "a" else "s") + ":$g:$t")
                     .put("lang", f.language ?: JSONObject.NULL)
@@ -1179,7 +1179,7 @@ class ZaynPlayer(
                 val group = tracks.groups[g]
                 if (group.type != C.TRACK_TYPE_AUDIO) continue
                 for (t in 0 until group.length) {
-                    val f = group.getFormat(t)
+                    val f = group.getTrackFormat(t)
                     if ((wantId != null && "a:$g:$t" == wantId) || (wantId == null && wantLang != null && f.language == wantLang)) {
                         foundGroup = group; foundG = g; foundT = t; break
                     }
@@ -1190,9 +1190,9 @@ class ZaynPlayer(
                 EngineLogger.log("player", "exo: audio track not found at apply time trackId=$trackId lang=$lang")
                 return@post
             }
-            val fmt = foundGroup.getFormat(foundT)
+            val fmt = foundGroup.getTrackFormat(foundT)
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-                .setOverrideForType(TrackSelectionOverride(foundGroup, listOf(foundT)))
+                .setOverrideForType(TrackSelectionOverride(foundGroup.mediaTrackGroup, foundT))
                 .setPreferredAudioLanguage(fmt.language)
                 .build()
             lastAudio = fmt.language
@@ -1218,7 +1218,7 @@ class ZaynPlayer(
                 val group = tracks.groups[g]
                 if (group.type != C.TRACK_TYPE_TEXT) continue
                 for (t in 0 until group.length) {
-                    val f = group.getFormat(t)
+                    val f = group.getTrackFormat(t)
                     if ((wantId != null && "s:$g:$t" == wantId) || (wantId == null && wantLang != null && f.language == wantLang)) {
                         foundGroup = group; foundG = g; foundT = t; break
                     }
@@ -1229,10 +1229,10 @@ class ZaynPlayer(
                 EngineLogger.log("player", "exo: subtitle track not found at apply time trackId=$trackId lang=$lang")
                 return@post
             }
-            val fmt = foundGroup.getFormat(foundT)
+            val fmt = foundGroup.getTrackFormat(foundT)
             p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                .setOverrideForType(TrackSelectionOverride(foundGroup, listOf(foundT)))
+                .setOverrideForType(TrackSelectionOverride(foundGroup.mediaTrackGroup, foundT))
                 .setPreferredTextLanguage(fmt.language)
                 .build()
             currentSubtitleLang = fmt.language
