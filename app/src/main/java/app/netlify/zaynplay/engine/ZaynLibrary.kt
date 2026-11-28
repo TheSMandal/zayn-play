@@ -50,15 +50,39 @@ class ZaynLibrary(private val store: EngineStore) {
         while (keys.hasNext()) {
             val id = keys.next()
             val entry = map.optJSONObject(id) ?: continue
-            val title = entry.optString("title", "")
-            // (v1.0.14 G1) Progress by content key (url + provider), not
-            // by bare title — same-title items must never share a position.
-            val prog = progress.optJSONObject(
-                progressKey(entry.optString("url", ""), entry.optString("providerName", ""), ""),
-            ) ?: progress.optJSONObject(title)
+            // (v1.0.16 P11-06) Progress for a series lives under per-episode
+            // keys "<base>#ep:<n>", not the series-level key — attach the
+            // FURTHEST episode's position (largest posSec; ties break to
+            // the higher episode number) plus its episode label, so the
+            // Library card and Continue Watching show real series progress.
+            // (v1.0.16 P11-08) No bare-title fallback read: the V1.0.14
+            // resume leak was removed from progressGet, and library() must
+            // not reintroduce it through its own lookup.
+            val baseKey = progressKey(entry.optString("url", ""), entry.optString("providerName", ""), "")
+            var best: JSONObject? = progress.optJSONObject(baseKey)
+            var bestEp = ""
+            if (baseKey.isNotBlank()) {
+                val pk = progress.keys()
+                while (pk.hasNext()) {
+                    val k = pk.next()
+                    if (!k.startsWith("$baseKey#ep:")) continue
+                    val cand = progress.optJSONObject(k) ?: continue
+                    val candEp = k.removePrefix("$baseKey#ep:")
+                    val candPos = cand.optInt("posSec", 0)
+                    val bestPos = best?.optInt("posSec", 0) ?: -1
+                    val candNum = candEp.removePrefix("E").toIntOrNull() ?: 0
+                    val bestNum = bestEp.removePrefix("E").toIntOrNull() ?: 0
+                    if (candPos > bestPos || (candPos == bestPos && candNum > bestNum)) {
+                        best = cand
+                        bestEp = candEp
+                    }
+                }
+            }
+            val prog = best
             if (prog != null) {
                 entry.put("progressSec", prog.optInt("posSec", 0))
                 entry.put("durationSec", prog.optInt("durSec", 0))
+                if (bestEp.isNotBlank()) entry.put("progressEp", bestEp)
             }
             arr.put(entry)
         }
@@ -67,8 +91,9 @@ class ZaynLibrary(private val store: EngineStore) {
 
     /**
      * Set (or remove with status "remove") a library entry. The UI calls
-     * this when a title starts playing (watching), when playback ends
-     * (completed), and from the library/details status control.
+     * this ONLY from an explicit bookmark action (details / player /
+     * search Library button) and from the playback-end path (completed,
+     * by id). Playing a title never adds it (P11-01).
      */
     fun librarySet(
         url: String,
@@ -77,23 +102,40 @@ class ZaynLibrary(private val store: EngineStore) {
         title: String,
         type: String,
         poster: String,
+        year: String = "",
     ): JSONObject {
         if (url.isBlank()) return JSONObject().put("status", JSONObject.NULL)
-        val id = bookmarkId(url, providerName).toString()
+        var id = bookmarkId(url, providerName).toString()
         if (status == "remove") {
             store.removeMapEntry(EngineStore.KEY_LIBRARY, id)
             return JSONObject().put("status", JSONObject.NULL)
         }
         val clean = status.lowercase()
         if (clean !in STATUSES) return JSONObject().put("status", JSONObject.NULL)
+        // (v1.0.16 P11-04) A 32-bit bookmark id can collide: if a DIFFERENT
+        // title already lives under this id, never silently merge/overwrite
+        // it — keep both under a suffixed id and log the collision.
+        val existing = store.mapEntry(EngineStore.KEY_LIBRARY, id)
+        if (existing != null) {
+            val existingTitle = existing.optString("title", "")
+            if (existingTitle.isNotBlank() && title.isNotBlank() && existingTitle != title) {
+                EngineLogger.log("library", "bookmarkId collision id=$id existing='$existingTitle' new='$title' — keeping both")
+                id = "$id-${(title.hashCode() and 0x7FFFFFFF)}"
+            }
+        }
+        val now = System.currentTimeMillis()
+        val kept = store.mapEntry(EngineStore.KEY_LIBRARY, id)
         val entry = JSONObject()
             .put("id", id)
             .put("title", title)
             .put("type", type)
             .put("poster", poster)
+            .put("year", year)
             .put("status", clean)
             .put("providerName", providerName)
             .put("url", url)
+            .put("addedAt", kept?.optLong("addedAt", now) ?: now)
+            .put("updatedAt", now)
         store.putMapEntry(EngineStore.KEY_LIBRARY, id, entry)
         return JSONObject().put("status", clean)
     }
@@ -101,29 +143,28 @@ class ZaynLibrary(private val store: EngineStore) {
     /** (v0.2.11) C-16: set a library entry's status by bookmark id —
         the playback-end call carries the id only, no URL. */
     fun librarySetById(id: String, status: String): JSONObject {
+        if (status.lowercase() == "remove") {
+            store.removeMapEntry(EngineStore.KEY_LIBRARY, id)
+            return JSONObject().put("status", JSONObject.NULL)
+        }
         val clean = status.lowercase()
         if (clean !in STATUSES) return JSONObject().put("status", JSONObject.NULL)
         val entry = store.mapEntry(EngineStore.KEY_LIBRARY, id)
             ?: return JSONObject().put("status", JSONObject.NULL)
         entry.put("status", clean)
+        entry.put("updatedAt", System.currentTimeMillis())
         store.putMapEntry(EngineStore.KEY_LIBRARY, id, entry)
         return JSONObject().put("status", clean)
     }
 
-    /** Mark a title as watching (called on play) if it has no entry yet. */
-    fun markWatching(url: String, providerName: String, title: String, type: String, poster: String) {
-        if (url.isBlank() || title.isBlank()) return
-        val id = bookmarkId(url, providerName).toString()
-        if (store.mapEntry(EngineStore.KEY_LIBRARY, id) != null) return
-        librarySet(url, providerName, "watching", title, type, poster)
-    }
-
-    /** Mark completed when playback ends near the end. */
+    /** Mark completed when playback ends near the end. Only marks an
+        entry the user explicitly bookmarked — never creates one (P11-01). */
     fun markCompleted(url: String, providerName: String) {
         if (url.isBlank()) return
         val id = bookmarkId(url, providerName).toString()
         val entry = store.mapEntry(EngineStore.KEY_LIBRARY, id) ?: return
         entry.put("status", "completed")
+        entry.put("updatedAt", System.currentTimeMillis())
         store.putMapEntry(EngineStore.KEY_LIBRARY, id, entry)
     }
 
@@ -184,13 +225,19 @@ class ZaynLibrary(private val store: EngineStore) {
             store.removeMapEntry(EngineStore.KEY_PROGRESS, key)
             return JSONObject().put("saved", true)
         }
+        // (v1.0.16 P11-07) addedAt/updatedAt so Watch History can list
+        // plays with dates without depending on library membership.
+        val now = System.currentTimeMillis()
+        val kept = store.mapEntry(EngineStore.KEY_PROGRESS, key)
         store.putMapEntry(
             EngineStore.KEY_PROGRESS,
             key,
             JSONObject()
                 .put("posSec", posSec).put("durSec", durSec)
                 .put("title", title).put("url", url)
-                .put("providerName", providerName).put("ep", ep),
+                .put("providerName", providerName).put("ep", ep)
+                .put("addedAt", kept?.optLong("addedAt", now) ?: now)
+                .put("updatedAt", now),
         )
         return JSONObject().put("saved", true)
     }
