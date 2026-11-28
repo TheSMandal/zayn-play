@@ -105,7 +105,9 @@ class EngineStore(private val context: Context) {
             "apkInstaller" to "system",
             "backupFreq" to "weekly",
             "backupFolder" to "/Zayn Play/Backup",
-            "dlPath" to "/Download/Zayn Play",
+            // (v1.0.16 P10-09) dlPath default removed with the picker: no
+            // native code ever read it; downloads always use the app's
+            // Download / Zayn Play folder.
             "dlQuality" to "Auto",
             "wifiOnly" to false,
             "autoNextEp" to false,
