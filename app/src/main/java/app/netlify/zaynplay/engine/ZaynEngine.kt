@@ -11,6 +11,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.dash.manifest.DashManifestParser
 import com.lagradost.cloudstream3.APIHolder
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.network.initClient
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageResponse
@@ -775,6 +777,7 @@ class ZaynEngine(
                         params.optInt("durSec", 0),
                         params.optString("url", ""),
                         params.optString("providerName", ""),
+                        params.optString("poster", ""),
                         params.optString("ep", ""),
                     ),
                 )
@@ -882,7 +885,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.18")
+        .put("version", "1.0.19")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -2193,6 +2196,19 @@ class ZaynEngine(
             null -> {
                 if (key == "jsdelivrProxy" || key == "dns") {
                     EngineApp.syncFlagsFromStore()
+                    // (v1.0.19 BUG 1) The DNS mode is baked into baseClient
+                    // at build time (RequestsHelper.buildDefaultClient reads
+                    // EngineApp.dnsMode once), so a mid-session DNS change
+                    // had no network effect until restart. Rebuild the
+                    // client here so the new DNS applies at once. The
+                    // jsDelivr flag is live-read, but the same rebuild
+                    // keeps both paths consistent. A rebuild failure must
+                    // never fail the settings write itself.
+                    try {
+                        app.initClient(activity)
+                    } catch (t: Throwable) {
+                        android.util.Log.w("ZaynEngine", "HTTP client rebuild failed after $key change", t)
+                    }
                 }
                 // (v1.0.18 P17-20) A backupFreq/backupFolder change takes
                 // effect at once — the next auto-backup uses the new
