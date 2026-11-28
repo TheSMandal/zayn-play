@@ -7,10 +7,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.database.ContentObserver
 import android.graphics.Color
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
@@ -29,6 +33,9 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -52,6 +59,7 @@ import com.lagradost.cloudstream3.network.initClient
 import com.lagradost.cloudstream3.plugins.PluginManager
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,6 +91,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var zaynEngine: ZaynEngine
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val engineJobs = ConcurrentHashMap<String, Job>()
+
+    // (v1.0.22 C ITEM 8) System-volume observer: watches Settings.System
+    // for STREAM_MUSIC changes (hardware buttons / system UI) so the
+    // player UI follows the system volume both ways.
+    private var systemVolumeObserver: ContentObserver? = null
+    private var lastSystemVolumeFrac = -1f
 
     // (v1.0.20 P20-B5) Queued engine events: pushEngineEvent used to
     // evaluateJavascript("window.__zaynEvent && ...") with no queue —
@@ -428,6 +442,37 @@ class MainActivity : AppCompatActivity() {
                     window.attributes = attrs
                 }
             }
+
+            @JavascriptInterface
+            fun getSystemBrightness(): Float {
+                // (v1.0.22 C ITEM 7) The player brightness state must
+                // reflect the SYSTEM value: the window override in force,
+                // else the system setting (0..255). -1 when unreadable
+                // (the page keeps its own value).
+                return try {
+                    val win = window.attributes.screenBrightness
+                    if (win >= 0f) win.coerceIn(0f, 1f)
+                    else {
+                        val sys = Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, -1)
+                        if (sys < 0) -1f else (sys / 255f).coerceIn(0f, 1f)
+                    }
+                } catch (e: Exception) {
+                    -1f
+                }
+            }
+
+            @JavascriptInterface
+            fun getSystemVolume(): Float {
+                // (v1.0.22 C ITEM 8) STREAM_MUSIC as the source of truth,
+                // 0..1. -1 when unreadable (the page keeps its own value).
+                return try {
+                    val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return -1f
+                    val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                    am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
+                } catch (e: Exception) {
+                    -1f
+                }
+            }
         }, "ZaynAppNative")
 
         // Engine bridge (phase B, engine-design.md §4.2): a second
@@ -447,6 +492,40 @@ class MainActivity : AppCompatActivity() {
         // CommonActivity.INSTANCE.getActivity() (e.g. Cloudflare
         // dialogs, donation prompts). Point it at this activity.
         CommonActivity.setActivityInstance(this)
+        // (v1.0.22 D ITEM 9) Donation-fragment backstop: every
+        // plugin donation manager (CNC / Phisher / Raghav, dex-
+        // verified 2026-11-28) shows its modal as a DialogFragment
+        // via the stored Activity's FragmentManager. The v1.0.21
+        // stack gate blocks getActivity() callers whose class name
+        // contains "donat", but CNC managers never call it — they
+        // store the Activity via setActivity() at plugin load()
+        // (the loadPlugin ClassCastException retry hands them the
+        // real Activity), so the gate cannot see them. Dismissing
+        // on attach closes that hole generically, on every path
+        // (setup, repo install, home feed), for any manager
+        // version, without touching plugin code or blocking
+        // legitimate providers: the match is on the fragment class
+        // name only, and only fragments whose name contains
+        // "donat" are touched. dismissAllowingStateLoss() in
+        // onFragmentAttached removes the fragment before its
+        // dialog is ever created, so it never becomes visible.
+        supportFragmentManager.registerFragmentLifecycleCallbacks(
+            object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentAttached(fm: FragmentManager, f: Fragment, context: Context) {
+                    if (!f.javaClass.name.contains("donat", ignoreCase = true)) return
+                    EngineLogger.log("donation", "suppressing donation fragment ${f.javaClass.name}")
+                    try {
+                        if (f is DialogFragment) {
+                            f.dismissAllowingStateLoss()
+                        } else {
+                            fm.beginTransaction().remove(f).commitAllowingStateLoss()
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            },
+            false,
+        )
         app.initClient(this)
         setContext(applicationContext)
         // Phase C: the headless player + downloads, owned here. Their
@@ -557,15 +636,24 @@ class MainActivity : AppCompatActivity() {
                     // rethrows CancellationException) and skip engineReply,
                     // so JS heard nothing until its own 150 s timer — the
                     // Home skeleton spun with no error for up to 150 s.
-                    // A cancelled call now replies "timeout"; a JS side
-                    // that already timed out ignores the late reply
-                    // (__zaynReply is a no-op once pending is deleted).
+                    // (v1.0.22 D ITEM 10 / spec §4) A cancelled call
+                    // used to reply "timeout" for EVERY cancellation —
+                    // including a user cancel — so the UI misreported
+                    // "cancelled" as "timed out". Only a genuine
+                    // withTimeout expiry (TimeoutCancellationException)
+                    // replies "timeout"; any other
+                    // CancellationException is a user cancel and
+                    // replies "cancelled". A JS side that already
+                    // timed out ignores the late reply (__zaynReply
+                    // is a no-op once pending is deleted).
                     val response = try {
                         // (v1.0.12 §7) Thread the bridge id through so
                         // play() can log it and dedup a repeated id.
                         zaynEngine.call(method, params, id)
-                    } catch (e: CancellationException) {
+                    } catch (e: TimeoutCancellationException) {
                         engineError("timeout", "Engine timed out — try again")
+                    } catch (e: CancellationException) {
+                        engineError("cancelled", "Cancelled")
                     }
                     engineJobs.remove(id)
                     engineReply(id, response)
@@ -662,6 +750,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        startSystemVolumeObserver()
         // (v0.2.6) Re-point CommonActivity at this activity on every
         // resume, so plugins always see the live one.
         CommonActivity.setActivityInstance(this)
@@ -711,6 +800,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        stopSystemVolumeObserver()
         // Engine bridge: drop in-flight calls and stop the IO scope.
         engineJobs.values.forEach { it.cancel() }
         engineJobs.clear()
@@ -739,6 +829,68 @@ class MainActivity : AppCompatActivity() {
      * page's JS loads can no longer vanish silently. A readiness probe
      * re-attempts delivery on every push while the page is not ready;
      * onPageFinished flushes the queue. */
+    // (v1.0.22 C ITEM 8) System volume, both ways: the player writes
+    // STREAM_MUSIC (see ZaynPlayer/ZaynMpvPlayer applySystemVolume) and
+    // this observer reports outside changes (hardware buttons / system
+    // UI) back into the page + both engines' snapshots. The page handler
+    // (__zaynSystemVolume) updates UI only and never calls back into the
+    // engine, so the echo of the player's own write cannot loop.
+    private fun systemVolumeFraction(am: AudioManager): Float {
+        return try {
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
+        } catch (e: Exception) {
+            -1f
+        }
+    }
+
+    private fun startSystemVolumeObserver() {
+        if (systemVolumeObserver != null) return
+        val am = try {
+            getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        } catch (e: Exception) {
+            null
+        } ?: return
+        lastSystemVolumeFrac = systemVolumeFraction(am)
+        systemVolumeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                val frac = systemVolumeFraction(am)
+                if (frac < 0f || frac == lastSystemVolumeFrac) return
+                lastSystemVolumeFrac = frac
+                if (::zaynPlayer.isInitialized) zaynPlayer.onSystemVolumeChanged(frac)
+                if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.onSystemVolumeChanged(frac)
+                runOnUiThread {
+                    if (::webView.isInitialized) {
+                        webView.evaluateJavascript(
+                            "window.__zaynSystemVolume && window.__zaynSystemVolume($frac)",
+                            null,
+                        )
+                    }
+                }
+            }
+        }
+        try {
+            contentResolver.registerContentObserver(
+                Settings.System.CONTENT_URI,
+                true,
+                systemVolumeObserver!!,
+            )
+        } catch (e: Exception) {
+            systemVolumeObserver = null
+            EngineLogger.log("player", "system volume observer register failed ${e.message}")
+        }
+    }
+
+    private fun stopSystemVolumeObserver() {
+        systemVolumeObserver?.let {
+            try {
+                contentResolver.unregisterContentObserver(it)
+            } catch (e: Exception) {
+            }
+        }
+        systemVolumeObserver = null
+    }
+
     private fun pushEngineEvent(name: String, data: JSONObject) {
         // (v1.0.14 P4 rank 5) Stamp the bridge version on every event so
         // the page can ignore events from a mismatched bridge.
