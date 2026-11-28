@@ -113,7 +113,14 @@ class ZaynEngine(
     private val bridgeScope: CoroutineScope,
     private val onEvent: (String, JSONObject) -> Unit = { _, _ -> },
     private val onStageRect: (JSONObject) -> Unit,
+    // (v1.0.18 P16-06) WebView cache clear runs on the UI thread inside
+    // MainActivity (WebView.clearCache must be called there); the engine
+    // only invokes it. Null in tests / when the host does not provide it.
+    private val clearWebViewCache: (() -> Unit)? = null,
 ) {
+    // (v1.0.18 P16-07) Bounded poster prefetch cache (OkHttp disk cache,
+    // 100 MB cap — see ZaynPosterCache).
+    private val posterCache = ZaynPosterCache(activity)
     private val library = ZaynLibrary(store)
     private val subtitles = ZaynSubtitles()
     private val accounts = ZaynAccounts(store)
@@ -441,6 +448,9 @@ class ZaynEngine(
         // by the caller right after this call returns (the mpv branch only
         // posts a delayed play after this decision, so clearing is safe).
         val engineForThisPlay = oneShotEngineOverride ?: if (isMpv()) "libmpv" else "exoplayer"
+        // (v1.0.18 P17-02) Subtitle style from Settings, for both
+        // engines: the ExoPlayer HTML overlay and libmpv's sub-* options.
+        val subtitleStyle = subtitleStyleJson()
         if (engineForThisPlay == "libmpv" && !mpvPlayer.isVoFailed() && mpvPlayer.ensureCreated()) {
             lastActiveEngine = "libmpv"
             // (v1.0.12 §7) Stop the previous engine outright (not just
@@ -457,7 +467,7 @@ class ZaynEngine(
             // too-short delay. No delay is needed if the surfaces were
             // per-engine (they are shared — Arm 2).
             Handler(Looper.getMainLooper()).postDelayed({
-                mpvPlayer.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
+                mpvPlayer.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang, subtitleStyle.toString())
             }, 500)
         } else {
             // (v1.0.12 §6 step 6) Exclusion tripwire: a VO-init failure that
@@ -481,7 +491,7 @@ class ZaynEngine(
             // the player exists, so without this the ExoPlayer play would
             // run with no surface after a switch-time detach.
             player.reattachTextureView()
-            player.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang)
+            player.play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes, bufferLevel, preferredAudioLang, subtitleStyle)
         }
     }
 
@@ -501,10 +511,14 @@ class ZaynEngine(
         ap.attempts++
         EngineLogger.log("player", "retry attempt ${ap.attempts}/$maxPlayAttempts: play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${redactUrlForLog(link.url)}")
         if (ap.title.isNotBlank()) {
-            store.putMapEntry(
-                EngineStore.KEY_LAST_LINK,
+            putLastLink(
                 ap.title,
-                JSONObject().put("linkIndex", next).put("atMs", System.currentTimeMillis()),
+                library.progressKey(
+                    ap.params.optString("url", ""),
+                    ap.params.optString("providerName", ""),
+                    ap.params.optString("ep", ""),
+                ),
+                next,
             )
         }
         // (v1.0.12 §8) Retries keep the session id.
@@ -799,7 +813,33 @@ class ZaynEngine(
                 // ---- Phase C: backup / cache / log (E35–E38) ----
                 "backupExport" -> ok(backupExport())
                 "backupImport" -> backupImport(params.optString("json", ""))
+                // (v1.0.18 P16-04) Native backup: JS calls backupSave, the
+                // file is written natively into backupFolder. The old
+                // blob-click path cannot save in this WebView at all.
+                "backupSave" -> backupSave()
+                "backupRestore" -> backupImport(params.optString("json", ""))
                 "cacheClear" -> ok(cacheClear())
+                // (v1.0.18 P16-06) Real cache sizes (never the old 248 MB).
+                "cacheSize" -> ok(cacheSize())
+                // (v1.0.18 P17-23) Custom sites now persist in Room.
+                "customSitesGet" -> ok(JSONObject().put("sites", store.customSitesMap()))
+                "customSitesSet" -> customSitesSet(params)
+                // (v1.0.18 P16-07) Poster prefetch into the bounded cache.
+                "posterPrefetch" -> ok(
+                    JSONObject().put(
+                        "prefetched",
+                        posterCache.prefetch(
+                            params.optJSONArray("urls")?.let { arr ->
+                                (0 until arr.length()).map { arr.optString(it, "") }.filter { it.isNotBlank() }
+                            } ?: emptyList(),
+                        ),
+                    ),
+                )
+                // (v1.0.18 P17-21) Real settings reset (confirm lives in JS).
+                "settingsReset" -> ok(settingsReset())
+                // (v1.0.18 P16-13) Orphan download sweep / delete.
+                "orphanSweep" -> ok(downloads.orphanSweep())
+                "orphanDelete" -> ok(downloads.orphanDelete(params.optJSONArray("names") ?: JSONArray()))
                 "logcat" -> ok(
                     JSONObject().put(
                         "log",
@@ -842,7 +882,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.17")
+        .put("version", "1.0.18")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -2154,6 +2194,12 @@ class ZaynEngine(
                 if (key == "jsdelivrProxy" || key == "dns") {
                     EngineApp.syncFlagsFromStore()
                 }
+                // (v1.0.18 P17-20) A backupFreq/backupFolder change takes
+                // effect at once — the next auto-backup uses the new
+                // cadence/folder instead of waiting for a restart.
+                if (key == "backupFreq" || key == "backupFolder") {
+                    ZaynBackupScheduler.schedule(activity)
+                }
                 ok(JSONObject().put("key", key).put("value", value))
             }
             "unknown_setting" -> err("unknown_setting", "Unknown setting: $key")
@@ -2280,7 +2326,9 @@ class ZaynEngine(
             else -> "fresh"
         }
         val settingSec = parseSeconds(store.getSettingString("timeout", "30s"))
-        val timeoutSec = params.optInt("timeoutSec", settingSec).coerceIn(1, 120)
+        // (v1.0.18 P17-07) The 120 s cap silently re-capped the
+        // "Unlimited" 300 s value back down. Cap is the documented 300.
+        val timeoutSec = params.optInt("timeoutSec", settingSec).coerceIn(1, 300)
         val foundLinks = mutableListOf<ExtractorLink>()
         val foundSubs = mutableListOf<SubtitleFile>()
         var partial = false
@@ -2634,8 +2682,17 @@ class ZaynEngine(
         }
     }
 
-    private fun parseSeconds(raw: String): Int =
-        Regex("(\\d+)").find(raw)?.groupValues?.get(1)?.toIntOrNull() ?: 30
+    /**
+     * (v1.0.18 P17-07, G-11) The timeout parser lied: "Instant" fell
+     * through to the 30 s default (the opposite of instant) and
+     * "Unlimited" also became 30 s. Exact table: Instant -> 1 s,
+     * Unlimited -> 300 s (the documented cap, never 30), N s -> N.
+     */
+    private fun parseSeconds(raw: String): Int = when {
+        raw.contains("Instant", ignoreCase = true) -> 1
+        raw.contains("Unlimited", ignoreCase = true) -> 300
+        else -> Regex("""(\d+)""").find(raw)?.groupValues?.get(1)?.toIntOrNull() ?: 30
+    }
 
     private fun qualityLabel(q: Int): String = when (q) {
         Qualities.P2160.value -> "4K"
@@ -2721,6 +2778,11 @@ class ZaynEngine(
      */
     private suspend fun rankLinks(links: List<ExtractorLink>, providerName: String = ""): List<RankedLink> {
         val resPref = store.getSettingString("res", "Auto")
+        // (v1.0.18 P17-05) srcPrio "speed": TTFB-first WITHIN the
+        // language tier (a Hindi link never loses to a faster Tamil
+        // one — the language tier still dominates, only the quality
+        // tier is dropped). "quality" (default) keeps the old order.
+        val srcPrioSpeed = store.getSettingString("srcPrio", "quality") == "speed"
         val a1 = audioCodeOf(store.getSettingString("audio1", "English"))
         val a2 = audioCodeOf(store.getSettingString("audio2", "বাংলা"))
         val playable = links.filter { link ->
@@ -2759,8 +2821,21 @@ class ZaynEngine(
         val ranked = scored.map { (link, scoreAudio) ->
             RankedLink(link, scoreAudio.first, ttfb[link], scoreAudio.second)
         }.sortedWith(
-            compareByDescending<RankedLink> { it.score }
-                .thenBy { it.ttfbMs ?: Long.MAX_VALUE },
+            if (srcPrioSpeed) {
+                compareByDescending<RankedLink> {
+                    // Language tier only: a1 (10000+) > a2 (5000+) > none.
+                    when {
+                        it.score >= 10000 -> 2
+                        it.score >= 5000 -> 1
+                        else -> 0
+                    }
+                }
+                    .thenBy { it.ttfbMs ?: Long.MAX_VALUE }
+                    .thenByDescending { it.score }
+            } else {
+                compareByDescending<RankedLink> { it.score }
+                    .thenBy { it.ttfbMs ?: Long.MAX_VALUE }
+            },
         )
         // (v1.0.13 P2-C P5) Stream Resolved.
         if (ranked.isNotEmpty()) {
@@ -3496,10 +3571,17 @@ class ZaynEngine(
                     .put("reused", true),
             )
         }
+        // (v1.0.18 P17-09) Reuse is content-keyed (url + provider +
+        // episode), never bare-title.
+        val contentKey = library.progressKey(
+            params.optString("url", ""),
+            params.optString("providerName", ""),
+            params.optString("ep", ""),
+        )
         val reuse = store.getSettingBoolean("reuse", true)
         var reused = false
         if (reuse && title.isNotBlank()) {
-            val last = store.mapEntry(EngineStore.KEY_LAST_LINK, title)
+            val last = lastLinkEntry(title, contentKey)
             if (last != null) {
                 val at = last.optLong("atMs", 0)
                 val durH = parseHours(store.getSettingString("reuseDur", "24h"))
@@ -3513,9 +3595,15 @@ class ZaynEngine(
         // decision can no longer fall through to a stored position. The
         // fallback below only fires for callers that omit the key, and it
         // is content-keyed too (url + provider + episode), never bare-title.
+        // (v1.0.18 P17-08) resume=false forces startAtSec 0 even for an
+        // explicit startAtSec: the setting is the user's word, and the
+        // resume prompt is not shown when resume is off, so no legitimate
+        // caller sends a resume position in that state. (V1.0.14 G1c's
+        // explicit-startAtSec authority applies while resume is ON.)
         val startAtSec = when {
+            !store.getSettingBoolean("resume", true) -> 0
             params.has("startAtSec") -> params.optInt("startAtSec", 0)
-            store.getSettingBoolean("resume", true) && title.isNotBlank() ->
+            title.isNotBlank() ->
                 library.progressGet(
                     title,
                     params.optString("url", ""),
@@ -3534,11 +3622,18 @@ class ZaynEngine(
             params.optString("ep", ""),
         ).optInt("durSec", 0)
         val safeStartSec = if (startAtSec > 0 && savedDurSec > 0 && startAtSec >= savedDurSec - 30) 0 else startAtSec
-        val subLangCode = audioCodeOf(store.getSettingString("subLang", "বাংলা")) ?: "bn"
-        val providerSub = resolved.subtitles.firstOrNull { it.langTag == subLangCode || it.lang == subLangCode }
-            ?: resolved.subtitles.firstOrNull()
-        val subtitleText = if (params.has("subtitleText") && !params.isNull("subtitleText")) params.optString("subtitleText") else null
-        val subtitleLang = if (params.has("subtitleLang")) params.optString("subtitleLang") else subLangCode
+        // (v1.0.18 P17-03) subLang "Off" used to fall through to "bn"
+        // (audioCodeOf("Off") returns null -> ?: "bn"), so subtitles
+        // still showed. Off now suppresses every subtitle input.
+        val subLangOff = store.getSettingString("subLang", "বাংলা") == "Off"
+        val subLangCode = if (subLangOff) null else audioCodeOf(store.getSettingString("subLang", "বাংলা")) ?: "bn"
+        // (v1.0.18 P17-02) subFilter: only subtitles in the chosen language
+        // may be picked — the preferred-language pick AND the fallback.
+        val filterCode = store.getSettingString("subFilter", "All").let { if (it == "All") null else audioCodeOf(it) }
+        val providerSub = if (subLangOff) null else resolved.subtitles.firstOrNull { (it.langTag == subLangCode || it.lang == subLangCode) && (filterCode == null || it.langTag == filterCode || it.lang == filterCode) }
+            ?: if (subLangOff) null else resolved.subtitles.firstOrNull { filterCode == null || it.langTag == filterCode || it.lang == filterCode }
+        val subtitleText = if (subLangOff) null else if (params.has("subtitleText") && !params.isNull("subtitleText")) params.optString("subtitleText") else null
+        val subtitleLang = if (subLangOff) null else if (params.has("subtitleLang")) params.optString("subtitleLang") else subLangCode
         val playLink = ZaynPlayer.PlayLink(
             url = link.url,
             source = link.source,
@@ -3572,11 +3667,7 @@ class ZaynEngine(
         activePlay = ActivePlay(ranked, pickedIdx, 1, session, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title, params)
         EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${redactUrlForLog(link.url)} session=$session${tokenAgeSuffix(link.url)}")
         if (title.isNotBlank()) {
-            store.putMapEntry(
-                EngineStore.KEY_LAST_LINK,
-                title,
-                JSONObject().put("linkIndex", pickedIdx).put("atMs", System.currentTimeMillis()),
-            )
+            putLastLink(title, contentKey, pickedIdx)
             // (v1.0.16 P11-01) Playing NEVER auto-adds to the Library:
             // the master prompt's rule is explicit-bookmark ONLY. The old
             // library.markWatching call here is deleted; Continue Watching
@@ -3607,13 +3698,67 @@ class ZaynEngine(
         )
     }
 
-    private fun parseHours(raw: String): Long =
-        Regex("""(\d+)""").find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: 24L
+    /**
+     * (v1.0.18 P17-08, G-11) The reuse-duration parser ignored the
+     * unit: "7d" parsed as 7 HOURS. Exact table: "7d" -> 168 hours,
+     * "24h" -> 24, "12h" -> 12, a bare number is hours.
+     */
+    private fun parseHours(raw: String): Long {
+        val num = Regex("""(\d+)""").find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: return 24L
+        return if (raw.contains('d')) num * 24L else num
+    }
 
+    /**
+     * (v1.0.18 P17-09, G-11) The cache-size parser ignored the unit:
+     * "1 GB" became 1 MB. Exact table: "1 GB" -> 1073741824 bytes,
+     * "250 MB" -> 250 MB. The RESULT is clamped to 16–2048 MB (the old
+     * code clamped the raw number, so "1 GB" would have clamped to 1).
+     */
     private fun cacheSizeBytes(): Long {
         val raw = store.getSettingString("bufDisk", "250 MB")
         val num = Regex("""(\d+)""").find(raw)?.groupValues?.get(1)?.toLongOrNull() ?: 250L
-        return num.coerceIn(16, 2048) * 1024L * 1024L
+        val mb = if (raw.contains("GB", ignoreCase = true)) num * 1024L else num
+        return mb.coerceIn(16, 2048) * 1024L * 1024L
+    }
+
+    /**
+     * (v1.0.18 P17-02) Subtitle style as one JSON object for both
+     * players: ExoPlayer's HTML overlay and libmpv's sub-* options
+     * read the same values from the same source (Settings).
+     */
+    private fun subtitleStyleJson(): JSONObject = JSONObject()
+        .put("subColor", store.getSettingString("subColor", "সাদা"))
+        .put("subStyle", store.getSettingString("subStyle", "outline"))
+        .put("subSize", store.getSettingString("subSize", "medium"))
+        .put("subPosV", store.getSettingString("subPosV", "bottom"))
+        .put("subPosH", store.getSettingString("subPosH", "center"))
+
+    /**
+     * (v1.0.18 P17-09) The reuse/last-link key is the CONTENT key
+     * (url + provider + episode), never the bare title: two different
+     * titles, and two episodes of one series, must not share a reuse
+     * window. One-time legacy adoption: a row stored under the bare
+     * title in V1.0.17 moves to the content key on first read, and the
+     * title-keyed row is removed so it can never be read again.
+     */
+    private fun lastLinkEntry(title: String, contentKey: String): JSONObject? {
+        store.mapEntry(EngineStore.KEY_LAST_LINK, contentKey)?.let { return it }
+        if (title.isBlank() || title == contentKey) return null
+        val legacy = store.mapEntry(EngineStore.KEY_LAST_LINK, title) ?: return null
+        store.putMapEntry(EngineStore.KEY_LAST_LINK, contentKey, legacy)
+        store.removeMapEntry(EngineStore.KEY_LAST_LINK, title)
+        return legacy
+    }
+
+    private fun putLastLink(title: String, contentKey: String, linkIndex: Int) {
+        store.putMapEntry(
+            EngineStore.KEY_LAST_LINK,
+            contentKey,
+            JSONObject().put("linkIndex", linkIndex).put("atMs", System.currentTimeMillis()),
+        )
+        if (title.isNotBlank() && title != contentKey) {
+            store.removeMapEntry(EngineStore.KEY_LAST_LINK, title)
+        }
     }
 
     /** (v1.0.4) Buffering level (Settings > Playback > Buffering). */
@@ -3798,6 +3943,14 @@ class ZaynEngine(
         if (link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET) {
             return err("no_links", "Torrent downloads are not supported")
         }
+        // (v1.0.18 P16-13) Quota: refuse BEFORE any byte is written when
+        // free space is below the 100 MB floor (a download that fills the
+        // disk mid-write corrupts the file AND the device). The error
+        // names the floor so the UI can say it plainly.
+        val freeBytes = downloads.freeBytes()
+        if (freeBytes in 0 until 100L * 1024L * 1024L) {
+            return err("storage_full", "Not enough free space to download (need 100 MB free)")
+        }
         // (v1.0.16 P10-13) Stronger download id: SHA-256 of title + page
         // URL + episode data (when a series episode is chosen), first 16
         // hex chars, keeping the "dl-" prefix. The old 32-bit hashCode id
@@ -3865,30 +4018,49 @@ class ZaynEngine(
 
     // ---- E35–E38: backup / cache / log ----
 
+    // (v1.0.18 P16-04) Format 0.3.0 adds provHealthDetail; tokens are
+    // still never exported. The JSON is built by ZaynBackup so the
+    // manual save and the scheduled worker write the identical file.
     private fun backupExport(): JSONObject {
-        val settings = store.settingsSnapshot()
-        val repos = JSONArray()
-        for (repo in RepositoryManager.getRepositories()) {
-            repos.put(JSONObject().put("name", repo.name).put("url", repo.url))
-        }
-        val json = JSONObject()
-            .put("format", "zaynplay-backup-0.2.0")
-            .put("app", "Zayn Play")
-            .put("version", "0.2.0")
-            .put("settings", settings)
-            .put("repos", repos)
-            .put("provOn", store.readJsonMap("zayn/provOn"))
-            .put("provAutoOff", store.readJsonMap("zayn/provAutoOff"))
-            .put("provHealth", store.readJsonMap("zayn/provHealth"))
-            .put("library", store.readJsonMap(EngineStore.KEY_LIBRARY))
-            .put("progress", store.readJsonMap(EngineStore.KEY_PROGRESS))
-            .put("downloads", store.readJsonMap(EngineStore.KEY_DOWNLOADS))
-            .put("savedAt", System.currentTimeMillis())
-        // NOTE: account tokens are deliberately NOT exported — a backup
-        // file can be shared, and tokens are secrets.
-        return JSONObject().put("json", json.toString(2)).put("fileName", "zaynplay-backup-0.2.0.json")
+        val json = ZaynBackup.exportJson(activity, store)
+        return JSONObject().put("json", json.toString(2)).put("fileName", ZaynBackup.FILE_NAME)
     }
 
+    /**
+     * (v1.0.18 P16-04) The NATIVE backup save: JS calls backupSave,
+     * the file is written natively into the chosen backupFolder, and
+     * the toast fires ONLY on a confirmed write (path + bytes named).
+     * The old blob-click path could never save in this WebView.
+     */
+    private fun backupSave(): JSONObject {
+        val json = ZaynBackup.exportJson(activity, store)
+        val folder = store.getSettingString("backupFolder", "/Zayn Play/Backup")
+        return try {
+            val file = ZaynBackup.writeToFolder(activity, folder, json)
+            store.setSetting("lastBackup", file.name)
+            ok(
+                JSONObject()
+                    .put("fileName", file.name)
+                    .put("path", file.absolutePath)
+                    .put("folder", ZaynBackup.folderDisplayPath(activity, folder))
+                    .put("bytes", file.length()),
+            )
+        } catch (e: Exception) {
+            EngineLogger.log("backup", "backupSave failed: ${e.javaClass.simpleName}: ${e.message}")
+            err("backup_failed", "Could not write the backup file")
+        }
+    }
+
+    /**
+     * (v1.0.18 P16-04) Import, rewritten: library/progress/downloads
+     * MERGE by id (newest updatedAt wins; nothing on the device is
+     * lost) instead of the old wholesale replace; downloads and BOTH
+     * health maps are actually restored (0.2.0 import ignored them);
+     * unknown (removed-schema) keys are skipped + counted, NOT an
+     * error; an INVALID VALUE for a known key fails the whole import
+     * BEFORE anything is applied, naming the keys. Accepts 0.3.0 and
+     * 0.2.0, plus the legacy 0.1.7 shape.
+     */
     private suspend fun backupImport(jsonText: String): JSONObject {
         val json = try {
             JSONObject(jsonText)
@@ -3896,17 +4068,33 @@ class ZaynEngine(
             return err("invalid_backup", "That file is not a Zayn Play backup")
         }
         val format = json.optString("format", "")
-        if (format != "zaynplay-backup-0.2.0" && !json.has("installed")) {
+        if (format != ZaynBackup.FORMAT && format != "zaynplay-backup-0.2.0" && !json.has("installed")) {
             return err("invalid_backup", "That file is not a Zayn Play backup")
         }
-        // Validate first: nothing is applied until the whole file parses.
+        // Validate settings FIRST: nothing is applied until the whole
+        // file's known keys check out.
         val settingsObj = if (json.has("settings")) json.optJSONObject("settings") else null
-        val provOn = if (json.has("provOn")) json.optJSONObject("provOn") else null
-        val provAutoOff = if (json.has("provAutoOff")) json.optJSONObject("provAutoOff") else null
-        val libraryObj = if (json.has("library")) json.optJSONObject("library") else null
-        val progressObj = if (json.has("progress")) json.optJSONObject("progress") else null
-        val reposArr = if (json.has("repos")) json.optJSONArray("repos") else null
+        val invalidKeys = JSONArray()
+        var unknownKeys = 0
+        if (settingsObj != null) {
+            val keys = settingsObj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                when (store.validateSetting(k, settingsObj.opt(k))) {
+                    null -> Unit
+                    "unknown_setting" -> unknownKeys++
+                    else -> invalidKeys.put(k)
+                }
+            }
+        }
+        if (invalidKeys.length() > 0) {
+            return err(
+                "invalid_backup",
+                "Backup has invalid values for: ${(0 until invalidKeys.length()).joinToString(", ") { invalidKeys.optString(it) }}",
+            )
+        }
         var restoredRepos = 0
+        val reposArr = if (json.has("repos")) json.optJSONArray("repos") else null
         if (reposArr != null) {
             for (i in 0 until reposArr.length()) {
                 val r = reposArr.optJSONObject(i) ?: continue
@@ -3921,52 +4109,163 @@ class ZaynEngine(
             }
         }
         // Legacy 0.1.7 format: {installed, provOn, pb, theme, lang}.
-        if (format != "zaynplay-backup-0.2.0") {
+        if (format != ZaynBackup.FORMAT && format != "zaynplay-backup-0.2.0") {
             val legacyProvOn = json.optJSONObject("provOn")
             if (legacyProvOn != null) store.writeJsonMap("zayn/provOn", legacyProvOn)
             return ok(JSONObject().put("restored", true).put("reposInstalled", restoredRepos))
         }
+        var settingsApplied = 0
         if (settingsObj != null) {
             val keys = settingsObj.keys()
             while (keys.hasNext()) {
                 val k = keys.next()
-                store.setSetting(k, settingsObj.opt(k))
+                if (store.setSetting(k, settingsObj.opt(k)) == null) settingsApplied++
             }
         }
-        if (provOn != null) store.writeJsonMap("zayn/provOn", provOn)
-        if (provAutoOff != null) store.writeJsonMap("zayn/provAutoOff", provAutoOff)
-        if (libraryObj != null) store.writeJsonMap(EngineStore.KEY_LIBRARY, libraryObj)
-        if (progressObj != null) store.writeJsonMap(EngineStore.KEY_PROGRESS, progressObj)
-        return ok(JSONObject().put("restored", true).put("reposInstalled", restoredRepos))
+        val provOnMerged = mergeProviderMap("zayn/provOn", json.optJSONObject("provOn"))
+        val provAutoOffMerged = mergeProviderMap("zayn/provAutoOff", json.optJSONObject("provAutoOff"))
+        val provHealthMerged = mergeProviderMap("zayn/provHealth", json.optJSONObject("provHealth"))
+        val provHealthDetailMerged = mergeProviderMap("zayn/provHealthDetail", json.optJSONObject("provHealthDetail"))
+        val libraryMerged = mergeRowMap(EngineStore.KEY_LIBRARY, json.optJSONObject("library"))
+        val progressMerged = mergeRowMap(EngineStore.KEY_PROGRESS, json.optJSONObject("progress"))
+        val downloadsMerged = mergeRowMap(EngineStore.KEY_DOWNLOADS, json.optJSONObject("downloads"))
+        return ok(
+            JSONObject()
+                .put("restored", true)
+                .put("reposInstalled", restoredRepos)
+                .put("settingsApplied", settingsApplied)
+                .put("settingsSkippedUnknown", unknownKeys)
+                .put("provOnMerged", provOnMerged)
+                .put("provAutoOffMerged", provAutoOffMerged)
+                .put("provHealthMerged", provHealthMerged)
+                .put("provHealthDetailMerged", provHealthDetailMerged)
+                .put("libraryMerged", libraryMerged)
+                .put("progressMerged", progressMerged)
+                .put("downloadsMerged", downloadsMerged),
+        )
     }
 
-    private suspend fun cacheClear(): JSONObject {
-        fun dirSize(f: File): Long {
-            if (!f.exists()) return 0
-            if (f.isFile) return f.length()
-            return f.listFiles()?.sumOf { dirSize(it) } ?: 0
-        }
-        fun deleteContents(f: File) {
-            f.listFiles()?.forEach {
-                try {
-                    if (it.isDirectory) it.deleteRecursively() else it.delete()
-                } catch (e: Exception) {
-                }
+    /**
+     * Merge one row map (library / progress / downloads) by id: the
+     * backup row wins only when it is newer (updatedAt); a row the
+     * backup does not have stays untouched. Returns merged count.
+     */
+    private fun mergeRowMap(key: String, incoming: JSONObject?): Int {
+        if (incoming == null) return 0
+        var merged = 0
+        val keys = incoming.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val newEntry = incoming.optJSONObject(k) ?: continue
+            val oldEntry = store.mapEntry(key, k)
+            val newAt = newEntry.optLong("updatedAt", 0L)
+            val oldAt = oldEntry?.optLong("updatedAt", 0L) ?: 0L
+            if (oldEntry == null || newAt >= oldAt) {
+                store.putMapEntry(key, k, newEntry)
+                merged++
             }
         }
+        return merged
+    }
+
+    /**
+     * Merge one provider map (provOn / provAutoOff / provHealth /
+     * provHealthDetail): backup keys overlay the existing map, keys
+     * the backup does not have stay. Returns merged count.
+     */
+    private fun mergeProviderMap(key: String, incoming: JSONObject?): Int {
+        if (incoming == null) return 0
+        val merged = JSONObject(store.readJsonMap(key).toString())
+        var count = 0
+        val keys = incoming.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            merged.put(k, incoming.opt(k))
+            count++
+        }
+        store.writeJsonMap(key, merged)
+        return count
+    }
+
+    /** Size of a file or directory tree (bytes). Shared by cacheClear / cacheSize. */
+    private fun dirSize(f: File): Long {
+        if (!f.exists()) return 0
+        if (f.isFile) return f.length()
+        return f.listFiles()?.sumOf { dirSize(it) } ?: 0
+    }
+
+    private fun deleteContents(f: File) {
+        f.listFiles()?.forEach {
+            try {
+                if (it.isDirectory) it.deleteRecursively() else it.delete()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    /**
+     * (v1.0.18 P16-06) cacheClear now clears the WebView cache too
+     * (via MainActivity's UI-thread callback) and the poster prefetch
+     * cache, and reports the REAL freed MB measured before/after —
+     * never the old hardcoded 248 MB. WebView.clearCache(true) runs
+     * async on the UI thread, so its bytes cannot be re-measured
+     * synchronously afterwards: they are counted from the pre-clear
+     * measurement (webViewBytesBefore) and reported separately as
+     * webViewMB too. freedMB therefore covers cacheDir + poster +
+     * WebView, all measured, none invented.
+     */
+    private suspend fun cacheClear(): JSONObject {
         val cacheDir = activity.cacheDir
         val extCache = activity.externalCacheDir
-        val before = dirSize(cacheDir) + (extCache?.let { dirSize(it) } ?: 0)
+        val webViewDir = File(activity.applicationInfo.dataDir, "app_webview")
+        val posterBytesBefore = posterCache.sizeBytes()
+        val webViewBytesBefore = dirSize(webViewDir)
+        val before = dirSize(cacheDir) + (extCache?.let { dirSize(it) } ?: 0) + posterBytesBefore
         // Release the player first (its SimpleCache lives in cacheDir).
         kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
             player.clearCache { cont.resume(Unit) }
         }
+        posterCache.clear()
+        clearWebViewCache?.invoke()
         deleteContents(cacheDir)
         if (extCache != null) deleteContents(extCache)
-        val after = dirSize(cacheDir) + (extCache?.let { dirSize(it) } ?: 0)
-        val freedMB = (before - after).coerceAtLeast(0) / 1048576.0
-        EngineLogger.log("cache", "cleared ${"%.1f".format(freedMB)} MB")
-        return JSONObject().put("freedMB", freedMB)
+        val after = dirSize(cacheDir) + (extCache?.let { dirSize(it) } ?: 0) + posterCache.sizeBytes()
+        // WebView bytes (pre-clear measurement — the async clear has
+        // already been requested above) join the re-measured delta.
+        val freedMB = ((before - after).coerceAtLeast(0) + webViewBytesBefore) / 1048576.0
+        EngineLogger.log("cache", "cleared ${"%.1f".format(freedMB)} MB (webView ${"%.1f".format(webViewBytesBefore / 1048576.0)} MB via WebView.clearCache)")
+        return JSONObject()
+            .put("freedMB", freedMB)
+            .put("webViewCleared", clearWebViewCache != null)
+            .put("webViewMB", webViewBytesBefore / 1048576.0)
+            .put("posterBytes", posterBytesBefore)
+    }
+
+    /** (v1.0.18 P16-06) Real cache sizes, for the Settings cache page. */
+    private fun cacheSize(): JSONObject {
+        val webViewDir = File(activity.applicationInfo.dataDir, "app_webview")
+        val cacheBytes = dirSize(activity.cacheDir) +
+            (activity.externalCacheDir?.let { dirSize(it) } ?: 0)
+        return JSONObject()
+            .put("cacheMB", cacheBytes / 1048576.0)
+            .put("webViewMB", dirSize(webViewDir) / 1048576.0)
+            .put("posterMB", posterCache.sizeBytes() / 1048576.0)
+            .put("posterBytes", posterCache.sizeBytes())
+    }
+
+    /** (v1.0.18 P17-23) Persist custom sites (Room) from the clone page. */
+    private fun customSitesSet(params: JSONObject): JSONObject {
+        val sites = params.optJSONObject("sites")
+            ?: return err("invalid_input", "Missing sites")
+        store.setCustomSites(sites)
+        return ok(JSONObject().put("sites", store.customSitesMap()))
+    }
+
+    /** (v1.0.18 P17-21) Real settings reset: settings only, never the
+        library/progress/downloads. The confirm lives in JS. */
+    private fun settingsReset(): JSONObject {
+        val reset = store.resetSettingsToDefaults()
+        return JSONObject().put("reset", reset)
     }
 
     // ---- mapping helpers ----
