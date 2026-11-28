@@ -30,10 +30,10 @@ jobs:
         # does not ship it.
         run: |
           echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36"
-      - name: Build debug APK
+      - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace \
+          ./gradlew :app:assembleRelease --stacktrace \
             -PfixedKeystoreFile="$PWD/keystore.jks" \
             -PfixedKeystorePassword="${{ secrets.KEYSTORE_PASSWORD }}" \
             -PfixedKeyAlias="${{ secrets.KEY_ALIAS }}" \
@@ -41,7 +41,7 @@ jobs:
             -PrequireFixedSigning=true
       - name: APK size and contents
         run: |
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
           echo "APK: $APK"
           ls -l "$APK"
           unzip -l "$APK"
@@ -83,6 +83,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: zayn-play-1.0.19
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: zayn-play-1.0.20
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 30
