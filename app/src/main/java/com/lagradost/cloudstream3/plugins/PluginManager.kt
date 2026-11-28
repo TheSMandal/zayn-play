@@ -745,7 +745,59 @@ object PluginManager {
                 urlPlugins[data.url ?: filePath] = pluginInstance
             }
             if (pluginInstance is Plugin) {
-                pluginInstance.load(context)
+                // (v1.0.21) Donation suppression, prong 1 of 2 — starve
+                // the Activity: plugin load() gets the application
+                // context, never the Activity. Proven from the plugin
+                // dexes (CastleTvProvider.cs3, 2026-11-28): the CNC
+                // donation manager stores its dialog Activity ONLY via
+                // DonationManager.setActivity(context) in load(), as a
+                // safe `as? AppCompatActivity` cast into a WeakReference;
+                // with a non-Activity context the cast yields null, the
+                // reference is never set, and checkAndShow() returns at
+                // once (no dialog, no crash, no stats fetch). The same
+                // load() call is the funnel for every load path
+                // (loadAllOnline/Local, loadSinglePlugin), so starving
+                // it here covers all of them; MainActivity keeps passing
+                // the Activity (its loadAll* calls also need it for
+                // getExternalFilesDir), and loadPlugin derives the
+                // application context itself.
+                // Fallback for plugins that NEED the Activity: a sweep
+                // of all 834 live .cs3 dexes found 30 plugins whose
+                // load() hard-casts the context (`context as
+                // AppCompatActivity`, first statement or later — e.g.
+                // zzikozz WiflixPlugin, 9 CNC plugins); those throw
+                // ClassCastException on the application context and
+                // would otherwise fail to load (load_failed). On exactly
+                // that exception — and no other — drop whatever the
+                // failed attempt registered (same three blocks
+                // unloadPlugin uses, plus VideoClickActions, so the
+                // retry cannot double-register a MainAPI) and retry
+                // once with the original context. A second throw falls
+                // through to the catch below as load_failed, as today.
+                // Plugins that safe-cast (`as?`, 51 dexes) load fine
+                // with a null stored activity — their settings screen
+                // null-checks it (verified: PlavioHD, CineVood).
+                try {
+                    pluginInstance.load(context.applicationContext)
+                } catch (e: ClassCastException) {
+                    APIHolder.apis.filter { api -> api.sourcePlugin == filePath }.forEach {
+                        removePluginMapping(it)
+                    }
+                    APIHolder.allProviders.withLock {
+                        APIHolder.allProviders.removeAll { provider -> provider.sourcePlugin == filePath }
+                    }
+                    extractorApis.withLock {
+                        extractorApis.removeAll { provider -> provider.sourcePlugin == filePath }
+                    }
+                    VideoClickActionHolder.allVideoClickActions.withLock {
+                        VideoClickActionHolder.allVideoClickActions.removeAll { action -> action.sourcePlugin == filePath }
+                    }
+                    EngineLogger.log(
+                        "load",
+                        "plugin ${data.internalName} hard-casts load context to Activity, retrying load() with it"
+                    )
+                    pluginInstance.load(context)
+                }
             } else {
                 pluginInstance.load()
             }
