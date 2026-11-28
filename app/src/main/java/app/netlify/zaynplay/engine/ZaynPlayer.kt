@@ -581,6 +581,20 @@ class ZaynPlayer(
             .build()
         exo.addListener(listener)
         exo.addAnalyticsListener(analyticsListener)
+        // (v1.0.18 P17-02) Subtitle cues have somewhere to go: the bare
+        // ExoPlayer + TextureView had NO text output at all, so subtitle
+        // cues were parsed and dropped — subtitles never displayed on the
+        // default engine, and no CaptionStyle could ever apply (there is
+        // no SubtitleView to style). Cues now flow to the HTML subtitle
+        // overlay, which renders them styled from the Settings values
+        // (subColor/subStyle/subPosV/subPosH/subSize). The video path is
+        // untouched — this only adds cue delivery.
+        exo.addTextOutput { cues ->
+            val text = cues.mapNotNull { it.text?.toString() }
+                .filter { it.isNotBlank() }
+                .joinToString("\n")
+            onEvent("subtitleCues", org.json.JSONObject().put("text", text))
+        }
         lastPlaybackState = Player.STATE_IDLE
         player = exo
         transitionTo(SurfaceLifecycle.PLAYER_INITIALIZED, "ExoPlayer created")
@@ -703,6 +717,14 @@ class ZaynPlayer(
      * subtitleText = downloaded subtitle file text (E18); subtitleUrl =
      * a provider subtitle URL streamed directly (loadLinks callback).
      */
+    /** Last subtitle style received (subColor/subStyle/subPosV/
+        subPosH/subSize, from Settings). The HTML subtitle overlay
+        reads the same settings and styles the cues; this field keeps
+        the player call honest about what it was given. */
+    @Volatile
+    var currentSubtitleStyle: org.json.JSONObject? = null
+        private set
+
     fun play(
         link: PlayLink,
         startAtMs: Long,
@@ -712,6 +734,7 @@ class ZaynPlayer(
         cacheSizeBytes: Long,
         bufferLevel: String = "normal",
         preferredAudioLang: String? = null,
+        subtitleStyle: org.json.JSONObject? = null,
     ) {
         // (v1.0.13 P2-B T1) Log every player.play() entry (token-redacted):
         // a second play path, if one exists, becomes visible here.
@@ -737,6 +760,13 @@ class ZaynPlayer(
             currentLink = link
             currentSubtitleText = subtitleText
             currentSubtitleLang = subtitleLang
+            currentSubtitleStyle = subtitleStyle
+            // A new title must not keep the previous title's subtitle
+            // line on screen while its cues load.
+            onEvent("subtitleCues", org.json.JSONObject().put("text", ""))
+            if (subtitleStyle != null) {
+                EngineLogger.log("player", "player.play() subtitleStyle=${subtitleStyle.toString()}")
+            }
             lastQuality = link.qualityLabel
             lastSource = link.source
             lastAudio = link.audio
