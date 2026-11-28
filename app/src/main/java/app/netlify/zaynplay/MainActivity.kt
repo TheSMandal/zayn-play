@@ -51,7 +51,6 @@ import app.netlify.zaynplay.engine.ZaynDownloads
 import app.netlify.zaynplay.engine.ZaynEngine
 import app.netlify.zaynplay.engine.ZaynPrefsStore
 import app.netlify.zaynplay.engine.ZaynPlayer
-import app.netlify.zaynplay.engine.ZaynMpvPlayer
 import com.lagradost.api.setContext
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.app
@@ -125,9 +124,6 @@ class MainActivity : AppCompatActivity() {
     // background is set transparent for the same window.
     private lateinit var playerSurface: TextureView
     private lateinit var zaynPlayer: ZaynPlayer
-    // (v1.0.10) The libmpv player: same TextureView, same event callback,
-    // same bridge. Only the engine the user picked ever plays.
-    private lateinit var zaynMpvPlayer: ZaynMpvPlayer
     // (v1.0.10 L1) Frame-arrival probe state: see startFrameProbe().
     private var frameProbeRunning = false
     private var lastFrameTs = 0L
@@ -564,10 +560,8 @@ class MainActivity : AppCompatActivity() {
         }
         zaynPlayer = ZaynPlayer(this, playerEventCallback)
         zaynPlayer.setTextureView(playerSurface)
-        zaynMpvPlayer = ZaynMpvPlayer(this, playerEventCallback)
-        zaynMpvPlayer.setTextureView(playerSurface)
         zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
-        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynMpvPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }, { rect ->
+        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }, { rect ->
             onPlayerStageRect(rect)
         }, clearWebViewCache = {
             // (v1.0.18 P16-06) WebView.clearCache must run on the UI
@@ -735,17 +729,12 @@ class MainActivity : AppCompatActivity() {
         webView.pauseTimers()
         // (v1.0.14 G2) Remember whether playback was playing BEFORE
         // pausing, so onResume can surface the paused state.
-        wasPlayingAtPause = (::zaynPlayer.isInitialized && zaynPlayer.isPlaying()) ||
-            (::zaynMpvPlayer.isInitialized && zaynMpvPlayer.isPlaying())
+        wasPlayingAtPause = ::zaynPlayer.isInitialized && zaynPlayer.isPlaying()
         // Phase C: pause playback too (audio must not keep playing when
         // the user leaves the app).
         if (::zaynPlayer.isInitialized) zaynPlayer.pauseForBackground()
-        // (v1.0.10) Pause the mpv engine too when it is the active one;
-        // its pauseForBackground is a no-op before its instance exists.
-        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.pauseForBackground()
         // (v1.0.12 §8) Activity state for the diagnostics lines.
         if (::zaynPlayer.isInitialized) zaynPlayer.activityState = "paused"
-        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.setActivityState("paused")
     }
 
     override fun onResume() {
@@ -770,7 +759,6 @@ class MainActivity : AppCompatActivity() {
         if (isPlayerFullscreen) setImmersiveMode(true)
         // (v1.0.12 §8) Activity state for the diagnostics lines.
         if (::zaynPlayer.isInitialized) zaynPlayer.activityState = "resumed"
-        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.setActivityState("resumed")
         // (v1.0.12 §9) Activity-resume recovery: returning from another app
         // must not leave the hole closed — re-assert it and re-report the
         // stage rect while fullscreen.
@@ -785,11 +773,7 @@ class MainActivity : AppCompatActivity() {
                 // Tap-to-resume (never auto-resume): push the paused state
                 // so the player UI shows the paused toggle instead of a
                 // silently frozen frame. The user taps play to resume.
-                val snapshot = if (::zaynEngine.isInitialized && zaynEngine.isMpvActive() && ::zaynMpvPlayer.isInitialized) {
-                    zaynMpvPlayer.stateSnapshot()
-                } else if (::zaynPlayer.isInitialized) {
-                    zaynPlayer.stateSnapshot()
-                } else null
+                val snapshot = if (::zaynPlayer.isInitialized) zaynPlayer.stateSnapshot() else null
                 if (snapshot != null) {
                     EngineLogger.log("player", "activity resume — was playing at pause, surfacing paused state (tap to resume)")
                     pushEngineEvent("playerState", snapshot)
@@ -807,8 +791,6 @@ class MainActivity : AppCompatActivity() {
         engineScope.cancel()
         // Phase C: release the player + stop downloads.
         if (::zaynPlayer.isInitialized) zaynPlayer.release()
-        // (v1.0.10) Release the mpv instance too (destroy + surface detach).
-        if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.release()
         if (::zaynDownloads.isInitialized) zaynDownloads.shutdown()
         super.onDestroy()
     }
@@ -830,7 +812,7 @@ class MainActivity : AppCompatActivity() {
      * re-attempts delivery on every push while the page is not ready;
      * onPageFinished flushes the queue. */
     // (v1.0.22 C ITEM 8) System volume, both ways: the player writes
-    // STREAM_MUSIC (see ZaynPlayer/ZaynMpvPlayer applySystemVolume) and
+    // STREAM_MUSIC (see ZaynPlayer applySystemVolume) and
     // this observer reports outside changes (hardware buttons / system
     // UI) back into the page + both engines' snapshots. The page handler
     // (__zaynSystemVolume) updates UI only and never calls back into the
@@ -858,7 +840,6 @@ class MainActivity : AppCompatActivity() {
                 if (frac < 0f || frac == lastSystemVolumeFrac) return
                 lastSystemVolumeFrac = frac
                 if (::zaynPlayer.isInitialized) zaynPlayer.onSystemVolumeChanged(frac)
-                if (::zaynMpvPlayer.isInitialized) zaynMpvPlayer.onSystemVolumeChanged(frac)
                 runOnUiThread {
                     if (::webView.isInitialized) {
                         webView.evaluateJavascript(
@@ -977,14 +958,6 @@ class MainActivity : AppCompatActivity() {
             val vh = rect.optDouble("vh", 0.0)
             if (!visible) {
                 playerSurface.visibility = View.GONE
-                // (v1.0.12 §6 step 2) Stage-close detach: if mpv was the
-                // active engine, release its surface hold now — otherwise
-                // it keeps the BufferQueue connected while the stage is
-                // closed. ExoPlayer's hold is released by its own
-                // switch-time detach in playActive; nothing to do here.
-                if (::zaynMpvPlayer.isInitialized && ::zaynEngine.isInitialized && zaynEngine.isMpvActive()) {
-                    zaynMpvPlayer.detachSurfaceForSwitch()
-                }
                 // The page repaints its own backgrounds; restore the
                 // WebView background so a transparent hole never shows the
                 // window behind the UI.
@@ -1042,11 +1015,6 @@ class MainActivity : AppCompatActivity() {
             // (v1.0.10 L1) Start the frame-arrival probe now that the stage
             // is open (it stops itself when the surface goes GONE).
             startFrameProbe()
-            // (v1.0.11 F2, gated v1.0.12 §6 step 2) Re-check the mpv surface
-            // attach on stage-open ONLY when mpv is the active engine:
-            // attaching mpv to a surface ExoPlayer holds would re-create
-            // the producer conflict. Silent no-op when already attached.
-            if (::zaynMpvPlayer.isInitialized && ::zaynEngine.isInitialized && zaynEngine.isMpvActive()) zaynMpvPlayer.attachSurfaceIfReady()
             // (v1.0.8) Post-stage-open surface-state check (see postSurfaceCheck).
             postSurfaceCheck()
             // (v1.0.5 A4) A degenerate rect must NOT leave the surface at
@@ -1152,16 +1120,12 @@ class MainActivity : AppCompatActivity() {
             // no texture 200 ms after stage-open while fullscreen — one
             // bounded detach+re-attach (max 1 per play, enforced in the
             // player). A slow texture is normal (session 1 took ~1 s), so
-            // this only re-registers the listener; it never blocks. The
-            // old mpv exclusion is lifted: libmpv now has recoverSurface()
-            // too, and a null texture on mpv got no repair at all.
+            // this only re-registers the listener; it never blocks.
+            // (v1.0.23) ExoPlayer-only: the old second-player branch is gone.
             if (playerSurface.surfaceTexture == null && isPlayerFullscreen &&
                 ::zaynEngine.isInitialized
             ) {
-                if (zaynEngine.isMpvActive() && ::zaynMpvPlayer.isInitialized) {
-                    EngineLogger.log("playerStage", "surface check texture null while fullscreen (mpv) — recovering surface (bounded 1/play)")
-                    zaynMpvPlayer.recoverSurface()
-                } else if (::zaynPlayer.isInitialized) {
+                if (::zaynPlayer.isInitialized) {
                     EngineLogger.log("playerStage", "surface check texture null while fullscreen — recovering surface (bounded 1/play)")
                     zaynPlayer.recoverSurface()
                 }
@@ -1223,9 +1187,8 @@ class MainActivity : AppCompatActivity() {
                             // L10 First Frame Displayed (UNVERIFIED-by-code
                             // — only an on-device sighting proves display).
                             val sess = if (::zaynEngine.isInitialized) zaynEngine.currentSession() else 0
-                            val eng = if (::zaynEngine.isInitialized && zaynEngine.isMpvActive()) "mpv" else "exo"
-                            val vs = if (eng == "mpv" && ::zaynMpvPlayer.isInitialized) zaynMpvPlayer.videoSizeText()
-                                else if (::zaynPlayer.isInitialized) zaynPlayer.videoSizeText() else "0x0"
+                            val eng = "exo"
+                            val vs = if (::zaynPlayer.isInitialized) zaynPlayer.videoSizeText() else "0x0"
                             val act = if (::zaynPlayer.isInitialized) zaynPlayer.activityState else "unknown"
                             val nowMs = System.currentTimeMillis()
                             EngineLogger.log("player", "diag L9 First Frame Submitted session=$sess engine=$eng ts=$nowMs texId=$texId surfaceSize=${playerSurface.width}x${playerSurface.height} videoSize=$vs state=playing activity=$act observed-by-proxy — timestamp advance proves queueing, not display")
@@ -1251,8 +1214,7 @@ class MainActivity : AppCompatActivity() {
                 // frames EVER arrived — a mid-play freeze at frame N never
                 // tripped it, because frameCount is cumulative. The stall
                 // rule subsumes it: no frame ever = stalled since play.
-                val playingNow = (::zaynPlayer.isInitialized && zaynPlayer.isPlaying()) ||
-                    (::zaynMpvPlayer.isInitialized && zaynMpvPlayer.isPlaying())
+                val playingNow = ::zaynPlayer.isInitialized && zaynPlayer.isPlaying()
                 if (playingNow) {
                     probePolls++
                     if (lastFrameTs == lastHealthFrameTs) healthStallPolls++ else {
