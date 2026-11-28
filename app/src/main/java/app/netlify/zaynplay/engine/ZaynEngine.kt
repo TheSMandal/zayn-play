@@ -571,6 +571,16 @@ class ZaynEngine(
     private fun activeStateSnapshot(): JSONObject =
         if (isMpv()) mpvPlayer.stateSnapshot() else player.stateSnapshot()
 
+    /** (v1.0.22 B) The playing stream's REAL audio/subtitle tracks, from the active player (ExoPlayer currentTracks / libmpv track-list). The JS pickers show only these (+ link audio / provider subtitles as fallback) — never a hardcoded list. */
+    private fun playerTracks(): JSONObject =
+        if (isMpv()) mpvPlayer.tracksSnapshot() else player.tracksSnapshot()
+
+    private fun subtitlesJson(subs: List<SubtitleFile>): JSONArray {
+        val arr = JSONArray()
+        for (s in subs) arr.put(JSONObject().put("lang", s.lang).put("url", s.url).put("source", "provider"))
+        return arr
+    }
+
     /**
      * (v1.0.5 B2) Play one ranked link as a retry: count the attempt,
      * log it, remember the link that actually played, then play it.
@@ -824,6 +834,8 @@ class ZaynEngine(
                 "links" -> links(params)
                 "play" -> play(params, requestId)
                 "playerControl" -> playerControl(params, requestId)
+                "playerTracks" -> ok(playerTracks())
+                "playerAspect" -> playerAspect(params)
                 "playerState" -> ok(activeStateSnapshot())
                 "externalPlay" -> externalPlay(params)
                 "playerStage" -> playerStage(params)
@@ -975,7 +987,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.21")
+        .put("version", "1.0.22")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -2462,18 +2474,25 @@ class ZaynEngine(
     // A timeout with zero links is flagged timedOut so callers report
     // "timeout" instead of misreporting it as "no_links" (S-5).
     private suspend fun resolveLinks(params: JSONObject): Pair<ResolvedLinks?, String?> {
+        val resolveStartMs = System.currentTimeMillis()
         val providerName = params.optString("providerName", "")
         val api = resolveApi(providerName, null) ?: return null to "provider_not_found"
         // (v1.0.13 P2-C P1) Provider Loaded.
         providerDiag("P1", "Provider Loaded", "provider=$providerName", providerName)
         val data = resolveLinkData(params, api) ?: return null to "no_data"
-        // (v1.0.13 P2-C P2) LoadData Completed.
-        providerDiag("P2", "LoadData Completed", "shape=${loadDataShape(data)}", providerName)
         val dataSource = when {
             params.optString("episodeData", "").isNotBlank() -> "episodeData"
             params.optString("data", "").isNotBlank() -> "data"
             else -> "fresh"
         }
+        val playTitle = params.optString("title", "")
+        val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
+        // (v1.0.13 P2-C P2) LoadData Completed. (v1.0.22 D ITEM 10 /
+        // spec §5) P2 now also records the validation inputs — data
+        // source, title presence and URL presence — so the
+        // "shape=id / titlePresent=false" signature is visible here
+        // instead of being inferred from a later line.
+        providerDiag("P2", "LoadData Completed", "shape=${loadDataShape(data)} source=$dataSource titlePresent=${playTitle.isNotBlank()} urlPresent=${pageUrl.isNotBlank()}", providerName)
         val settingSec = parseSeconds(store.getSettingString("timeout", "30s"))
         // (v1.0.18 P17-07) The 120 s cap silently re-capped the
         // "Unlimited" 300 s value back down. Cap is the documented 300.
@@ -2493,12 +2512,10 @@ class ZaynEngine(
         // Id-parse runs before any fresh load, so a fresh load returning
         // the SAME title-less data can no longer kill the play
         // (INVESTIGATION-4 §4.4 fallback gap).
-        val playTitle = params.optString("title", "")
         val normalized = normalizeLoadData(data, playTitle)
         if (normalized != null) {
             EngineLogger.log("bridge", "loadData normalized shape=id source=$dataSource titlePresent=${playTitle.isNotBlank()}")
         }
-        val pageUrl = params.optString("episodeUrl", "").ifBlank { params.optString("url", "") }
         // Data that is not JSON at all (a plain URL) is never passed to
         // loadLinks as a raw URL (v1.0.5 E1) — it goes to the fresh-load
         // path below instead. When no fresh-load path exists (no page URL
@@ -2527,6 +2544,46 @@ class ZaynEngine(
         } catch (e: TimeoutCancellationException) {
             partial = true
             timedOut = true
+        }
+        // (v1.0.22 D ITEM 10 / spec §4) One bounded retry of the
+        // DIRECT loadLinks attempt when it timed out with zero links:
+        // a provider's loadLinks is several sequential network stages
+        // (Netflix net52.cc: cached base resolution + player.php +
+        // extractor resolution — The Mentalist S7 E1) and on a slow
+        // link it can legitimately exceed one 30 s window while still
+        // progressing. The retry gets ONE fresh withTimeout(timeoutSec)
+        // window, the SAME data and callbacks, sequentially — never a
+        // duplicate concurrent request. It runs only when timeoutSec
+        // <= 30, so the worst case (30 + 30 = 60 s) still fits the JS
+        // 'play' wait (90 s) and the JS 'links' waits (60 s). On
+        // retry success the timeout flags are cleared so callers
+        // report the links, not a stale timeout; on a second timeout
+        // the honest timeout stands. No Thread.sleep, no unlimited
+        // waiting, no invented data.
+        if (timedOut && foundLinks.isEmpty() && !loadLinksOk && timeoutSec <= 30) {
+            EngineLogger.log("bridge", "resolveLinks direct loadLinks timed out after ${timeoutSec}s — one bounded retry with a fresh ${timeoutSec}s window")
+            timedOut = false
+            partial = false
+            try {
+                withTimeout(timeoutSec * 1000L) {
+                    if (!skipDirectLoadLinks) {
+                        loadLinksAttempts++
+                        val retryResult = APIRepository(api).loadLinks(dataForLinks, false, { s -> foundSubs += s }) { l -> foundLinks += l }
+                        if (retryResult.ok) {
+                            loadLinksOk = true
+                            linksError = null
+                        } else {
+                            partial = foundLinks.isEmpty()
+                            linksError = retryResult.error
+                            retryResult.error?.let { EngineLogger.log("bridge", "resolveLinks retry loadLinks failed: $it") }
+                            if (isDeserializationError(linksError)) logDataShapeOnFailure(dataForLinks, dataSource)
+                        }
+                    }
+                }
+            } catch (e: TimeoutCancellationException) {
+                partial = true
+                timedOut = true
+            }
         }
         // (v1.0.6 D1) The provider's own LoadData JSON can be missing a
         // required field (Disney: MissingKotlinParameterException "title") —
@@ -2620,7 +2677,20 @@ class ZaynEngine(
         }
         // (v1.0.13 P2-C P4) Extractor Completed — the extraction result as
         // assembled (links + subtitles), whatever the outcome.
-        providerDiag("P4", "Extractor Completed", "links=${foundLinks.size} subs=${foundSubs.size} loadLinksAttempts=$loadLinksAttempts", providerName)
+        // (v1.0.22 D ITEM 10 / spec §5) P4 now also carries the
+        // extraction duration and the failure category, so "timed out
+        // after N ms" is distinguishable from "completed with zero
+        // links" without reading the log around it.
+        val resolveDurationMs = System.currentTimeMillis() - resolveStartMs
+        val failCategory = when {
+            loadLinksOk -> "ok"
+            timedOut -> "timeout"
+            linksError != null -> "error"
+            foundLinks.isEmpty() -> "no_links"
+            else -> "unknown"
+        }
+        val failErrorClass = linksError?.substringBefore(':') ?: "-"
+        providerDiag("P4", "Extractor Completed", "links=${foundLinks.size} subs=${foundSubs.size} loadLinksAttempts=$loadLinksAttempts durationMs=$resolveDurationMs category=$failCategory errorClass=$failErrorClass", providerName)
         // (v1.0.17 P15-01) Link-resolution verdict for the play path.
         if (providerName.isNotBlank()) {
             val upd = JSONObject().put("linkResolution", foundLinks.isNotEmpty()).put("dataValidation", true)
@@ -2678,7 +2748,8 @@ class ZaynEngine(
     /**
      * Normalize a data string to LoadData JSON, or null to leave it as-is:
      * LoadData JSON passes through; Id JSON gets "title" injected from the
-     * play params (or ""); non-JSON data (a plain URL) and JSON with BOTH
+     * play params (when the play title is non-blank — a blank title is
+     * never injected, see below); non-JSON data (a plain URL) and JSON with BOTH
      * id and title missing are left alone — a raw URL is never passed to
      * loadLinks as a fake LoadData, and an id is never invented.
      */
@@ -2690,6 +2761,13 @@ class ZaynEngine(
         }
         if (!obj.isNull("title")) return null // already LoadData shape
         if (obj.isNull("id")) return null // neither id nor title: no id to use
+        // (v1.0.22 D ITEM 10 / spec §2) Do NOT inject a BLANK title:
+        // {"id": "...", "title": ""} is still invalid for providers
+        // whose LoadData requires a non-blank title, and it hides the
+        // real "title missing" state. Return null so the original
+        // provider data flows to the deserialization-error fallback
+        // path instead of a fabricated title.
+        if (title.isBlank()) return null
         val normalized = JSONObject()
         for (key in obj.keys()) normalized.put(key, obj.get(key))
         normalized.put("title", title)
@@ -3673,7 +3751,7 @@ class ZaynEngine(
         if (mode == "manual" && linkIndex < 0) {
             val arr = JSONArray()
             for ((i, r) in ranked.withIndex()) arr.put(linkJson(r, i))
-            return ok(JSONObject().put("links", arr).put("manual", true))
+            return ok(JSONObject().put("links", arr).put("manual", true).put("subtitles", subtitlesJson(resolved.subtitles)))
         }
         val explicitIndex = linkIndex in ranked.indices
         var pickedIdx = if (explicitIndex) linkIndex else -1
@@ -3792,10 +3870,14 @@ class ZaynEngine(
         // (v1.0.18 P17-02) subFilter: only subtitles in the chosen language
         // may be picked — the preferred-language pick AND the fallback.
         val filterCode = store.getSettingString("subFilter", "All").let { if (it == "All") null else audioCodeOf(it) }
-        val providerSub = if (subLangOff) null else resolved.subtitles.firstOrNull { (it.langTag == subLangCode || it.lang == subLangCode) && (filterCode == null || it.langTag == filterCode || it.lang == filterCode) }
-            ?: if (subLangOff) null else resolved.subtitles.firstOrNull { filterCode == null || it.langTag == filterCode || it.lang == filterCode }
-        val subtitleText = if (subLangOff) null else if (params.has("subtitleText") && !params.isNull("subtitleText")) params.optString("subtitleText") else null
-        val subtitleLang = if (subLangOff) null else if (params.has("subtitleLang")) params.optString("subtitleLang") else subLangCode
+        // (v1.0.22 B) In-player subtitle pick (JS curSubSel, via playParamsFor) beats the Settings pick: a provider URL rides as the subtitle, Off suppresses every subtitle input (including a downloaded text). No pick -> Settings behaviour unchanged.
+        val subUrlOverride = if (params.has("subtitleUrl") && !params.isNull("subtitleUrl")) params.optString("subtitleUrl") else null
+        val subOffOverride = params.optBoolean("subtitleOff", false)
+        val providerSub = if (subOffOverride || subUrlOverride != null) null else resolved.subtitles.firstOrNull { (it.langTag == subLangCode || it.lang == subLangCode) && (filterCode == null || it.langTag == filterCode || it.lang == filterCode) }
+            ?: if (subOffOverride || subUrlOverride != null) null else resolved.subtitles.firstOrNull { filterCode == null || it.langTag == filterCode || it.lang == filterCode }
+        val subtitleText = if (subOffOverride) null else if (params.has("subtitleText") && !params.isNull("subtitleText")) params.optString("subtitleText") else null
+        val subtitleLang = if (subOffOverride) null else if (params.has("subtitleLang")) params.optString("subtitleLang") else subLangCode
+        val subtitleUrl = subUrlOverride ?: providerSub?.url
         val playLink = ZaynPlayer.PlayLink(
             url = link.url,
             source = link.source,
@@ -3818,7 +3900,7 @@ class ZaynEngine(
         val session = playSessionCounter
         player.diagSessionId = session
         mpvPlayer.setDiagSessionId(session)
-        playActive(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, providerSub?.url, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
+        playActive(playLink, safeStartSec * 1000L, subtitleText, subtitleLang, subtitleUrl, cacheSizeBytes(), bufferLevel(), preferredAudioLang(picked.audio))
         // (v1.0.13 P2-C P7) Player Selected.
         providerDiag("P7", "Player Selected", "engine=$lastActiveEngine", params.optString("providerName", ""))
         // (v1.0.5 B2/B3) Arm the auto-retry session (attempt 1 of 3) and
@@ -3826,7 +3908,7 @@ class ZaynEngine(
         // (v1.0.13 P6-C) A new play clears the dead-session latch from any
         // earlier failed session — the new session owns the controls now.
         playbackFailed = false
-        activePlay = ActivePlay(ranked, pickedIdx, 1, session, safeStartSec, subtitleText, subtitleLang, providerSub?.url, title, params)
+        activePlay = ActivePlay(ranked, pickedIdx, 1, session, safeStartSec, subtitleText, subtitleLang, subtitleUrl, title, params)
         EngineLogger.log("player", "play ${link.source} ${qualityLabel(link.quality)} type=${link.type} url=${redactUrlForLog(link.url)} session=$session${tokenAgeSuffix(link.url)}")
         if (title.isNotBlank()) {
             putLastLink(title, contentKey, pickedIdx)
@@ -3856,7 +3938,8 @@ class ZaynEngine(
                         .put("qualityLabel", qualityLabel(link.quality))
                         .put("audio", picked.audio ?: JSONObject.NULL),
                 )
-                .put("reused", reused),
+                .put("reused", reused)
+                .put("subtitles", subtitlesJson(resolved.subtitles)),
         )
     }
 
@@ -3965,6 +4048,25 @@ class ZaynEngine(
                 if (isMpv()) mpvPlayer.setSubtitleText(text, params.optString("lang", "")) else player.setSubtitleText(text, params.optString("lang", ""))
                 ok(JSONObject().put("state", activeStateSnapshot()))
             }
+            // (v1.0.22 B) In-player audio/subtitle picks, applied to the CURRENT stream (no re-play). setAudio/setSubtitleTrack select a manifest track by id (or language); setSubtitleUrl attaches a provider subtitle URL; setSubtitleOff clears every subtitle. A pick the KNOWN inventory contradicts is refused (invalid_input) instead of silently keeping the old track; with no inventory yet the pick is accepted and the JS confirm loop (playerTracks re-query) verifies the selected track.
+            "setAudio" -> {
+                val ok2 = if (isMpv()) mpvPlayer.setAudioTrack(params.optString("trackId", ""), params.optString("lang", "")) else player.setAudioTrack(params.optString("trackId", ""), params.optString("lang", ""))
+                if (ok2) ok(JSONObject().put("state", activeStateSnapshot())) else err("invalid_input", "That audio track is not available")
+            }
+            "setSubtitleTrack" -> {
+                val ok2 = if (isMpv()) mpvPlayer.setSubtitleTrack(params.optString("trackId", ""), params.optString("lang", "")) else player.setSubtitleTrack(params.optString("trackId", ""), params.optString("lang", ""))
+                if (ok2) ok(JSONObject().put("state", activeStateSnapshot())) else err("invalid_input", "That subtitle track is not available")
+            }
+            "setSubtitleUrl" -> {
+                val url = params.optString("url", "")
+                if (url.isBlank()) return err("invalid_input", "No subtitle URL")
+                if (isMpv()) mpvPlayer.setSubtitleUrl(url, params.optString("lang", "")) else player.setSubtitleUrl(url, params.optString("lang", ""))
+                ok(JSONObject().put("state", activeStateSnapshot()))
+            }
+            "setSubtitleOff" -> {
+                if (isMpv()) mpvPlayer.setSubtitleOff() else player.setSubtitleOff()
+                ok(JSONObject().put("state", activeStateSnapshot()))
+            }
             "nextEp", "prevEp" -> {
                 // Episode switch is driven by play with the episode's data.
                 // (v1.0.14 P4 rank 10) The outer bridge id is passed in as
@@ -3979,6 +4081,18 @@ class ZaynEngine(
             }
             else -> err("invalid_input", "Unknown player action")
         }
+    }
+
+    // (v1.0.22 C ITEM 7) Aspect ratio for the LIVE engine: the page's CSS
+    // classes only restyle the DOM poster/img — the native TextureView
+    // needs the engine to stretch/crop/fit the frame itself. The page
+    // also re-reports the stage rect (playerStage) sized to the new
+    // frame, so the view and the engine agree on the target aspect.
+    private fun playerAspect(params: JSONObject): JSONObject {
+        val ratio = params.optString("ratio", "fit").ifBlank { "fit" }
+        val ok = if (isMpv()) mpvPlayer.setAspectRatio(ratio) else player.setAspectRatio(ratio)
+        return if (ok) ok(JSONObject().put("ratio", ratio))
+        else err("invalid_input", "Unknown aspect ratio")
     }
 
     private suspend fun externalPlay(params: JSONObject): JSONObject {
