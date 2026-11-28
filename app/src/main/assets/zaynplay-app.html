@@ -1466,7 +1466,8 @@ body.native-video #phone{ background:transparent; }
     .prov-bar .prov-row{flex:1;min-width:0}
     .prov-all{flex:none;margin:12px 10px 0 0;width:34px;height:34px;min-height:34px;border-radius:11px;border:1px solid rgba(127,127,127,.22);background:rgba(127,127,127,.1);color:inherit;display:grid;place-items:center;cursor:pointer}
     .prov-all svg{width:17px;height:17px}
-    .prov-row button .tab-pin{width:11px;height:11px;flex:none;color:#ffb4a8}
+      .prov-row button .tab-pin{width:11px;height:11px;flex:none;color:#ffb4a8}
+      .prov-row button .tab-bad{color:#ff6b5e;font-weight:700;flex:none}
     .prov-row button:not(.on) .tab-pin{color:var(--app-accent)}
     .picker-sheet{z-index:30;bottom:84px}
     .pk-list{max-height:44vh;overflow-y:auto;scrollbar-width:none}
@@ -1958,7 +1959,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.16</p>
+                  <p class="splash-ver">Zayn Play v1.0.17</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2217,6 +2218,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <h3 class="sec-title">Browse All</h3>
                   <div class="grid" id="search-grid"></div>
                   <p class="no-result" id="no-result">কিছু পাওয়া যায়নি — অন্য নামে খুঁজে দেখুন।</p>
+                  <p class="search-note" id="search-status" hidden></p>
                   <h3 class="sec-title" id="pop-head" hidden>Popular Searches</h3>
                   <div class="pop-list" id="pop-list"></div>
                 </section>
@@ -2233,6 +2235,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <h3 class="sec-title" id="ps-sec">Provider-এর কনটেন্ট</h3>
                   <div class="grid" id="psearch-grid"></div>
                   <p class="no-result" id="psearch-none">এই প্রোভাইডারে কিছু পাওয়া যায়নি — Global Search-এ খুঁজে দেখুন।</p>
+                  <p class="search-note" id="psearch-status" hidden></p>
                 </section>
 
                 <!-- ============ LIST (See All) ============ -->
@@ -2565,12 +2568,53 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* Poster fallback (P11-05): a missing or dead poster shows this
          placeholder tile, never a broken-image glyph. */
       var POSTER_FALLBACK = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="170" viewBox="0 0 120 170"><rect width="120" height="170" fill="#232833"/><text x="60" y="92" font-family="sans-serif" font-size="34" font-weight="700" fill="#ff5a3c" text-anchor="middle">Z</text></svg>');
+      /* (v1.0.17 P13-02/P13-06) Empty poster: substitute the fallback
+         up front — never emit src="" and hope onerror fires for it.
+         Lazy + async decoding, like the raw <img> sites this replaces. */
       function posterImgHTML(src, alt, cls){
-        return '<img' + (cls ? ' class="' + cls + '"' : '') + ' src="' + (src || '') + '" alt="' + (alt || '') + '" onerror="this.onerror=null;this.src=POSTER_FALLBACK" />';
+        if (!src) return '<img' + (cls ? ' class="' + cls + '"' : '') + ' src="' + POSTER_FALLBACK + '" alt="' + (alt || '') + '" />';
+        return '<img' + (cls ? ' class="' + cls + '"' : '') + ' loading="lazy" decoding="async" src="' + src + '" alt="' + (alt || '') + '" onerror="this.onerror=null;this.src=POSTER_FALLBACK" />';
       }
       function posterFallbackImg(img){
         if (!img) return;
         img.onerror = function(){ img.onerror = null; img.src = POSTER_FALLBACK; };
+      }
+      /* (v1.0.17 P13-05) Large images: hero/backdrop hide on error (a Z
+         tile stretched full-width would look wrong — the gradient behind
+         shows instead); the player still swaps to the Z tile. */
+      function largeImgFallback(img){
+        if (!img) return;
+        img.onerror = function(){ img.onerror = null; img.style.display = 'none'; };
+      }
+      function setLargeImg(img, src){
+        if (!img) return;
+        if (!src){ img.onerror = null; img.style.display = 'none'; return; }
+        img.style.display = '';
+        largeImgFallback(img);
+        img.src = src;
+      }
+      /* (v1.0.17 P13-05/P13-07) Wire the programmatic fallback to the
+         four large images at boot — posterFallbackImg finally has callers. */
+      try{
+        largeImgFallback(document.getElementById('h-hero-img'));
+        largeImgFallback(document.getElementById('d-backdrop'));
+        posterFallbackImg(document.getElementById('stage-img'));
+        posterFallbackImg(document.getElementById('pip-img'));
+      }catch(e){}
+      /* (v1.0.17 P13-08) In-memory poster preload: already-seen poster
+         URLs are fetched once and kept (bounded, 200) so a rail rebuild
+         or provider-tab switch does not re-issue them. This is NOT a
+         disk cache — posters still rely on the WebView's default HTTP
+         cache (MainActivity sets no cache mode, so the default stays
+         enabled); a full disk cache is out of scope for V1.0.17. */
+      var posterPreloadCache = {};
+      function preloadPosters(urls){
+        (urls || []).forEach(function(u){
+          if (!u || posterPreloadCache[u]) return;
+          var _keys = Object.keys(posterPreloadCache);
+          if (_keys.length >= 200) delete posterPreloadCache[_keys[0]];
+          try{ var im = new Image(); im.src = u; posterPreloadCache[u] = im; }catch(e){}
+        });
       }
       /* (v1.0.16 P12-09) Real episode label from provider data — never a
          hardcoded "S1 E1". Season is omitted when the provider gave none. */
@@ -2815,9 +2859,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       });
       function cardHTML(key, smallText, rank){
         var t = TITLES[key];
+        /* (v1.0.17 P13-01) Home rails / Trending / See All go through
+           the real poster fallback now — no more broken glyph + alt text. */
         var inner = rank
-          ? '<span class="rank-wrap"><img class="poster" loading="lazy" decoding="async" src="' + t.poster + '" alt="' + t.title + ' poster" /><span class="rank">' + rank + '</span></span>'
-          : '<img class="poster" loading="lazy" decoding="async" src="' + t.poster + '" alt="' + t.title + ' poster" />';
+          ? '<span class="rank-wrap">' + posterImgHTML(t.poster, t.title + ' poster', 'poster') + '<span class="rank">' + rank + '</span></span>'
+          : posterImgHTML(t.poster, t.title + ' poster', 'poster');
         return inner + '<p>' + t.title + '</p><small>' + smallText + '</small>';
       }
       function fillRail(el, keys, mode){
@@ -2832,6 +2878,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           b.innerHTML = cardHTML(key, small, mode === 'rank' ? i + 1 : 0);
           el.appendChild(b);
         });
+        preloadPosters(keys.map(function(k){ var _t = TITLES[k]; return _t && _t.poster; }));
       }
 
       var currentProvider = null;
@@ -2841,8 +2888,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!p || !heroList.length) return;
         heroIdx = ((idx % heroList.length) + heroList.length) % heroList.length;
         var hero = TITLES[heroList[heroIdx]];
-        document.getElementById('h-hero-img').src = hero.poster;
-        document.getElementById('h-hero-img').alt = hero.title + ' artwork';
+        var _heroImg = document.getElementById('h-hero-img');
+        setLargeImg(_heroImg, hero.poster);
+        _heroImg.alt = hero.title + ' artwork';
         document.getElementById('h-hero-tag').textContent = heroIdx === 0 ? p.heroTag : hero.tag;
         document.getElementById('h-hero-title').textContent = hero.title;
         document.getElementById('h-hero-meta').innerHTML =
@@ -2890,6 +2938,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           b.innerHTML = cardHTML(key, t.star + ' • ' + t.genre, 0);
           el.appendChild(b);
         });
+        preloadPosters(keys.map(function(k){ var _t = TITLES[k]; return _t && _t.poster; }));
       }
       /* (v1.0.15 P8/P9) See All pagination + infinite scroll (A-to-Z P8/P9,
          AUDIT-P8-P9 ranks 1-10). Page 1 is always the already-loaded feed —
@@ -2925,6 +2974,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           b.innerHTML = cardHTML(key, t.star + ' • ' + t.genre, 0);
           el.appendChild(b);
         });
+        preloadPosters(newKeys.map(function(k){ var _t = TITLES[k]; return _t && _t.poster; }));
       }
       /* (v1.0.15 P8 rank 7) Cancel the in-flight list page load, if any.
          Cancels by bridge call id only, so a home feed still loading in
@@ -3658,8 +3708,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       function renderDetailsBody(id){
         var t = TITLES[id]; if (!t) return;
         current = id;
-        document.getElementById('d-backdrop').src = t.poster;
-        document.getElementById('d-backdrop').alt = t.title + " artwork";
+        var _backdropImg = document.getElementById('d-backdrop');
+        setLargeImg(_backdropImg, t.poster);
+        _backdropImg.alt = t.title + " artwork";
         document.getElementById('d-tag').textContent = t.tag;
         document.getElementById('d-title').textContent = t.title;
         document.getElementById('d-match').textContent = t.match;
@@ -3669,6 +3720,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         renderSynopsis(document.getElementById('d-syn'), t.syn);
         var dp = document.getElementById('d-prov');
         if (dp) dp.innerHTML = logoHTML(t.parent || t.prov, 'sm') + '<span>' + t.prov + (t.siteUrl ? ' • ' + t.siteUrl : '') + '</span>';
+        if (dp && ST.health && currentProvider && ST.health[currentProvider] === 'bad') dp.innerHTML += ' <span class="rp-bad">⚠ এই প্রোভাইডারে সমস্যা আছে</span>';
         var rp = resumePos(t.title, current);
         document.getElementById('d-play-label').textContent = rp > 0 ? 'Resume • ' + fmtT(rp) : playLabelFor(t);
         /* (v1.0.16 P12-02) No trailer in the payload = no Trailer button
@@ -3975,9 +4027,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         document.getElementById('p-info-title').textContent = title;
         if (!t) return;
         document.getElementById('p-vsub').textContent = (t.type === 'series' ? 'Series' : 'Movie') + ' • ' + t.genre + ' • ' + t.year;
+        if (ST.health && currentProvider && ST.health[currentProvider] === 'bad') document.getElementById('p-vsub').textContent += ' — ⚠ সমস্যা আছে';
         curBaseSub = document.getElementById('p-vsub').textContent;
-        document.getElementById('stage-img').src = t.poster;
-        document.getElementById('stage-img').alt = title + ' video frame';
+        var _stageImg = document.getElementById('stage-img');
+        posterFallbackImg(_stageImg);
+        _stageImg.src = t.poster || POSTER_FALLBACK;
+        _stageImg.alt = title + ' video frame';
         document.getElementById('p-info-sub').textContent = t.year + ' • ' + t.genre + ' • ' + t.dur + ' • English subtitle available.';
         document.getElementById('p-meta').innerHTML =
           '<span class="match">' + t.match + '</span><span>' + t.year + '</span><span>' + t.dur + '</span><span class="star">' + t.star + '</span><span>' + t.genre + '</span><span>HD</span>';
@@ -4120,16 +4175,41 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          progressSet, downloadStart, appUpdateDownload, backupImport,
          account*, playerControl) are absent by construction — a blanket
          timeout→cancel once killed a repo install mid-save. */
-      var CANCELLABLE_METHODS = { search: 1, homeFeed: 1, homeFeedSection: 1, homeFeedSections: 1, links: 1, details: 1, providerHealthCheck: 1 };
+      var CANCELLABLE_METHODS = { homeFeed: 1, homeFeedSection: 1, homeFeedSections: 1, links: 1, details: 1, providerHealthCheck: 1 };
+      /* (v1.0.17 P14-04) search is deliberately ABSENT: a JS-timeout
+         cancel used to kill the native fan-out and discard its partial
+         reply (D3 in milder form). A timed-out search must still deliver
+         its partial results — see the park-and-deliver path in call(). */
       window.ZaynEngine = {
-        _seq: 0, _pending: {}, _lastByMethod: {},
-        call: function(method, params, timeoutMs){
+        _seq: 0, _pending: {}, _lastByMethod: {}, _lateSearch: {},
+        call: function(method, params, timeoutMs, slot){
           var self = window.ZaynEngine;
           return new Promise(function(resolve, reject){
             var id = 'c' + (++self._seq);
-            self._lastByMethod[method] = id;
-            self._pending[id] = { resolve: resolve, reject: reject,
-              timer: setTimeout(function(){ delete self._pending[id];
+            self._lastByMethod[slot || method] = id;
+            var _p = params || {};
+            /* (v1.0.17 P14-03/P14-04) Search tokens ride in the params so
+               the pending entry can park them for a late reply; they are
+               stripped before the call is sent to native. */
+            var _tok = _p._searchToken, _scope = _p._searchScope, _sq = _p._searchQuery, _skey = _p._searchKey;
+            delete _p._searchToken; delete _p._searchScope; delete _p._searchQuery; delete _p._searchKey;
+            self._pending[id] = { resolve: resolve, reject: reject, token: _tok, scope: _scope, query: _sq, key: _skey,
+              timer: setTimeout(function(){
+                var _parked = self._pending[id];
+                if (method === 'search' && _parked){
+                  /* (v1.0.17 P14-04) Do NOT cancel the native job on JS
+                     timeout for search — park the waiter so the native
+                     partial reply (its own 60 s cap still terminates it)
+                     can still be delivered via __zaynReply. The caller
+                     still gets its timeout rejection now, so the UI can
+                     say so honestly instead of waiting in silence. */
+                  self._lateSearch = self._lateSearch || {};
+                  self._lateSearch[id] = _parked;
+                  delete self._pending[id];
+                  reject({ ok: false, code: 'timeout', message: 'Engine timed out — try again' });
+                  return;
+                }
+                delete self._pending[id];
                 /* (v1.0.2, v1.0.14 rank 6) Do NOT cancel the native job on
                    JS timeout — EXCEPT allow-listed pure reads: the cancel
                    used to kill a repo install mid-save (and a slow
@@ -4139,7 +4219,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                 reject({ ok: false, code: 'timeout', message: 'Engine timed out — try again' }); }, timeoutMs || 30000) };
             try{
               if (!window.ZaynEngineNative || !window.ZaynEngineNative.call) throw new Error('no native bridge');
-              var _p = params || {}; _p._bv = BRIDGE_VERSION;
+              _p._bv = BRIDGE_VERSION;
               window.ZaynEngineNative.call(id, method, JSON.stringify(_p));
             }catch(e){
               clearTimeout(self._pending[id].timer); delete self._pending[id];
@@ -4155,6 +4235,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var self = window.ZaynEngine;
           var p = self._pending[id];
           if (p){ clearTimeout(p.timer); delete self._pending[id]; p.reject({ ok: false, code: 'cancelled', message: 'Cancelled' }); }
+          /* (v1.0.17 P14-04) A superseded search must not deliver late:
+             dropping its parked entry means its late reply is ignored. */
+          if (self._lateSearch) delete self._lateSearch[id];
           try{ if (window.ZaynEngineNative && window.ZaynEngineNative.cancel) window.ZaynEngineNative.cancel(id); }catch(e){}
         }
       };
@@ -4165,7 +4248,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (m && m[method]) window.ZaynEngine.cancel(m[method]);
       }
       window.__zaynReply = function(id, res){
-        var p = window.ZaynEngine._pending[id]; if (!p) return;
+        var p = window.ZaynEngine._pending[id];
+        if (!p){
+          var lp = window.ZaynEngine._lateSearch && window.ZaynEngine._lateSearch[id];
+          if (lp){ delete window.ZaynEngine._lateSearch[id]; if (res && res.ok) handleLateSearchReply(lp, res.data); }
+          return;
+        }
         clearTimeout(p.timer); delete window.ZaynEngine._pending[id];
         if (res && res.ok) p.resolve(res.data); else p.reject(res || { ok: false, code: 'unknown', message: 'Engine error' });
       };
@@ -4185,6 +4273,22 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             if (data && data.provider) engineCall('accountLoginComplete', { provider: data.provider, redirectUrl: data.redirectUrl || '' }).catch(function(e){ toast(engineErrText(e)); });
             return;
           }
+        }catch(e){}
+      }
+      /* (v1.0.17 P15-01) Real playback is the only thing that may set a
+         playback-success signal: when the engine reports actually playing
+         past 0 s, record it (once per title) via the bridge; a player
+         error records a playback failure with its message. */
+      var _playbackHealthKey = '', _playbackErrorKey = '';
+      function recordPlaybackHealth(ok, errMsg){
+        try{
+          var _tkey = curTitleId || curTitle;
+          if (!currentProvider || !_tkey) return;
+          var key = currentProvider + '|' + String(_tkey);
+          if (ok){ if (_playbackHealthKey === key) return; _playbackHealthKey = key; }
+          else { if (_playbackErrorKey === key) return; _playbackErrorKey = key; }
+          var li = currentProvider.indexOf('|');
+          engineCall('providerHealthRecord', { repoId: currentProvider.slice(0, li), providerName: currentProvider.slice(li + 1), playback: !!ok, lastError: ok ? null : (errMsg || 'playback_error') }).catch(function(){});
         }catch(e){}
       }
       function onEnginePlayerState(s){
@@ -4210,12 +4314,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             saveProgress(curTitle, s.posSec, s.durSec || 0, curTitleId);
           }
         }
+        if (playingNow && s.posSec > 0) recordPlaybackHealth(true);
       }
       function onEnginePlayerError(e){
         /* (v1.0.14 P4 rank 7 / G3.4) Idempotent on the latch: libmpv can
            post playerError from two sites for one failure — the second
            delivery must not re-toast or re-latch. */
         if (playerFailed) return;
+        recordPlaybackHealth(false, (e && e.message) ? e.message : null);
         hideBuffer();
         setPlaying(false);
         /* (v1.0.13 P6-C) Latch the dead session: the transient toast alone
@@ -4341,8 +4447,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         else out = ' — unknown reason';
         return trFrag(out);
       }
-      function engineCall(method, params, timeoutMs){
-        try{ return window.ZaynEngine.call(method, params, timeoutMs); }
+      function engineCall(method, params, timeoutMs, slot){
+        try{ return window.ZaynEngine.call(method, params, timeoutMs, slot); }
         catch(e){ return Promise.reject({ ok: false, code: 'engine_not_ready', message: 'Engine not ready — try again' }); }
       }
       function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -4430,20 +4536,135 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         cancelLastCall('homeFeedSections');
         return engineCall('homeFeedSections', { providerName: providerName }, 30000);
       }
-      function engineSearch(query, providerName, page){
+      /* (v1.0.17 P14-03) Latest-query tokens, one per search scope.
+         The input-value check alone could not tell two fan-outs for the
+         SAME query text apart (type "Om", clear, retype "Om" — the older
+         fan-out's results passed the guard and rendered). */
+      var searchToken = 0, psearchToken = 0;
+      function engineSearch(query, providerName, page, providerKey){
         /* (v1.0.14 P4 rank 1 / G2.1) Cancel the superseded fan-out: typing
-           used to leave every debounced search running to the 60 s cap. */
-        cancelLastCall('search');
-        var p = { query: query, page: page || 1 };
+           used to leave every debounced search running to the 60 s cap.
+           (v1.0.17 P14-03) Global and provider search have SEPARATE
+           cancel slots now — starting one must not kill the other. */
+        var isProv = !!providerName;
+        var tok = isProv ? ++psearchToken : ++searchToken;
+        cancelLastCall(isProv ? 'searchProvider' : 'search');
+        var p = { query: query, page: page || 1, _searchToken: tok, _searchScope: isProv ? 'provider' : 'global', _searchQuery: query };
         if (providerName) p.providerName = providerName;
+        if (providerKey) p._searchKey = providerKey;
         /* (v0.2.11) C-10: single-provider search 150 s, all-provider
            fan-out 90 s (native cap is 60 s) — never the 30 s default. */
-        var _sp = engineCall('search', p, providerName ? 150000 : 90000);
+        var _sp = engineCall('search', p, providerName ? 150000 : 90000, isProv ? 'searchProvider' : 'search');
+        _sp._searchToken = tok;
+        _sp._searchScope = isProv ? 'provider' : 'global';
         /* A superseded search rejects 'cancelled'; swallow it here so a
            stale fan-out never surfaces as an unhandled rejection while
            the caller still awaits its own (live) promise. */
         _sp.catch(function(){});
         return _sp;
+      }
+      /* (v1.0.17 P14-05) Honest search states, read from the native
+         response the UI used to ignore entirely (partial / failures /
+         perProvider). A timeout or a never-attempted provider is never
+         again shown as "nothing found". */
+      function searchFailureText(d){
+        var fails = (d && d.failures) || [];
+        if (!fails.length) return '';
+        var notTried = [], others = [];
+        fails.forEach(function(f){ if (f.reason === 'not_attempted') notTried.push(f.provider); else others.push(f.provider + ' (' + f.reason + ')'); });
+        var parts = [];
+        if (notTried.length) parts.push(notTried.length + 'টি প্রোভাইডার খোঁজা হয়নি: ' + notTried.join(', '));
+        if (others.length) parts.push(others.join(', '));
+        return parts.join(' • ');
+      }
+      function searchStatusText(d){
+        if (!d) return '';
+        var ft = searchFailureText(d);
+        if (d.partial) return 'আংশিক ফলাফল' + (ft ? ' — ' + ft : '');
+        return ft;
+      }
+      function setSearchStatus(text, isProvider){
+        var elx = document.getElementById(isProvider ? 'psearch-status' : 'search-status');
+        if (!elx) return;
+        if (!text){ elx.hidden = true; elx.textContent = ''; return; }
+        elx.hidden = false; elx.textContent = text;
+        var none = document.getElementById(isProvider ? 'psearch-none' : 'no-result');
+        if (none) none.style.display = 'none';
+      }
+      function showSearchTimeout(isProvider){
+        setSearchStatus('সার্চের সময় শেষ হয়েছে — স্থানীয় ফলাফল দেখানো হচ্ছে।', isProvider);
+      }
+      function handleLateSearchReply(lp, data){
+        /* (v1.0.17 P14-04) A search whose JS timer fired is parked, not
+           cancelled — its native partial reply arrives here and renders
+           only if its token is still the latest for its scope. */
+        if (!lp) return;
+        if (lp.scope === 'provider'){ if (lp.token !== psearchToken) return; renderProviderSearchResults(lp.query, lp.key, data, lp.token); }
+        else { if (lp.token !== searchToken) return; renderGlobalSearchResults(lp.query, data, lp.token); }
+      }
+      function renderGlobalSearchResults(q, d, tok){
+        if (tok !== searchToken) return;
+        if (searchInput.value.trim() !== q) return;
+        var items = (d && d.results) || [];
+        /* (v1.0.17 P14-06) Engine results are NOT filtered by the local
+           smart-match — only the merged local catalogue titles are. */
+        items.forEach(function(it){ it._engine = true; });
+        /* (v1.0.4) Smart fan-out: the engine's provider search is
+           literal, so merge in local catalogue titles that match
+           smartly ("Om" ~ "O.M"), then keep only smart matches. */
+        var _seen = {};
+        items.forEach(function(it){ _seen[it.id] = 1; });
+        Object.keys(TITLES).forEach(function(k){
+          if (_seen[k]) return;
+          var _t = TITLES[k];
+          if (_t && searchMatch(q, _t.title + ' ' + (_t.prov || ''))){ items.push({ id:k, title:_t.title, apiName:_t.prov, poster:_t.poster, rating:null, type:_t.type, url:_t.url }); _seen[k] = 1; }
+        });
+        items = items.filter(function(it){ return it._engine || searchMatch(q, it.title + ' ' + (it.apiName || '')); });
+        var grid = document.getElementById('search-grid');
+        grid.innerHTML = '';
+        items.forEach(function(it){
+          var tt = engineItemToTitle(it, it.apiName, '');
+          TITLES[it.id] = tt;
+          var b = document.createElement('button'); b.className = 'card';
+          b.setAttribute('data-open', it.id);
+          b.setAttribute('data-name', (tt.title + ' ' + (tt.prov || '')).toLowerCase());
+          b.setAttribute('data-genres', (tt.genre || '').toLowerCase());
+          b.innerHTML = posterImgHTML(tt.poster, tt.title + ' poster', 'poster') + '<p>' + tt.title + '</p><small>' + tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov + '</small>';
+          grid.appendChild(b);
+        });
+        applySearch();
+        renderPopSearches();
+        setSearchStatus(searchStatusText(d), false);
+      }
+      function renderProviderSearchResults(q, key, d, tok){
+        if (tok !== psearchToken) return;
+        if (document.getElementById('psearch-input').value.trim() !== q) return;
+        if (currentProvider !== key) return;
+        var p = PROVIDERS[key]; if (!p) return;
+        var items = (d && d.results) || [];
+        /* (v1.0.17 P14-06) Engine results are NOT filtered by the local
+           smart-match — only the merged local provider titles are. */
+        items.forEach(function(it){ it._engine = true; });
+        var _seen2 = {};
+        items.forEach(function(it){ _seen2[it.id] = 1; });
+        providerKeys(key).forEach(function(k){
+          if (_seen2[k]) return;
+          var _t2 = TITLES[k];
+          if (_t2 && searchMatch(q, _t2.title)){ items.push({ id:k, title:_t2.title, apiName:p.name, poster:_t2.poster, rating:null, type:_t2.type, url:_t2.url }); _seen2[k] = 1; }
+        });
+        items = items.filter(function(it){ return it._engine || searchMatch(q, it.title + ' ' + (it.apiName || '')); });
+        var g = document.getElementById('psearch-grid');
+        g.innerHTML = '';
+        items.forEach(function(it){
+          var tt = engineItemToTitle(it, p.name, p.url);
+          TITLES[it.id] = tt;
+          var b = document.createElement('button'); b.className = 'card';
+          b.setAttribute('data-open', it.id); b.setAttribute('data-name', tt.title.toLowerCase());
+          b.innerHTML = posterImgHTML(tt.poster, tt.title + ' poster', 'poster') + '<p>' + tt.title + '</p><small>' + tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov + '</small>';
+          g.appendChild(b);
+        });
+        applyPSearch();
+        setSearchStatus(searchStatusText(d), true);
       }
       function engineDetails(url, providerName){ return engineCall('details', { url: url, providerName: providerName }); }
       /* Sync ST provider state from a providerHealthCheck result (the
@@ -4452,12 +4673,46 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
          result computed before the toggle must not overwrite its on/autoOff
          with stale state for a few seconds. Health itself still updates. */
       function markRecentToggle(key){ window.ZP_RECENT_TOGGLE = window.ZP_RECENT_TOGGLE || {}; window.ZP_RECENT_TOGGLE[key] = Date.now(); }
+      /* (v1.0.17 P15-03) ONE shared health count, used by checkAll and
+         the setup health screen so they can never disagree again. */
+      function healthCounts(){
+        var on = 0, bad = 0;
+        Object.keys(ST.provOn || {}).forEach(function(k){ if (ST.provOn[k] && !ST.autoOff[k]){ on++; if (ST.health[k] === 'bad') bad++; } });
+        return { on: on, bad: bad, fine: on - bad };
+      }
+      function healthSummaryText(){
+        var c = healthCounts();
+        if (!c.on) return 'কোনো প্রোভাইডার ON নেই — রিপো খুলে প্রোভাইডার ON করুন';
+        return 'হেলথ চেক শেষ — ON করা ' + bnNum(c.on) + 'টি প্রোভাইডারের মধ্যে ' + bnNum(c.fine) + 'টি ঠিক আছে' + (c.bad ? ', ' + bnNum(c.bad) + 'টিতে সমস্যা আছে' : '');
+      }
+      /* (v1.0.17 P15-05/P15-09) ONE shared health-sync helper: native
+         health null means "no verdict" — delete (unknown), never 'bad'. */
+      function applyHealthVerdict(key, health){
+        if (health === 'ok') ST.health[key] = 'ok';
+        else if (health === 'fail') ST.health[key] = 'bad';
+        else delete ST.health[key];
+      }
+      /* (v1.0.17 P15-02) A Test finds LINKS — it never plays anything, so
+         it must never set health 'ok'. Only a real failure stamps 'bad';
+         plugin-only (loads, adds repos) and offline are no verdict. */
+      function applyTestHealth(key, res){
+        if (!res) return;
+        if (res.error === 'plugin_only' || res.error === 'offline') return;
+        if (res.video) return;
+        ST.health[key] = 'bad';
+      }
+      /* (v1.0.17 P15-01/P15-09) Refresh the persisted per-provider health
+         detail from the bridge (single source of truth, survives restart).
+         Fire-and-forget: a failed read leaves the last-known detail. */
+      function loadProviderHealthDetail(){
+        try{ return engineCall('providerHealth', {}).then(function(d){ var recs = (d && d.records) || {}; ST.healthDetail = ST.healthDetail || {}; Object.keys(recs).forEach(function(k){ ST.healthDetail[k] = recs[k]; }); }).catch(function(){}); }catch(e){ return Promise.resolve(); }
+      }
       function syncHealthResults(res){
         var results = (res && res.results) || [];
         var now = Date.now();
         results.forEach(function(r){
           var key = r.repoId + '|' + r.providerName;
-          ST.health[key] = (r.health === 'ok') ? 'ok' : 'bad';
+          applyHealthVerdict(key, r.health);
           var recent = window.ZP_RECENT_TOGGLE && window.ZP_RECENT_TOGGLE[key] && (now - window.ZP_RECENT_TOGGLE[key] < 5000);
           if (recent) return;
           if (typeof r.on === 'boolean') ST.provOn[key] = r.on;
@@ -4606,7 +4861,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           b.setAttribute('data-open', k);
           b.setAttribute('data-name', (t.title + ' ' + (t.prov || '')).toLowerCase());
           b.setAttribute('data-genres', (t.genre || '').toLowerCase());
-          b.innerHTML = '<img class="poster" loading="lazy" decoding="async" src="' + t.poster + '" alt="' + t.title + ' poster" /><p>' + t.title + '</p><small>' + t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov + '</small>';
+          b.innerHTML = posterImgHTML(t.poster, t.title + ' poster', 'poster') + '<p>' + t.title + '</p><small>' + t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov + '</small>';
           grid.appendChild(b);
         });
         applySearch();
@@ -4682,37 +4937,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         applySearch();
         var q = searchInput.value.trim();
         clearTimeout(searchEngineTimer);
-        if (!q){ buildSearchGrid(); return; }
+        if (!q){ buildSearchGrid(); setSearchStatus('', false); return; }
         searchEngineTimer = setTimeout(function(){
-          engineSearch(q).then(function(d){
-            if (searchInput.value.trim() !== q) return;
-            var items = (d && d.results) || [];
-            /* (v1.0.4) Smart fan-out: the engine's provider search is
-               literal, so merge in local catalogue titles that match
-               smartly ("Om" ~ "O.M"), then keep only smart matches. */
-            var _seen = {};
-            items.forEach(function(it){ _seen[it.id] = 1; });
-            Object.keys(TITLES).forEach(function(k){
-              if (_seen[k]) return;
-              var _t = TITLES[k];
-              if (_t && searchMatch(q, _t.title + ' ' + (_t.prov || ''))){ items.push({ id:k, title:_t.title, apiName:_t.prov, poster:_t.poster, rating:null, type:_t.type, url:_t.url }); _seen[k] = 1; }
-            });
-            items = items.filter(function(it){ return searchMatch(q, it.title + ' ' + (it.apiName || '')); });
-            var grid = document.getElementById('search-grid');
-            grid.innerHTML = '';
-            items.forEach(function(it){
-              var tt = engineItemToTitle(it, it.apiName, '');
-              TITLES[it.id] = tt;
-              var b = document.createElement('button'); b.className = 'card';
-              b.setAttribute('data-open', it.id);
-              b.setAttribute('data-name', (tt.title + ' ' + (tt.prov || '')).toLowerCase());
-              b.setAttribute('data-genres', (tt.genre || '').toLowerCase());
-              b.innerHTML = '<img class="poster" loading="lazy" decoding="async" src="' + tt.poster + '" alt="' + tt.title + ' poster" /><p>' + tt.title + '</p><small>' + tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov + '</small>';
-              grid.appendChild(b);
-            });
-            applySearch();
-            renderPopSearches();
-          }).catch(function(){ /* keep the local grid */ });
+          setSearchStatus('', false);
+          var _sp = engineSearch(q);
+          var tok = _sp._searchToken;
+          _sp.then(function(d){ renderGlobalSearchResults(q, d, tok); }).catch(function(e){ if (e && e.code === 'cancelled') return; if (tok !== searchToken) return; showSearchTimeout(false); });
         }, 300);
       }
       searchInput.addEventListener('input', onSearchInput);
@@ -4746,7 +4976,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (!t) return;
           var b = document.createElement('button'); b.className = 'card';
           b.setAttribute('data-open', k); b.setAttribute('data-name', t.title.toLowerCase());
-          b.innerHTML = '<img class="poster" loading="lazy" decoding="async" src="' + t.poster + '" alt="' + t.title + ' poster" /><p>' + t.title + '</p><small>' + t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov + '</small>';
+          b.innerHTML = posterImgHTML(t.poster, t.title + ' poster', 'poster') + '<p>' + t.title + '</p><small>' + t.star + ' • ' + logoHTML(t.parent || t.prov, 'xs') + ' ' + t.prov + '</small>';
           g.appendChild(b);
         });
         applyPSearch();
@@ -4771,35 +5001,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var inp = document.getElementById('psearch-input');
         var q = inp.value.trim();
         clearTimeout(psearchEngineTimer);
-        if (!q){ renderPSearch(); return; }
+        if (!q){ renderPSearch(); setSearchStatus('', true); return; }
         var key = currentProvider, p = PROVIDERS[key]; if (!p) return;
         psearchEngineTimer = setTimeout(function(){
-          engineSearch(q, p.name).then(function(d){
-            if (document.getElementById('psearch-input').value.trim() !== q) return;
-            if (currentProvider !== key) return;
-            var items = (d && d.results) || [];
-            /* (v1.0.4) Smart provider search: merge local provider titles
-               that match smartly, then keep only smart matches. */
-            var _seen2 = {};
-            items.forEach(function(it){ _seen2[it.id] = 1; });
-            providerKeys(key).forEach(function(k){
-              if (_seen2[k]) return;
-              var _t2 = TITLES[k];
-              if (_t2 && searchMatch(q, _t2.title)){ items.push({ id:k, title:_t2.title, apiName:p.name, poster:_t2.poster, rating:null, type:_t2.type, url:_t2.url }); _seen2[k] = 1; }
-            });
-            items = items.filter(function(it){ return searchMatch(q, it.title + ' ' + (it.apiName || '')); });
-            var g = document.getElementById('psearch-grid');
-            g.innerHTML = '';
-            items.forEach(function(it){
-              var tt = engineItemToTitle(it, p.name, p.url);
-              TITLES[it.id] = tt;
-              var b = document.createElement('button'); b.className = 'card';
-              b.setAttribute('data-open', it.id); b.setAttribute('data-name', tt.title.toLowerCase());
-              b.innerHTML = '<img class="poster" loading="lazy" decoding="async" src="' + tt.poster + '" alt="' + tt.title + ' poster" /><p>' + tt.title + '</p><small>' + tt.star + ' • ' + logoHTML(tt.parent || tt.prov, 'xs') + ' ' + tt.prov + '</small>';
-              g.appendChild(b);
-            });
-            applyPSearch();
-          }).catch(function(){ /* keep the local grid */ });
+          setSearchStatus('', true);
+          var _sp = engineSearch(q, p.name, 1, key);
+          var tok = _sp._searchToken;
+          _sp.then(function(d){ renderProviderSearchResults(q, key, d, tok); }).catch(function(e){ if (e && e.code === 'cancelled') return; if (tok !== psearchToken) return; showSearchTimeout(true); });
         }, 300);
       }
       document.getElementById('psearch-input').addEventListener('input', onPSearchInput);
@@ -6219,7 +6427,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            catalogue to merge any more. */
         return ST.list.slice();
       }
-      var ST = { list: [], installed: {}, provOn: {}, autoOff: {}, health: {}, open: {}, upd: {}, provList: {},
+      var ST = { list: [], installed: {}, provOn: {}, autoOff: {}, health: {}, healthDetail: {}, open: {}, upd: {}, provList: {},
                  q: { setup: '', settings: '' }, filter: 'all', round: 1, uround: 1, confirmDel: '', testMsg: {}, ptest: {},
                  pin: {}, customSites: {}, provOrder: [] };
       /* Engine phase A: repo/provider state (ST) is in-memory only — it is
@@ -6477,7 +6685,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               ST.provOn[key] = !!p.on;
               if (p.autoOff) ST.autoOff[key] = true; else delete ST.autoOff[key];
             }
-            if (p.health) ST.health[key] = (p.health === 'ok') ? 'ok' : 'bad'; else delete ST.health[key];
+            applyHealthVerdict(key, p.health || null);
+            if (p.healthDetail){ ST.healthDetail = ST.healthDetail || {}; ST.healthDetail[key] = p.healthDetail; }
           });
           var entry = null;
           ST.list.forEach(function(o){ if (o.id === r.id) entry = o; });
@@ -6523,7 +6732,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           var p = PROVIDERS[key];
           var b = document.createElement('button');
           b.setAttribute('data-provider', key);
-          b.innerHTML = logoHTML(p.parent || p.name, 'sm') + '<span>' + p.name + '</span>' + (ST.pin[key] ? PIN_SVG : '');
+          b.innerHTML = logoHTML(p.parent || p.name, 'sm') + '<span>' + p.name + '</span>' + (ST.pin[key] ? PIN_SVG : '') + ((ST.health && ST.health[key] === 'bad') ? '<span class="tab-bad" title="Health check failed">⚠</span>' : '');
           row.appendChild(b);
         });
         buildSearchGrid(); buildLibrary(); buildCW(); buildDownloads();
@@ -6550,8 +6759,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       /* (v0.2.11) Mega: a plugin-only test (Load ✓, no video by design)
          renders Content/Video as —, never ✗. */
       function testStatHtml(pt){
-        if (pt.error === 'plugin_only') return '<small class="rp-ok">' + trWord('Test') + ': ' + trWord('Load') + ' ✓ • ' + trWord('Content') + ' — • ' + trWord('Video') + ' —' + testReasonText(pt.error) + '</small>';
-        return '<small class="' + ((pt.load && pt.content && pt.video) ? 'rp-ok' : 'rp-bad') + '">' + trWord('Test') + ': ' + trWord('Load') + ' ' + (pt.load ? '✓' : '✗') + ' • ' + trWord('Content') + ' ' + (pt.content ? '✓' : '✗') + ' • ' + trWord('Video') + ' ' + (pt.video ? '✓' : '✗') + ((pt.load && pt.content && pt.video) ? '' : testReasonText(pt.error) + (pt.detail ? ' — ' + esc(pt.detail) : '')) + '</small>';
+        if (pt.error === 'plugin_only') return '<small class="rp-ok">' + trWord('Test') + ': ' + trWord('Load') + ' ✓ • ' + trWord('Content') + ' — • ' + trWord('Links') + ' —' + testReasonText(pt.error) + '</small>';
+        return '<small class="' + ((pt.load && pt.content && pt.video) ? 'rp-ok' : 'rp-bad') + '">' + trWord('Test') + ': ' + trWord('Load') + ' ' + (pt.load ? '✓' : '✗') + ' • ' + trWord('Content') + ' ' + (pt.content ? '✓' : '✗') + ' • ' + trWord('Links') + ' ' + (pt.video ? '✓' : '✗') + ((pt.load && pt.content && pt.video) ? '' : testReasonText(pt.error) + (pt.detail ? ' — ' + esc(pt.detail) : '')) + '</small>';
       }
       /* (v1.0.4) Global copies: bnNum / provCountTxt / provCountTxt2 /
          repoPlugCount / repoCountTxtEn lived ONLY inside the v31 settings
@@ -6607,8 +6816,18 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               var prow = null;
               (ST.provList[r.id] || []).forEach(function(x){ if (x.name === pn) prow = x; });
               var stat = auto ? '<small class="rp-bad">' + trWord('Auto-off — not working') + '</small>'
-                       : (pt ? testStatHtml(pt) : '');
-              h += '<div class="rp-row">' + provRowLogo(prow, pn) + '<span class="rp-name">' + pn + '<span class="rp-url">' + provRowMeta(prow) + (provMainUrl(key) ? ' • ' + provMainUrl(key) : '') + '</span>' + (prow && prow.description ? '<span class="rp-url">' + esc(prow.description) + '</span>' : '') + stat + '</span><button class="rp-test" data-ptest="' + key + '">Test</button><button class="switch" role="switch" aria-checked="' + eff + '" data-psw="' + key + '" aria-label="' + pn + ' on off"></button></div>';
+                       : (pt ? testStatHtml(pt) : ((hs === 'bad') ? '<small class="rp-bad">Health: সমস্যা আছে</small>' : ''));
+              /* (v1.0.17 P15-01/P15-09) Persisted health detail, when the
+                 bridge has one: last error / last successful playback. */
+              var hd = (ST.healthDetail && ST.healthDetail[key]) || null;
+              var hdLine = '';
+              if (hd){
+                var _hdParts = [];
+                if (hd.lastError) _hdParts.push('শেষ ত্রুটি: ' + esc(String(hd.lastError)));
+                if (hd.lastSuccessAtMs) _hdParts.push('শেষ সফল প্লেব্যাক: ' + new Date(hd.lastSuccessAtMs).toLocaleDateString());
+                if (_hdParts.length) hdLine = '<small class="rp-url">' + _hdParts.join(' • ') + '</small>';
+              }
+              h += '<div class="rp-row">' + provRowLogo(prow, pn) + '<span class="rp-name">' + pn + '<span class="rp-url">' + provRowMeta(prow) + (provMainUrl(key) ? ' • ' + provMainUrl(key) : '') + '</span>' + (prow && prow.description ? '<span class="rp-url">' + esc(prow.description) + '</span>' : '') + stat + hdLine + '</span><button class="rp-test" data-ptest="' + key + '">Test</button><button class="switch" role="switch" aria-checked="' + eff + '" data-psw="' + key + '" aria-label="' + pn + ' on off"></button></div>';
               var sites = sitesOf(ST, r, pn);
               if (sites.length > 1){
                 var baseN = 1; /* Phase B: one base site per provider (bridge mainUrl); extras are custom sites */
@@ -6752,9 +6971,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         try { res = await engineCall('providerHealthCheck', { onlyOn: false }, 120000); } catch (e) { if (manual) toast(engineErrText(e)); renderRepoUI(); return; }
         syncHealthResults(res);
         var off = ((res && res.autoOff) || []).length, back = ((res && res.autoOn) || []).length;
-        var onNow = Object.keys(ST.provOn).filter(function(k){ return ST.provOn[k]; }).length;
         rebuildCatalog(); renderRepoUI();
-        if (manual) toast('হেলথ চেক শেষ — ' + onNow + 'টি ঠিক আছে' + (off ? ', ' + off + 'টি অটো-অফ' : '') + (back ? ', ' + back + 'টি আবার অন' : ''));
+        if (manual) toast(healthSummaryText() + (off ? ', ' + off + 'টি অটো-অফ' : '') + (back ? ', ' + back + 'টি আবার অন' : '') + ((res && res.partial) ? ' — কিছু প্রোভাইডারের ফলাফল আসেনি' : ''));
       }
       /* full provider test: loads + content inside + video play, ✓/✗ per provider */
       /* (v0.2.2) runTestAll removed: it was dead code — zero callers
@@ -7003,7 +7221,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             engineCall('repoProviders', { repoId: r3.id }).then(function(d){
               var n = ((d && d.providers) || []).length;
               if (!n) ST.testMsg[r3.id] = { cls: 'ok', txt: '✓ রিপো লোড হয়েছে — তবে এই রিপোতে কোনো প্রোভাইডার লিস্ট করা নেই' };
-              else ST.testMsg[r3.id] = { cls: 'ok', txt: '✓ কাজ করছে — ' + n + 'টি প্রোভাইডার পাওয়া গেছে' };
+              else ST.testMsg[r3.id] = { cls: 'ok', txt: '✓ রিপো লোড হয়েছে — ' + n + 'টি প্রোভাইডার পাওয়া গেছে' };
               renderRepoUI();
             }).catch(function(e){
               ST.testMsg[r3.id] = { cls: 'bad', txt: '✗ রিপো লোড হচ্ছে না — পরে আবার চেষ্টা করুন' };
@@ -7019,7 +7237,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           engineCall('providerTest', { repoId: rid2, providerName: pn2 }, 180000 /* (v0.2.11) 120s download budget + 45s content box + margin */).then(function(res0){
             var res = res0 || {};
             ST.ptest[k2] = res;
-            ST.health[k2] = res.video ? 'ok' : 'bad';
+            applyTestHealth(k2, res);
+            loadProviderHealthDetail();
             renderRepoUI();
             /* (v0.2.2) Say WHY it failed: the bridge now reports a real
                reason (offline / download / hash / dex / load / timeout)
@@ -7027,14 +7246,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             /* (v0.2.3) testReasonText() is the shared reason — the same text
                the row shows, so toast and row always agree. */
             var why = (!res.video) ? testReasonText(res.error) + (res.detail ? ' — ' + res.detail : '') : '';
-            toast(pn2 + (res.video ? trFrag(' — ✓ video plays') : trFrag(' — ✗ video does not play') + why));
+            toast(pn2 + (res.video ? ' — ✓ লিংক পাওয়া গেছে (প্লে করা হয়নি)' : ' — ✗ লিংক পাওয়া যায়নি' + why));
           }).catch(function(e){
             /* (v0.2.3) A rejected test used to leave NO test line in the row —
                now the row shows ✗✗✗ + the reason, like a failed test. */
             t.textContent = 'Test';
             ST.ptest[k2] = { load: false, content: false, video: false, error: (e && e.code) || 'network_error' };
             ST.health[k2] = 'bad';
-            toast(pn2 + trFrag(' — ✗ video does not play') + testReasonText((e && e.code) || 'network_error'));
+            toast(pn2 + ' — ✗ পরীক্ষা করা যায়নি' + testReasonText((e && e.code) || 'network_error'));
             renderRepoUI();
           });
           return;
@@ -7279,7 +7498,9 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       function showPiP(){
         if (!curTitle || !pipWin) return;
         pipActive = true;
-        document.getElementById('pip-img').src = document.getElementById('stage-img').src;
+        var _pipImg = document.getElementById('pip-img');
+        posterFallbackImg(_pipImg);
+        _pipImg.src = document.getElementById('stage-img').src || POSTER_FALLBACK;
         document.getElementById('pip-title').textContent = curTitle;
         pipWin.hidden = false;
       }
@@ -8305,7 +8526,7 @@ function rAbout(inst){
       '<div class="v31-row">' + mi(IC.play, '#e8261c', true) +
       '<span class="v31-row-tx"><span class="v31-row-t">Zayn Play</span>' +
       '<span class="v31-row-d">সিনেমা, সিরিজ আর অ্যানিমে দেখার অ্যাপ — সোর্স যোগ করে নিজের মতো সাজানো যায়</span></span>' +
-      '<span class="v31-val">Version 1.0.16</span></div>' +
+      '<span class="v31-val">Version 1.0.17</span></div>' +
       rAct('link', 'Zayn Play Wiki', 'ব্যবহারের গাইড আর সাহায্য', IC.book, '#0d9488', '', '') +
       rGo('disclaimer', 'আইনি কথা (Disclaimer)', 'অ্যাপটা ব্যবহারের নিয়ম আর দায়িত্বের কথা', IC.warn, '#d97706')
     ) +
@@ -8661,7 +8882,7 @@ function v31RunTestAll(inst, done){
         res = r0 || { load: false, content: false, video: false };
       }).catch(function(e){ res = { load: false, content: false, video: false, error: (e && e.code) || 'network_error' }; }).then(function(){
         try{
-          if (typeof ST !== 'undefined' && ST){ ST.ptest[j.key] = res; ST.health[j.key] = res.video ? 'ok' : 'bad'; }
+          if (typeof ST !== 'undefined' && ST){ ST.ptest[j.key] = res; applyTestHealth(j.key, res); }
           inst.ext.repoTest = inst.ext.repoTest || {};
           var rtl = inst.ext.repoTest[j.repoId] = inst.ext.repoTest[j.repoId] || [];
           var found = false;
@@ -8985,12 +9206,7 @@ function extAct(inst, kind){
     render(inst, true);
     checkAll(false).then(function(){
       try{ syncProvFromST(inst); }catch(e2){}
-      var on = 0, bad = 0;
-      if (typeof ST !== 'undefined' && ST){
-        Object.keys(ST.provOn || {}).forEach(function(k){ if (ST.provOn[k] && !ST.autoOff[k]) on++; });
-        Object.keys(ST.health || {}).forEach(function(k){ if (ST.provOn[k] && ST.health[k] === 'bad') bad++; });
-      }
-      e.moreMsg = on ? ('হেলথ চেক শেষ — ON করা ' + bnNum(on) + 'টি প্রোভাইডারের মধ্যে ' + bnNum(on - bad) + 'টি ঠিক আছে' + (bad ? ', ' + bnNum(bad) + 'টিতে সমস্যা আছে' : '')) : 'কোনো প্রোভাইডার ON নেই — রিপো খুলে প্রোভাইডার ON করুন';
+      e.moreMsg = (typeof healthSummaryText === 'function') ? healthSummaryText() : 'হেলথ চেক চালানো যায়নি';
       render(inst, true);
     }).catch(function(){ e.moreMsg = 'হেলথ চেক চালানো যায়নি'; render(inst, true); });
     return;
@@ -9215,7 +9431,7 @@ function bindInstance(inst){
       engineCall('providerTest', { repoId: tr, providerName: tn }, 180000).then(function(_pt0){
         var _pt = _pt0 || {};
         var ok = !!_pt.video || _pt.error === 'plugin_only';
-        try{ if (typeof ST !== 'undefined' && ST){ ST.ptest[key] = _pt; ST.health[key] = ok ? 'ok' : 'bad'; } }catch(e){}
+        try{ if (typeof ST !== 'undefined' && ST){ ST.ptest[key] = _pt; applyTestHealth(key, _pt); loadProviderHealthDetail(); } }catch(e){}
         inst.ext.repoTest = inst.ext.repoTest || {};
         var rtl = inst.ext.repoTest[tr] = inst.ext.repoTest[tr] || [];
         var rfound = false;
@@ -9225,7 +9441,7 @@ function bindInstance(inst){
            merely because video failed — upstream has no auto-off, and the
            failure reason (with detail) is shown instead. The provider
            stays ON; the user turns it off if they want. */
-        toast(inst, _pt.error === 'plugin_only' ? '✓ ' + tn + ' — লোড হয়েছে, সব রিপো যোগ করে' : (ok ? '✓ ' + tn + ' ঠিকমতো চলছে' : '✗ ' + tn + ' — ভিডিও চলছে না' + testReasonText(_pt.error) + (_pt.detail ? ' — ' + esc(_pt.detail) : '')));
+        toast(inst, _pt.error === 'plugin_only' ? '✓ ' + tn + ' — লোড হয়েছে, সব রিপো যোগ করে' : (ok ? '✓ ' + tn + ' — লিংক পাওয়া গেছে (প্লে করা হয়নি)' : '✗ ' + tn + ' — পরীক্ষায় পাস করেনি' + testReasonText(_pt.error) + (_pt.detail ? ' — ' + esc(_pt.detail) : '')));
         render(inst, true);
       }).catch(function(e){
         /* (v0.2.11) A rejected test used to leave NO reason anywhere — now the
@@ -9239,7 +9455,7 @@ function bindInstance(inst){
           for (var ri2 = 0; ri2 < rtl2.length; ri2++) if (rtl2[ri2].n === tn){ rtl2[ri2].ok = false; rtl2[ri2].load = false; rtl2[ri2].content = false; rtl2[ri2].video = false; rtl2[ri2].error = code; rtl2[ri2].detail = null; rfound2 = true; }
           if (!rfound2) rtl2.push({ n: tn, ok: false, load: false, content: false, video: false, error: code, detail: null });
         }catch(e2){}
-        toast(inst, '✗ ' + tn + ' — ভিডিও চলছে না' + testReasonText(code));
+        toast(inst, '✗ ' + tn + ' — পরীক্ষা করা যায়নি' + testReasonText(code));
         render(inst, true);
       });
       return;
@@ -9254,7 +9470,7 @@ function bindInstance(inst){
         for (var pi = 0; pi < plist.length; pi++){
           var pp = plist[pi], res = { load: false, content: false, video: false };
           try { res = await engineCall('providerTest', { repoId: tid, providerName: pp }, 180000); } catch (e){ res = { load: false, content: false, video: false, error: (e && e.code) || 'network_error' }; }
-          try{ if (typeof ST !== 'undefined' && ST){ ST.ptest[tid + '|' + pp] = res; ST.health[tid + '|' + pp] = res.video ? 'ok' : 'bad'; } }catch(e){}
+          try{ if (typeof ST !== 'undefined' && ST){ ST.ptest[tid + '|' + pp] = res; applyTestHealth(tid + '|' + pp, res); } }catch(e){}
           out.push({ n: pp, ok: !!res.video, load: !!res.load, content: !!res.content, video: !!res.video, error: res.error || null, detail: res.detail || null });
         }
         inst.ext.repoTest[tid] = out;
