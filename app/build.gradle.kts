@@ -39,8 +39,8 @@ android {
         // build MUST use versionCode >= 1000, so it can update-install
         // over every review build without an uninstall (Android refuses
         // a downgrade in versionCode even with the same signature).
-        versionCode = 1025
-        versionName = "1.0.25"
+        versionCode = 1026
+        versionName = "1.0.26"
     }
 
     // (v1.0.25 F) ABI splits: :app:assembleRelease now produces
@@ -184,9 +184,10 @@ dependencies {
     // (V1.0.4) Patched coroutines-core, NOT the Maven artifact: byte-identical
     // to kotlinx-coroutines-core-jvm 1.8.1 (Maven SHA-1
     // 00bb0e192bd7c2b6b8217440d36e9758e377e450) except BuildersKt.class gains
-    // ONE method, runBlockingK, delegating to BuildersKt__BuildersKt.runBlocking
-    // — the JVM name coroutines 1.11.0 gives runBlocking, which the live Phisher
-    // plugins call (INVESTIGATION-3-runblocking.md). The patch was applied once
+    // TWO methods, runBlockingK and runBlockingK$default, delegating to
+    // BuildersKt__BuildersKt.runBlocking — the JVM names coroutines 1.11.0
+    // gives runBlocking, which the live Phisher plugins call
+    // (INVESTIGATION-3-runblocking.md). The patch was applied once
     // offline with ASM (PatchBuildersKt.java, kept with the trial notes in
     // verify-1.0.4/); re-run it if the core version ever changes. REMOVE the
     // patched jar and restore the Maven core line if coroutines is ever upgraded
