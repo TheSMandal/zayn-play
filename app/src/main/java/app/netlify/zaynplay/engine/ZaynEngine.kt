@@ -748,6 +748,20 @@ class ZaynEngine(
                     ),
                 )
                 "progressAll" -> ok(library.progressAll())
+                // (v1.0.25 G) Long-press menu Remove: JS deletes every
+                // progress row for one CW item (base + each '<base>#ep:<n>'
+                // row) through the existing native clearProgress
+                // (content key + legacy title key), one call per row.
+                // Same route shape as progressSet — no new protocol.
+                "clearProgress" -> {
+                    library.clearProgress(
+                        params.optString("title", ""),
+                        params.optString("url", ""),
+                        params.optString("providerName", ""),
+                        params.optString("ep", ""),
+                    )
+                    ok(JSONObject().put("cleared", true))
+                }
                 // ---- Phase C: downloads (E22–E25) ----
                 "downloads" -> ok(downloads.downloads())
                 "storageInfo" -> ok(downloads.storageInfo())
@@ -870,7 +884,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.24")
+        .put("version", "1.0.25")
         // (v1.0.24 L ITEM 4 P0-1) Installed versionCode for the JS
         // banner gate: stored.versionCode > installed, evaluated at
         // paint time. Existing "version" string untouched.
