@@ -1027,7 +1027,7 @@ class ZaynEngine(
     private fun providerEntries(repo: RepositoryData, wrappers: List<PluginWrapper>): JSONArray {
         val arr = JSONArray()
         // (v1.0.5 F) Samim decided 2026-11-27 ("সব দেখাও"): the repo list
-        // shows ALL providers, every language. The v0.2.9 Fix G provLang
+        // shows ALL providers, every language. The v0.2.9 Fix G language
         // gate on these rows is REMOVED — it hid 28 of the CNC repo's 47
         // plugins (all 25 Tamil ones included) and the hidden rows could
         // not even be turned ON. His strict-language rule for CONTENT
@@ -1189,11 +1189,23 @@ class ZaynEngine(
             store.setProviderOn(repoId, providerName, false)
             EngineLogger.log("bridge", "providerSetOn OFF $providerName")
         }
+        // (v1.0.19 BUG 6) Effective ON for the toggled row: ON-ing a
+        // multi-API plugin-name row ONs each real API and clears the
+        // plugin-name key, so re-reading that cleared key would report
+        // false while the provider is genuinely ON. The reply must
+        // reflect whether any expanded API is ON. (The OFF branch has
+        // no expansion, so the plain re-read stays correct there.)
+        val apisNow = apisForPlugin(repo, p)
+        val effectiveOn = if (on && apisNow.isNotEmpty() && providerName !in apisNow.map { it.name }) {
+            apisNow.any { store.isProviderOn(repoId, it.name) }
+        } else {
+            store.isProviderOn(repoId, providerName)
+        }
         return ok(
             JSONObject()
                 .put("repoId", repoId)
                 .put("providerName", providerName)
-                .put("on", store.isProviderOn(repoId, providerName))
+                .put("on", effectiveOn)
                 .put("autoOff", store.isProviderAutoOff(repoId, providerName))
         )
     }
@@ -2782,7 +2794,7 @@ class ZaynEngine(
     /**
      * Smart-Streams ranking (design §4.6, v1.0.4 FINAL order 17:33):
      * language 1st, quality 2nd, speed 3rd. The language tier dominates
-     * the score (audio1 +10000, audio2 +5000); quality match adds +100;
+     * the score (audio1 +10000, audio2 +5000, audio3 +2500); quality match adds +100;
      * then MEASURED server-only TTFB ascending. Unmeasured links rank
      * after measured ones at the same score. Nothing is invented.
      * (v1.0.5 B1/B4) Unplayable links are filtered / penalised BEFORE the
@@ -2801,6 +2813,10 @@ class ZaynEngine(
         val srcPrioSpeed = store.getSettingString("srcPrio", "quality") == "speed"
         val a1 = audioCodeOf(store.getSettingString("audio1", "English"))
         val a2 = audioCodeOf(store.getSettingString("audio2", "বাংলা"))
+        // (v1.0.19 REQ1) Third audio language; "none" maps to null
+        // via audioCodeOf, so an unset third slot contributes nothing
+        // and ranking with only audio1/audio2 set is unchanged.
+        val a3 = audioCodeOf(store.getSettingString("audio3", "none"))
         val playable = links.filter { link ->
             if (link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET) return@filter false
             // (v1.0.5 B1) A .txt URL is a playlist stub / error marker, not
@@ -2822,6 +2838,7 @@ class ZaynEngine(
             val audio = audioFromName(link.name)
             if (audio != null && audio == a1) score += 10000
             else if (audio != null && a2 != null && audio == a2) score += 5000
+            else if (audio != null && a3 != null && audio == a3) score += 2500
             if (resPref != "Auto" && ql.isNotEmpty() && ql == resPref) score += 100
             // (v1.0.5 B4) Penalise, never hide: an Unknown-quality link
             // (the V1.0.4 erroring pick had no quality at all) and a
