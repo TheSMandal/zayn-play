@@ -43,8 +43,8 @@ android {
         // build MUST use versionCode >= 1000, so it can update-install
         // over every review build without an uninstall (Android refuses
         // a downgrade in versionCode even with the same signature).
-        versionCode = 1018
-        versionName = "1.0.18"
+        versionCode = 1019
+        versionName = "1.0.19"
     }
 
     // FIXED SIGNING (v0.2.10): every build — debug AND release — must be
