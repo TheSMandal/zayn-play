@@ -1,6 +1,7 @@
 package app.netlify.zaynplay.engine
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -48,6 +49,7 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
@@ -223,6 +225,75 @@ class ZaynEngine(
     // (v1.0.12 §6 step 2) The engine of the last playActive — MainActivity
     // uses it to decide whether a stage-open/close may touch mpv's surface.
     private var lastActiveEngine: String = "exoplayer"
+
+    // (v1.0.20 P21-B3/B4) Playback-start timing: playInternal records
+    // the request start + link-resolve duration; noteFirstFrame() (called
+    // from MainActivity when either engine fires playerFirstFrame) logs
+    // request -> first frame with the resolve split. Logging only — no
+    // behaviour change to playback.
+    private var lastPlayT0Ms: Long = 0L
+    private var lastPlayResolveMs: Long = -1L
+    private var lastPlaySession: String = ""
+    private var lastPlayTitle: String = ""
+    private var firstFrameLoggedForSession: String = ""
+    private var mem30sToken: Int = 0
+
+    /** (v1.0.20 P21-B4) One PSS memory sample: PSS + device available
+     * memory, epoch-ms timestamped via logPerf. Best-effort; never throws. */
+    private fun logMemSample(activityLabel: String) {
+        try {
+            val am = activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            am?.getMemoryInfo(memInfo)
+            val pssKb = try {
+                val infos = am?.getProcessMemoryInfo(intArrayOf(android.os.Process.myPid()))
+                infos?.firstOrNull()?.totalPss ?: -1
+            } catch (e: Exception) {
+                -1
+            }
+            @Suppress("DEPRECATION")
+            val runtimeMb = Runtime.getRuntime().totalMemory() / (1024 * 1024)
+            EngineLogger.logPerf(
+                "perf",
+                "mem pssMb=${if (pssKb >= 0) pssKb / 1024 else -1} availMb=${memInfo.availMem / (1024 * 1024)} runtimeMb=$runtimeMb activity=$activityLabel",
+            )
+        } catch (e: Exception) {
+            // Memory sampling is best-effort; never break playback/feed.
+        }
+    }
+
+    /**
+     * (v1.0.20 P21-B3) Called by MainActivity when either engine fires
+     * playerFirstFrame. Logs request -> first frame for the current play
+     * session (once per session), plus a memory sample at first frame
+     * and one more 30 s into playback. The first-frame callback proves
+     * decoding, not display (v1.0.9) — the ms is request-to-decode time.
+     */
+    fun noteFirstFrame() {
+        val session = lastPlaySession
+        if (session.isEmpty() || session == firstFrameLoggedForSession) return
+        firstFrameLoggedForSession = session
+        val ms = if (lastPlayT0Ms > 0) System.currentTimeMillis() - lastPlayT0Ms else -1
+        EngineLogger.logPerf(
+            "perf",
+            "player firstFrame session=$session ms=$ms engine=$lastActiveEngine resolveMs=$lastPlayResolveMs title=$lastPlayTitle",
+        )
+        logMemSample("player")
+        val token = ++mem30sToken
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (token == mem30sToken) logMemSample("player+30s")
+        }, 30_000)
+    }
+
+    /** (v1.0.20 P21-B4) JS calls this once, when the first feed paints:
+     * cold start = onCreate anchor -> first paint. Returns the ms so JS
+     * can also log it to the console (which reaches device logcat). */
+    private fun perfFirstPaint(): JSONObject {
+        val t0 = EngineLogger.coldStartT0Ms
+        val ms = if (t0 > 0) SystemClock.elapsedRealtime() - t0 else -1
+        EngineLogger.logPerf("perf", "coldStart ms=$ms")
+        return ok(JSONObject().put("ms", ms))
+    }
 
     /** (v1.0.12 §6 step 2) True when libmpv played last. */
     fun isMpvActive(): Boolean = lastActiveEngine == "libmpv"
@@ -799,9 +870,18 @@ class ZaynEngine(
                     updater.downloadUpdate(
                         params.optString("url", ""),
                         params.optBoolean("autoInstall", true),
+                        params.optLong("size", -1),
+                        params.optString("sha256", "").ifBlank { null },
+                        params.optLong("versionCode", -1),
+                        params.optString("apkSha256", "").ifBlank { null },
                     ),
                 )
-                "appUpdateInstall" -> ok(updater.installDownloadedApk())
+                "appUpdateInstall" -> ok(
+                    updater.installDownloadedApk(
+                        params.optString("apkSha256", "").ifBlank { null },
+                        params.optLong("versionCode", -1),
+                    ),
+                )
                 // ---- Phase C: accounts (E31–E34) ----
                 "accountLoginUrl" -> accountLoginUrl(params.optString("provider", ""))
                 "accountLoginComplete" -> ok(
@@ -849,6 +929,16 @@ class ZaynEngine(
                         EngineLogger.snapshot().takeLast(params.optInt("lines", 200)).joinToString("\n"),
                     ),
                 )
+                // (v1.0.20 P21-B5) Dedicated perf-ring dump: epoch-ms
+                // perf lines, kept even when the 200-line main ring has
+                // scrolled them off.
+                "perfLog" -> ok(
+                    JSONObject().put(
+                        "log",
+                        EngineLogger.perfSnapshot().takeLast(params.optInt("lines", 500)).joinToString("\n"),
+                    ),
+                )
+                "perfFirstPaint" -> perfFirstPaint()
                 else -> {
                     EngineLogger.log("bridge", "$method -> unknown_method")
                     err("unknown_method", "Unknown method: $method")
@@ -885,7 +975,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.19")
+        .put("version", "1.0.20")
         .put("engineReady", engineReady)
         .put("pluginsLoaded", PluginManager.plugins.size)
         .put("reposInstalled", RepositoryManager.getRepositories().size)
@@ -1966,11 +2056,15 @@ class ZaynEngine(
             return err("no_content", "No homepage responses")
         }
         EngineLogger.log("bridge", "homeFeed ok provider=$providerName ms=${hfMs()} sections=${arr.length()} items=$totalItems hasNext=$hasNext")
+        // (v1.0.20 P21-B4) Home settle = memory sample point; fetchMs is
+        // returned so JS can log fetch + render separately (N1).
+        logMemSample("home")
         return ok(
             JSONObject()
                 .put("provider", JSONObject().put("name", api.name).put("mainUrl", api.mainUrl).put("lang", api.lang))
                 .put("sections", arr)
                 .put("hasNext", hasNext)
+                .put("fetchMs", hfMs())
         )
     }
 
@@ -2061,6 +2155,9 @@ class ZaynEngine(
 
     private suspend fun search(query: String, providerName: String?, page: Int): JSONObject {
         if (query.isBlank()) return err("invalid_input", "Enter a search term")
+        // (v1.0.20 P21-B2) Fan-out timing: total + per-provider ms.
+        val searchT0 = System.currentTimeMillis()
+        fun searchMs() = System.currentTimeMillis() - searchT0
         if (providerName != null) {
             val api = resolveApi(providerName, null)
                 ?: return err("provider_not_found", "Provider not found")
@@ -2074,11 +2171,13 @@ class ZaynEngine(
                 ?: return err("network_error", "Search failed")
             val arr = JSONArray()
             for (item in list.items) arr.put(searchItemJson(item))
+            EngineLogger.logPerf("perf", "search ok query=$query ms=${searchMs()} providers=1/1 timedOut=0 items=${arr.length()}")
             return ok(
                 JSONObject()
                     .put("results", arr)
                     .put("hasNext", list.hasNext)
                     .put("partial", false)
+                    .put("searchMs", searchMs())
             )
         }
         // All-provider fan-out over ON providers only, capped concurrency 8,
@@ -2111,15 +2210,26 @@ class ZaynEngine(
                         async<Triple<String, SearchResponseList?, String?>> {
                             sem.withPermit {
                                 started.add(name)
+                                // (v1.0.20 P21-B2) Per-provider fan-out ms.
+                                val provT0 = System.currentTimeMillis()
+                                fun provMs() = System.currentTimeMillis() - provT0
                                 val api = resolveApi(name, null, repoId)
-                                    ?: return@async Triple(name, null, "unresolved")
+                                    ?: run {
+                                        EngineLogger.logPerf("perf", "search provider=$name ms=${provMs()} items=unresolved")
+                                        return@async Triple(name, null, "unresolved")
+                                    }
                                 val res = try {
                                     APIRepository(api).search(query, page.coerceAtLeast(1))
                                 } catch (e: Exception) {
+                                    EngineLogger.logPerf("perf", "search provider=$name ms=${provMs()} items=error")
                                     return@async Triple(name, null, "error")
                                 }
                                 val list = (res as? Resource.Success<SearchResponseList>)?.value
-                                    ?: return@async Triple(name, null, "error")
+                                    ?: run {
+                                        EngineLogger.logPerf("perf", "search provider=$name ms=${provMs()} items=error")
+                                        return@async Triple(name, null, "error")
+                                    }
+                                EngineLogger.logPerf("perf", "search provider=$name ms=${provMs()} items=${list.items.size}")
                                 Triple(name, list, null)
                             }
                         }
@@ -2164,6 +2274,16 @@ class ZaynEngine(
                 failures.put(JSONObject().put("provider", name).put("reason", "not_attempted"))
             }
         }
+        // (v1.0.20 P21-B2) Fan-out totals: settled providers, timed-out
+        // count, item count — the numbers the on-phone report needs.
+        var timedOut = 0
+        for (i in 0 until failures.length()) {
+            if (failures.optJSONObject(i)?.optString("reason") == "timed_out") timedOut++
+        }
+        EngineLogger.logPerf(
+            "perf",
+            "search ok query=$query ms=${searchMs()} providers=${perProvider.length()}/${ordered.size} timedOut=$timedOut items=${results.length()}",
+        )
         return ok(
             JSONObject()
                 .put("results", results)
@@ -2171,6 +2291,7 @@ class ZaynEngine(
                 .put("perProvider", perProvider)
                 .put("failures", failures)
                 .put("partial", partial)
+                .put("searchMs", searchMs())
         )
     }
 
@@ -3529,7 +3650,15 @@ class ZaynEngine(
         val titleForLog = params.optString("title", "")
         val linkIndexForLog = if (params.has("linkIndex") && !params.isNull("linkIndex")) params.optInt("linkIndex", -1) else -1
         EngineLogger.log("player", "play request ${requestId ?: "?"} title=$titleForLog linkIndex=$linkIndexForLog mode=$mode")
+        // (v1.0.20 P21-B3) First-frame timing anchor: request start +
+        // link-resolve duration; noteFirstFrame() completes the pair.
+        val playT0 = System.currentTimeMillis()
+        lastPlayT0Ms = playT0
+        lastPlaySession = requestId ?: "play-$playT0"
+        lastPlayTitle = titleForLog
+        lastPlayResolveMs = -1L
         val (resolved, reason) = resolveLinks(params)
+        lastPlayResolveMs = System.currentTimeMillis() - playT0
         if (resolved == null) {
             return if (reason == "no_data") reject("no_data", "This title has no playable data", requestId)
             else reject("provider_not_found", "Provider not found", requestId)
