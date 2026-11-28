@@ -1495,43 +1495,10 @@ class ZaynPlayer(
         mainHandler.post { player?.pause() }
     }
 
-    /** (v1.0.12 §6 step 1) Switch-time detach for the shared TextureView:
-     *  pause, then release ExoPlayer's surface hold
-     *  (setVideoTextureView(null)) so libmpv's EGL can connect to the
-     *  BufferQueue. The re-attach on the way back is reattachTextureView()
-     *  — without it a later ExoPlayer play would run surface-less
-     *  (ensurePlayer early-returns). The "player: exo surface detached for
-     *  mpv switch" line is logged by ZaynEngine.playActive when it issues
-     *  the detach. */
-    fun detachSurfaceForSwitch() {
-        mainHandler.post {
-            try { player?.pause() } catch (e: Exception) { }
-            try { player?.setVideoTextureView(null) } catch (e: Exception) { }
-            surfaceDetachedForSwitch = true
-            transitionTo(SurfaceLifecycle.SURFACE_DESTROYED, "detach for mpv switch")
-        }
-    }
-
-    /** (v1.0.12 §6 step 1) Re-attach after a switch-time detach. No-op when
-     *  the surface was never detached: setVideoTextureView on an already
-     *  attached player would needlessly re-register Media3's listener. */
-    fun reattachTextureView() {
-        mainHandler.post {
-            if (!surfaceDetachedForSwitch) {
-                EngineLogger.log("player", "player: exo surface re-attach skipped — already attached")
-                return@post
-            }
-            if (player == null) {
-                EngineLogger.log("player", "player: exo surface re-attach skipped — no player (released)")
-                return@post
-            }
-            val tv = textureView ?: return@post
-            try { player?.setVideoTextureView(tv) } catch (e: Exception) { }
-            surfaceDetachedForSwitch = false
-            transitionTo(SurfaceLifecycle.SURFACE_ATTACHED, "re-attach after mpv switch")
-            diag("L4", "Surface Attached", "re-attach after switch")
-        }
-    }
+    // (v1.0.23) Switch-time detach/re-attach REMOVED with the second
+    // player: with one player the surface is never detached for a
+    // switch. Bounded recovery (recoverSurface below) does its own
+    // detach+re-attach inline.
 
     /** (v1.0.12 §7) Stop the previous session outright (not just pause):
      *  stop + clear the media items so no stale ticker/pushState can
