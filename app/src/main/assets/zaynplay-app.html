@@ -1970,7 +1970,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.19</p>
+                  <p class="splash-ver">Zayn Play v1.0.20</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -3345,7 +3345,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            past here — a UI-side throw used to kill renderProvider before
            engineHomeFeed was ever called (INVESTIGATION-3). */
         try {
-          if (p.cachedFeed && p.cachedFeed.sections) renderFeedInto(p, p.cachedFeed);
+          var _perfCacheT0 = Date.now();
+          if (p.cachedFeed && p.cachedFeed.sections){ renderFeedInto(p, p.cachedFeed); try{ console.log('[perf] feed provider=' + key + ' cached=true renderMs=' + (Date.now() - _perfCacheT0)); }catch(e){} }
           else {
             /* (v1.0.14 P5 F3) No in-memory feed: restore the persisted
                last-good feed (24 h cap, corrupt-guarded) for the instant
@@ -3374,6 +3375,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           /* (v0.2.11) Target 13: show the failure reason + a retry, never
              blank rails. A cached feed stays on screen; without one, the
              error card explains what happened and retries on tap. */
+          /* (v1.0.20 P20-B7) The first feed attempt settled (failed) —
+             the boot plugin check still runs once, like the success
+             path below; it is guarded once-per-lifetime inside. */
+          scheduleBootPluginCheck();
           if (p.cachedFeed && p.cachedFeed.sections){ if (feedErr) toast(engineErrText(feedErr)); return; }
           /* (v1.0.2) no_content means the site answered but gave nothing —
              most often a Cloudflare challenge page parsing to zero items.
@@ -3398,7 +3403,19 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           return;
         }
         p._coldRetried = false;
+        /* (v1.0.20 P21-B1/N1) Home-feed render timing: fetchMs comes
+           from the native reply; renderMs is paint-only (measured
+           around renderFeedInto, not the network wait). */
+        var _perfT0 = Date.now();
         renderFeedInto(p, feed);
+        try{ console.log('[perf] feed provider=' + key + ' fetchMs=' + ((feed && typeof feed.fetchMs === 'number') ? feed.fetchMs : -1) + ' renderMs=' + (Date.now() - _perfT0)); }catch(e){}
+        /* (v1.0.20 P21-B4) First feed paint = cold-start end (once per
+           page load; the flag lives on the function so no new top-level
+           binding is needed). */
+        if (!renderProvider._coldStartLogged){
+          renderProvider._coldStartLogged = true;
+          try{ engineCall('perfFirstPaint', {}, 10000).then(function(d){ try{ console.log('[perf] coldStart ms=' + ((d && typeof d.ms === 'number') ? d.ms : -1)); }catch(e){} }).catch(function(){}); }catch(e){}
+        }
         /* (v1.0.14 P5 F3) A fresh good feed is the new last-good feed. */
         saveFeedCache(key, feed);
         scheduleBootPluginCheck();
@@ -3624,7 +3641,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         /* F3 instant paint from the in-memory or persisted last-good feed;
            the first fresh outcome replaces it via ensureProgRails. */
         try {
-          if (p.cachedFeed && p.cachedFeed.sections) renderFeedInto(p, p.cachedFeed);
+          var _perfCacheT0 = Date.now();
+          if (p.cachedFeed && p.cachedFeed.sections){ renderFeedInto(p, p.cachedFeed); try{ console.log('[perf] feed provider=' + key + ' cached=true renderMs=' + (Date.now() - _perfCacheT0)); }catch(e){} }
           else {
             var _pf = loadFeedCache(key);
             if (_pf){ p.cachedFeed = _pf; renderFeedInto(p, _pf); }
@@ -5195,9 +5213,13 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!q){ buildSearchGrid(); setSearchStatus('', false); return; }
         searchEngineTimer = setTimeout(function(){
           setSearchStatus('', false);
+          /* (v1.0.20 P21-B2) Global search fan-out timing: submit ->
+             all-provider results settled (native ms come from the
+             reply's searchMs; uiMs is the wall time seen here). */
+          var _sqT0 = Date.now();
           var _sp = engineSearch(q);
           var tok = _sp._searchToken;
-          _sp.then(function(d){ renderGlobalSearchResults(q, d, tok); }).catch(function(e){ if (e && e.code === 'cancelled') return; if (tok !== searchToken) return; showSearchTimeout(false); });
+          _sp.then(function(d){ try{ console.log('[perf] search query=' + q + ' uiMs=' + (Date.now() - _sqT0) + ' nativeMs=' + ((d && typeof d.searchMs === 'number') ? d.searchMs : -1)); }catch(e){} renderGlobalSearchResults(q, d, tok); }).catch(function(e){ if (e && e.code === 'cancelled') return; if (tok !== searchToken) return; showSearchTimeout(false); });
         }, 300);
       }
       searchInput.addEventListener('input', onSearchInput);
@@ -5214,6 +5236,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return out;
       }
       function renderPSearch(){
+        /* (v1.0.20 P21-B1) Provider-search grid render timing. */
+        var _psT0 = Date.now();
         var p = PROVIDERS[currentProvider]; if (!p) return;
         document.getElementById('ps-title').textContent = 'Search in ' + p.name;
         document.getElementById('ps-name').textContent = p.name;
@@ -5235,6 +5259,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           g.appendChild(b);
         });
         applyPSearch();
+        try{ console.log('[perf] psearch provider=' + currentProvider + ' renderMs=' + (Date.now() - _psT0)); }catch(e){}
       }
       function applyPSearch(){
         var inp = document.getElementById('psearch-input');
@@ -7328,26 +7353,49 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         try{
           if (!updNotifyOn()) return;
           var now = Date.now();
+          /* (v1.0.20 P20-B5) Throttle timestamps are written ONLY after
+             a check completes (below, in .then) — a failed or dropped
+             check no longer consumes the whole window. A pending flag
+             lets the next foreground return retry a failed check past
+             the 6 h throttle. */
           if (kind === 'boot'){
             var last = 0;
             try{ last = parseInt(localStorage.getItem('zp_upd_last') || '0', 10) || 0; }catch(e2){}
             if (now - last < 86400000) return;
-            try{ localStorage.setItem('zp_upd_last', String(now)); }catch(e2){}
           } else if (kind === 'fg'){
             /* (v1.0.4) F4: foreground / periodic re-check, at most once per 6 h — a release that lands while the app is open appears without a restart. */
-            var lastFg = 0;
+            var lastFg = 0, pending = false;
             try{ lastFg = parseInt(localStorage.getItem('zp_upd_fg_last') || '0', 10) || 0; }catch(e2){}
-            if (now - lastFg < 21600000) return;
-            try{ localStorage.setItem('zp_upd_fg_last', String(now)); }catch(e2){}
+            try{ pending = !!(typeof ST !== 'undefined' && ST.updCheckPending); }catch(e2){}
+            if (!pending && now - lastFg < 21600000) return;
           } else {
             if (now - _zpUpdPageAt < 300000) return;
             _zpUpdPageAt = now;
           }
           engineCall('appUpdateCheck', { manual: false }, 60000).then(function(d){
             /* (v1.0.4) F1: persist the result — the banner + Updates card render from it, so the update stays visible after the toast is gone. A failed check keeps the old state. */
-            if (d && d.updateAvailable){ saveAppUpdate({ version: d.version || '', url: d.url || '', changelog: d.changelog || '', at: Date.now() }); toast('নতুন আপডেট এসেছে — v' + (d.version || '')); }
-            else if (d && !d.error){ saveAppUpdate(null); }
-          }).catch(function(){});
+            if (d && !d.error){
+              /* Definitive result (available or not): the throttle
+                 window starts NOW, not when the check started. */
+              try{
+                if (kind === 'boot') localStorage.setItem('zp_upd_last', String(Date.now()));
+                else if (kind === 'fg') localStorage.setItem('zp_upd_fg_last', String(Date.now()));
+              }catch(e2){}
+              try{ if (typeof ST !== 'undefined') ST.updCheckPending = false; }catch(e2){}
+              /* (v1.0.20 P20-B4) The latest version is always recorded,
+                 even when nothing is newer — the UI can show it instead
+                 of a bare "up to date". */
+              try{ if (typeof ST !== 'undefined') ST.latestAppVersion = d.latestVersion || null; }catch(e2){}
+              if (d.updateAvailable){ saveAppUpdate({ version: d.version || '', versionCode: d.versionCode || 0, url: d.url || '', size: (typeof d.size === 'number' ? d.size : -1), sha256: d.sha256 || '', apkSha256: d.apkSha256 || '', changelog: d.changelog || '', at: Date.now() }); toast('নতুন আপডেট এসেছে — v' + (d.version || '')); }
+              else saveAppUpdate(null);
+            } else {
+              /* Failed check: throttle does NOT advance; retry on the
+                 next foreground return. Never report "up to date". */
+              try{ if (typeof ST !== 'undefined') ST.updCheckPending = true; }catch(e2){}
+            }
+          }).catch(function(){
+            try{ if (typeof ST !== 'undefined') ST.updCheckPending = true; }catch(e2){}
+          });
         }catch(e){}
       }
       /* (v1.0.4) Updater F1–F4: persistent update state + Home banner + install dialog. */
@@ -7375,12 +7423,20 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (bar) bar.hidden = !show;
           if (txt) txt.hidden = !show;
           if (!show) return;
-          if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+          /* (v1.0.20 P20-B6) Unknown total (pct < 0) is indeterminate:
+             the bar shows full-width activity and the text shows MB
+             downloaded — never "-1%", never "-0.0 MB". */
+          if (fill) fill.style.width = (pct < 0) ? '100%' : Math.max(0, Math.min(100, pct)) + '%';
           if (txt){
             var mb = function(b){ return (b / 1048576).toFixed(1) + ' MB'; };
-            txt.textContent = (typeof totalBytes === 'number' && totalBytes > 0)
-              ? 'ডাউনলোড হচ্ছে… ' + mb(downloadedBytes || 0) + ' / ' + mb(totalBytes) + ' (' + Math.round(pct) + '%)'
-              : 'ডাউনলোড হচ্ছে… ' + Math.round(pct) + '%';
+            if (typeof totalBytes === 'number' && totalBytes > 0 && pct >= 0)
+              txt.textContent = 'ডাউনলোড হচ্ছে… ' + mb(downloadedBytes || 0) + ' / ' + mb(totalBytes) + ' (' + Math.round(pct) + '%)';
+            else if (typeof downloadedBytes === 'number' && downloadedBytes >= 0)
+              txt.textContent = 'ডাউনলোড হচ্ছে… ' + mb(downloadedBytes);
+            else if (pct >= 0)
+              txt.textContent = 'ডাউনলোড হচ্ছে… ' + Math.round(pct) + '%';
+            else
+              txt.textContent = 'ডাউনলোড হচ্ছে…';
           }
         });
       }
@@ -7396,19 +7452,25 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (!u) u = loadStoredAppUpdate();
         if (!u || !u.url){ toast('আগে আপডেট দেখুন — Settings → আপডেট'); return; }
         setUpdProgress(0, 0, -1);
-        /* (v1.0.4) F3: 6-hour wait, not 30 s — a ~26 MB APK on a slow link must never false-timeout while still downloading. autoInstall:false so the in-app Install pop-up asks first. */
-        engineCall('appUpdateDownload', { url: u.url, autoInstall: false }, 6*60*60*1000).then(function(r){
+        /* (v1.0.4) F3: 6-hour wait, not 30 s — a ~75 MB ZIP on a slow link must never false-timeout while still downloading. autoInstall:false so the in-app Install pop-up asks first. (v1.0.20 P20-B3/B10) The stored record's size + hashes + versionCode travel with the download so native can verify before installing. */
+        engineCall('appUpdateDownload', { url: u.url, autoInstall: false, size: (typeof u.size === 'number' ? u.size : -1), sha256: u.sha256 || '', apkSha256: u.apkSha256 || '', versionCode: (typeof u.versionCode === 'number' ? u.versionCode : -1) }, 6*60*60*1000).then(function(r){
           if (r && r.started){ setUpdProgress(100, -1, -1); showUpdInstallDlg(u.version || ''); }
           else if (r && r.error === 'download_empty'){ setUpdProgress(null); toast('ডাউনলোড অসম্পূর্ণ হয়েছে — আবার চেষ্টা করুন'); }
           else if (r && r.error === 'install_permission'){ setUpdProgress(null); toast('ইনস্টল করার অনুমতি দিন — সেটিংস খুলেছে, অনুমতি দিয়ে আবার চেষ্টা করুন'); }
+          else if (r && r.error && String(r.error).indexOf('verification_failed:') === 0){ setUpdProgress(null); toast('আপডেট যাচাই হয়নি (' + r.error + ') — ফাইলটি মুছে ফেলা হয়েছে, আবার চেষ্টা করুন'); }
           else { setUpdProgress(null); toast('ডাউনলোড হয়নি — আবার চেষ্টা করুন'); }
         }).catch(function(e){ setUpdProgress(null); toast(engineErrText(e)); });
       }
       function startAppUpdateReinstall(){
-        /* (v1.0.4) F1: Reinstall = install the downloaded update. No downloaded APK yet → download it first. */
-        engineCall('appUpdateInstall', {}, 30000).then(function(r){
+        /* (v1.0.4) F1: Reinstall = install the downloaded update. No downloaded APK yet → download it first. (v1.0.20 P20-B10) The stored record's APK hash + versionCode travel with the install so native verifies the cached file before firing; a stale file re-downloads instead of installing. */
+        var u = null;
+        try{ if (typeof ST !== 'undefined' && ST.appUpdate) u = ST.appUpdate; }catch(e){}
+        if (!u) u = loadStoredAppUpdate();
+        engineCall('appUpdateInstall', { apkSha256: (u && u.apkSha256) || '', versionCode: (u && typeof u.versionCode === 'number' ? u.versionCode : -1) }, 30000).then(function(r){
           if (r && r.started){ toast('ইনস্টল হচ্ছে…'); }
           else if (r && r.error === 'no_apk'){ startAppUpdateDownload(); }
+          else if (r && r.error === 'stale_apk'){ startAppUpdateDownload(); }
+          else if (r && r.error && String(r.error).indexOf('verification_failed:') === 0){ toast('ডাউনলোড করা ফাইলটি যাচাই হয়নি (' + r.error + ') — আবার ডাউনলোড হচ্ছে'); startAppUpdateDownload(); }
           else if (r && r.error === 'install_permission'){ toast('ইনস্টল করার অনুমতি দিন — সেটিংস খুলেছে, অনুমতি দিয়ে আবার চেষ্টা করুন'); }
           else toast('ইনস্টল শুরু হয়নি — আবার চেষ্টা করুন');
         }).catch(function(e){ toast(engineErrText(e)); });
@@ -7423,15 +7485,14 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       scheduleUpdRecheck();
       var _zpBootPlugDone = false;
       function scheduleBootPluginCheck(){
-        /* (v1.0.4) F5: lightweight boot plugin check, once a day, 15 s AFTER the first home feed settles — the C-11 concern (manifest fetches racing the first feed) is avoided by the delay + cached manifests. */
+        /* (v1.0.4) F5: lightweight boot plugin check, once a day, 15 s AFTER the first home feed settles — the C-11 concern (manifest fetches racing the first feed) is avoided by the delay + cached manifests. (v1.0.20 P20-B7) The day-throttle is written INSIDE the 15 s callback, just before the check runs — killing the app inside 15 s no longer consumes the day. */
         if (_zpBootPlugDone) return; _zpBootPlugDone = true;
         try{
           if (!autoUpdateOn()) return;
           var last = parseInt(localStorage.getItem('zp_plug_boot_last') || '0', 10) || 0;
           if (Date.now() - last < 86400000) return;
-          localStorage.setItem('zp_plug_boot_last', String(Date.now()));
         }catch(e){ return; }
-        setTimeout(function(){ try{ runUpdateCheck(false); }catch(e){} }, 15000);
+        setTimeout(function(){ try{ localStorage.setItem('zp_plug_boot_last', String(Date.now())); }catch(e){} try{ runUpdateCheck(false); }catch(e){} }, 15000);
       }
       async function runUpdateCheck(manual){
         if (manual) ST.uround++;
@@ -8807,7 +8868,7 @@ function backupShort(fn){
   return head('আপডেট ও ব্যাকআপ', 'নতুন ভার্সন আর সবকিছু সেভ রাখা') +
     secT('অ্যাপের আপডেট') + card(
       rAct('checkUpdate', 'নতুন আপডেট আছে কিনা দেখুন', 'নতুন ভার্সন এলে এখান থেকে বসানো যাবে', IC.down, '#0891b2', '') +
-      rTog(inst, 'updNotify', 'আপডেট এলে জানানো', 'নতুন ভার্সন এলে হোমে ব্যানার আর এখানে কার্ড দেখাবে', IC.chat, '#2563eb')
+      rTog(inst, 'updNotify', 'আপডেট এলে জানানো', 'চালু থাকলে নতুন ভার্সন নিজে থেকে দেখা হবে, আর হোমে ব্যানার আর এখানে কার্ড দেখাবে — বন্ধ থাকলে শুধু উপরের বোতামে চাপ দিলেই দেখা হবে', IC.chat, '#2563eb')
     ) +
     updCardHtml() +
     secT('ব্যাকআপ') + card(
@@ -9436,12 +9497,16 @@ function doAct(inst, act, el){
          "আপনার অ্যাপ হালনাগাদ আছে ✓". */
       if (d && d.error === 'network_error'){ toast(inst, 'ইন্টারনেট সমস্যা — আবার চেষ্টা করুন'); return; }
       if (d && d.error === 'rate_limited'){ toast(inst, 'অনেকবার চেষ্টা হয়েছে — একটু পরে চেষ্টা করুন'); return; }
+      if (d && d.error === 'no_usable_asset'){ toast(inst, 'আপডেটের তথ্য পাওয়া যায়নি — আবার চেষ্টা করুন'); return; }
+      if (d && d.error){ toast(inst, 'আপডেট দেখা যায়নি (' + d.error + ') — আবার চেষ্টা করুন'); return; }
+      try{ if (typeof ST !== 'undefined') ST.latestAppVersion = d.latestVersion || null; }catch(e){}
       if (d && d.updateAvailable){
-        /* (v1.0.4) F1: store the update + show the card/banner — do NOT download yet. The user taps Update; the download then shows full progress and ends in the Install pop-up. */
-        if (typeof saveAppUpdate === 'function') saveAppUpdate({ version: d.version || '', url: d.url || '', changelog: d.changelog || '', at: Date.now() });
+        /* (v1.0.4) F1: store the update + show the card/banner — do NOT download yet. The user taps Update; the download then shows full progress and ends in the Install pop-up. (v1.0.20 P20-B3/B10) The record carries size + hashes + versionCode so the download/install can verify before installing. */
+        if (typeof saveAppUpdate === 'function') saveAppUpdate({ version: d.version || '', versionCode: d.versionCode || 0, url: d.url || '', size: (typeof d.size === 'number' ? d.size : -1), sha256: d.sha256 || '', apkSha256: d.apkSha256 || '', changelog: d.changelog || '', at: Date.now() });
         toast(inst, 'নতুন ভার্সন এসেছে — v' + (d.version || '') + ' — Update চাপুন');
         render(inst, true);
-      } else toast(inst, 'আপনার অ্যাপ হালনাগাদ আছে ✓');
+      } else if (d && d.latestVersion){ toast(inst, 'আপনার অ্যাপ হালনাগাদ আছে ✓ (সর্বশেষ v' + d.latestVersion + ')'); }
+      else toast(inst, 'আপনার অ্যাপ হালনাগাদ আছে ✓');
     }).catch(function(e){ toast(inst, engineErrText(e)); });
   } else if (act === 'updInstall'){ if (typeof startAppUpdateDownload === 'function') startAppUpdateDownload();
   } else if (act === 'updReinstall'){ if (typeof startAppUpdateReinstall === 'function') startAppUpdateReinstall();
