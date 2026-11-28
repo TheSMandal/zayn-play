@@ -12,6 +12,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.common.text.CueGroup
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
@@ -424,6 +425,17 @@ class ZaynPlayer(
     }
 
     private val listener = object : Player.Listener {
+        // (v1.0.18 P17-02) Subtitle cues: Media3 1.4.1 delivers cues to
+        // Player.Listener.onCues (CueGroup) — there is no addTextOutput /
+        // setTextOutput on ExoPlayer (0 occurrences in the shipped dex).
+        // Cues flow to the HTML subtitle overlay, styled from Settings.
+        override fun onCues(cueGroup: CueGroup) {
+            val text = cueGroup.cues.mapNotNull { it.text?.toString() }
+                .filter { it.isNotBlank() }
+                .joinToString("\n")
+            onEvent("subtitleCues", JSONObject().put("text", text))
+        }
+
         override fun onPlaybackStateChanged(state: Int) {
             lastPlaybackState = state
             val p = player ?: return
@@ -585,16 +597,14 @@ class ZaynPlayer(
         // ExoPlayer + TextureView had NO text output at all, so subtitle
         // cues were parsed and dropped — subtitles never displayed on the
         // default engine, and no CaptionStyle could ever apply (there is
-        // no SubtitleView to style). Cues now flow to the HTML subtitle
-        // overlay, which renders them styled from the Settings values
+        // no SubtitleView to style). Cues flow via Player.Listener.onCues
+        // (see the `listener` object below) to the HTML subtitle overlay,
+        // which renders them styled from the Settings values
         // (subColor/subStyle/subPosV/subPosH/subSize). The video path is
-        // untouched — this only adds cue delivery.
-        exo.setTextOutput { cues ->
-            val text = cues.mapNotNull { it.text?.toString() }
-                .filter { it.isNotBlank() }
-                .joinToString("\n")
-            onEvent("subtitleCues", org.json.JSONObject().put("text", text))
-        }
+        // untouched — this only adds cue delivery. NOTE: Media3 1.4.1 has
+        // NO addTextOutput/setTextOutput on ExoPlayer (verified: 0
+        // occurrences in the shipped dex; CI runs 46103232379 +
+        // 46103904561 failed on both names) — onCues is the API.
         lastPlaybackState = Player.STATE_IDLE
         player = exo
         transitionTo(SurfaceLifecycle.PLAYER_INITIALIZED, "ExoPlayer created")
