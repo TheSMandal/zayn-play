@@ -1,16 +1,21 @@
 package app.netlify.zaynplay.engine
 
 import android.content.Context
+import android.graphics.Matrix
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.TextureView
 import android.view.View
 import androidx.media3.common.C
+import kotlin.math.roundToInt
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.datasource.DataSource
@@ -25,6 +30,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.TrackSelectionOverride
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.drm.DrmSession.DrmSessionException
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -36,6 +42,7 @@ import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -99,10 +106,22 @@ class ZaynPlayer(
     @Volatile private var lastVolume = 1f
     @Volatile private var muted = false
     @Volatile private var preMuteVolume = 1f
+    // (v1.0.22 C ITEM 7) Live video size (from onVideoSizeChanged) + the
+    // aspect mode the page picked (default Fill, matching the page's
+    // curRatioIdx default). The TextureView transform is owned here, not
+    // by Media3's default: Fit preserves aspect, Fill crops to cover,
+    // 16:9/4:3 stretch the frame to the view (which the page already sized
+    // to that aspect), so the ratio change really changes the frame.
+    @Volatile private var lastVideoW = 0
+    @Volatile private var lastVideoH = 0
+    @Volatile private var aspectMode = "fill"
 
     private var currentLink: PlayLink? = null
     private var currentSubtitleText: String? = null
     private var currentSubtitleLang: String? = null
+    private var currentSubtitleUrl: String? = null
+    // (v1.0.22 B) Last KNOWN audio/subtitle inventory, cached from onTracksChanged (main thread) so the bridge thread can read it without touching the player. Null = no tracks reported for the current item yet.
+    @Volatile private var lastTracksJson: JSONObject? = null
     private var tickerRunning = false
 
     // (v1.0.12 §3) Surface-lifecycle state machine (prompt §3): the 9 states
@@ -436,6 +455,11 @@ class ZaynPlayer(
             onEvent("subtitleCues", JSONObject().put("text", text))
         }
 
+        // (v1.0.22 B) Track inventory: ExoPlayer reports the manifest's real audio/text tracks here. Cached (never invented) for the bridge's playerTracks reply.
+        override fun onTracksChanged(tracks: Tracks) {
+            lastTracksJson = tracksSnapshotFrom(tracks)
+        }
+
         override fun onPlaybackStateChanged(state: Int) {
             lastPlaybackState = state
             val p = player ?: return
@@ -489,6 +513,12 @@ class ZaynPlayer(
             )
             // (v1.0.12 §8 L6) Video Format Received.
             diag("L6", "Video Format Received")
+            // (v1.0.22 C ITEM 7) Remember the size for the aspect transform
+            // (Fit needs the video's own aspect) and re-apply it: a new
+            // video size is when Media3 re-asserts its own transform.
+            lastVideoW = videoSize.width
+            lastVideoH = videoSize.height
+            applyAspectTransform()
         }
 
         // (v1.0.9) Media3 reports the output-surface size here whenever the
@@ -514,6 +544,9 @@ class ZaynPlayer(
             }
             // (v1.0.12 §8 L11) Surface Updated — each settled size change.
             diag("L11", "Surface Updated")
+            // (v1.0.22 C ITEM 7) The view was resized (stage rect) — the
+            // aspect transform was computed against the old size.
+            applyAspectTransform()
         }
 
         override fun onRenderedFirstFrame() {
@@ -648,6 +681,81 @@ class ZaynPlayer(
         }
     }
 
+    // (v1.0.22 C ITEM 7) Aspect ratio on the live ExoPlayer frame.
+    fun setAspectRatio(mode: String): Boolean {
+        val m = mode.lowercase()
+        if (m != "fit" && m != "fill" && m != "169" && m != "43") {
+            EngineLogger.log("player", "setAspectRatio rejected unknown mode=$mode")
+            return false
+        }
+        aspectMode = m
+        EngineLogger.log("player", "aspect mode=$m video=${lastVideoW}x${lastVideoH}")
+        applyAspectTransform()
+        return true
+    }
+
+    // (v1.0.22 C ITEM 7) Own the TextureView transform for the current
+    // aspect mode. Media3 also writes a transform on video-size changes
+    // (its default is aspect-preserving fit), so this posts the write:
+    // the posted runnable runs after the in-flight listener dispatch and
+    // reads the CURRENT view/video sizes, so ours is the transform that
+    // stays. Fit = preserve aspect inside the view; Fill = scale to cover
+    // (crop); 16:9/4:3 = stretch to the view, which the page already
+    // sized to that aspect.
+    private fun applyAspectTransform() {
+        mainHandler.post {
+            val tv = textureView ?: return@post
+            val vw = tv.width.toFloat()
+            val vh = tv.height.toFloat()
+            val cw = lastVideoW.toFloat()
+            val ch = lastVideoH.toFloat()
+            if (vw <= 0f || vh <= 0f || cw <= 0f || ch <= 0f) return@post
+            val matrix = Matrix()
+            when (aspectMode) {
+                "fill" -> {
+                    val s = maxOf(vw / cw, vh / ch)
+                    matrix.setScale(s, s, vw / 2f, vh / 2f)
+                }
+                "169", "43" -> matrix.setScale(vw / cw, vh / ch, vw / 2f, vh / 2f)
+                else -> {
+                    val s = minOf(vw / cw, vh / ch)
+                    matrix.setScale(s, s, vw / 2f, vh / 2f)
+                }
+            }
+            tv.setTransform(matrix)
+        }
+    }
+
+    // (v1.0.22 C ITEM 8) The in-player volume IS the system volume:
+    // AudioManager STREAM_MUSIC is the source of truth. ExoPlayer's own
+    // volume stays at full gain (1.0) — it used to be the only volume,
+    // so a system volume of 0 left the slider moving with no sound.
+    // Returns the fraction actually set (steps are integers).
+    private fun applySystemVolume(frac: Float): Float {
+        val am = try {
+            context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        } catch (e: Exception) {
+            null
+        } ?: return frac.coerceIn(0f, 1f)
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val step = (frac.coerceIn(0f, 1f) * max).roundToInt().coerceIn(0, max)
+        try {
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, step, 0)
+        } catch (e: Exception) {
+            EngineLogger.log("player", "setStreamVolume failed ${e.javaClass.simpleName}: ${e.message}")
+        }
+        return step.toFloat() / max
+    }
+
+    // (v1.0.22 C ITEM 8) The system volume moved outside the player
+    // (hardware buttons / system UI, via MainActivity's observer): keep
+    // the snapshot truthful so playerState reports the real volume.
+    // The player gain itself stays 1.0 — the system governs loudness.
+    fun onSystemVolumeChanged(frac: Float) {
+        lastVolume = frac.coerceIn(0f, 1f)
+        muted = lastVolume <= 0f
+    }
+
     /** (v1.0.9) The size ExoPlayerImpl tracks for the output surface —
      *  the proof line: positive (e.g. 2392x1080) means the sink was told
      *  its output size; -1x-1 means it never was. */
@@ -770,6 +878,8 @@ class ZaynPlayer(
             currentLink = link
             currentSubtitleText = subtitleText
             currentSubtitleLang = subtitleLang
+            currentSubtitleUrl = subtitleUrl
+            lastTracksJson = null
             currentSubtitleStyle = subtitleStyle
             // A new title must not keep the previous title's subtitle
             // line on screen while its cues load.
@@ -832,6 +942,12 @@ class ZaynPlayer(
             p.setMediaSource(
                 DefaultMediaSourceFactory(dataFactory).createMediaSource(item),
             )
+            // (v1.0.22 B) A new play starts from a clean slate: a track override or subtitle-Off from the previous title must not leak into this one (overrides are per-player, not per-item; buildUpon keeps Worker A's maxVideoSize cap).
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                .clearOverrideForType(C.TRACK_TYPE_AUDIO)
+                .clearOverrideForType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .build()
             // (v1.0.4) NO-SWITCH rule: pin ExoPlayer's audio-track selector
             // to the picked link's language, so a multi-audio manifest
             // cannot silently switch to another language (e.g. Tamil)
@@ -839,6 +955,21 @@ class ZaynPlayer(
             if (preferredAudioLang != null) {
                 p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
                     .setPreferredAudioLanguage(preferredAudioLang)
+                    .build()
+            }
+            // (v1.0.22 ITEM 6) Pin adaptive track selection to the picked
+            // link's own resolution: an HLS/DASH manifest must not drift
+            // above the resolution the user chose (or the auto-picked
+            // server's). Height comes from the link's qualityLabel
+            // ("1080p" -> 1080, "4K" -> 2160, "2K" -> 1440); unknown ("")
+            // leaves the selector untouched. Single-track (progressive)
+            // sources are unaffected — the cap only binds multi-variant
+            // manifests. Re-set on every play, so it always follows the
+            // current link.
+            val capH = resolutionHeightFor(link.qualityLabel)
+            if (capH > 0) {
+                p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                    .setMaxVideoSize(Int.MAX_VALUE, capH)
                     .build()
             }
             // (v1.0.9) Belt-and-braces: make the framework create the
@@ -891,6 +1022,12 @@ class ZaynPlayer(
             return
         }
         p.prepare()
+        // (v1.0.22 ITEM 5) Re-apply the saved speed on every fresh
+        // prepare: a new media source / rebuilt player starts at 1x,
+        // so a server/audio/resolution re-play silently dropped the
+        // user's chosen rate while the Speed label still showed it.
+        // lastRate is 1f by default, so this is a no-op at normal speed.
+        p.setPlaybackSpeed(lastRate)
         transitionTo(SurfaceLifecycle.PREPARED, "prepare()")
         diag("L5", "Player Prepared")
         if (startAtMs > 0) p.seekTo(startAtMs)
@@ -988,13 +1125,172 @@ class ZaynPlayer(
         }
     }
 
+    /** (v1.0.22 B) Audio/subtitle inventories + in-play track selection. */
+    private fun tracksSnapshotFrom(tracks: Tracks): JSONObject {
+        val audio = JSONArray()
+        val subs = JSONArray()
+        for (g in 0 until tracks.groups.size) {
+            val group = tracks.groups[g]
+            val isAudio = group.type == C.TRACK_TYPE_AUDIO
+            val isText = group.type == C.TRACK_TYPE_TEXT
+            if (!isAudio && !isText) continue
+            for (t in 0 until group.length) {
+                val f = group.getFormat(t)
+                val entry = JSONObject()
+                    .put("id", (if (isAudio) "a" else "s") + ":$g:$t")
+                    .put("lang", f.language ?: JSONObject.NULL)
+                    .put("label", f.label ?: JSONObject.NULL)
+                    .put("selected", group.isTrackSelected(t))
+                if (isAudio) audio.put(entry) else subs.put(entry)
+            }
+        }
+        return JSONObject().put("ready", true).put("audio", audio).put("subtitles", subs)
+    }
+
+    fun tracksSnapshot(): JSONObject =
+        lastTracksJson ?: JSONObject().put("ready", false).put("audio", JSONArray()).put("subtitles", JSONArray())
+
+    /** Tri-state inventory check: true = a matching track is known; false = the known inventory contradicts the pick; null = no inventory yet (accept; the JS confirm loop arbitrates). */
+    private fun trackKnown(trackId: String?, lang: String?, audio: Boolean): Boolean? {
+        val snap = lastTracksJson ?: return null
+        val arr = snap.optJSONArray(if (audio) "audio" else "subtitles") ?: return null
+        for (i in 0 until arr.length()) {
+            val e = arr.optJSONObject(i) ?: continue
+            if (!trackId.isNullOrBlank() && e.optString("id") == trackId) return true
+            if (trackId.isNullOrBlank() && !lang.isNullOrBlank() && e.optString("lang") == lang) return true
+        }
+        return false
+    }
+
+    fun setAudioTrack(trackId: String?, lang: String?): Boolean {
+        if (trackKnown(trackId, lang, true) == false) {
+            EngineLogger.log("player", "exo: audio track not in inventory trackId=$trackId lang=$lang")
+            return false
+        }
+        val wantId = trackId?.takeIf { it.isNotBlank() }
+        val wantLang = lang?.takeIf { it.isNotBlank() }
+        mainHandler.post {
+            val p = player ?: return@post
+            val tracks = p.currentTracks
+            var foundGroup: Tracks.Group? = null
+            var foundG = -1
+            var foundT = -1
+            for (g in 0 until tracks.groups.size) {
+                val group = tracks.groups[g]
+                if (group.type != C.TRACK_TYPE_AUDIO) continue
+                for (t in 0 until group.length) {
+                    val f = group.getFormat(t)
+                    if ((wantId != null && "a:$g:$t" == wantId) || (wantId == null && wantLang != null && f.language == wantLang)) {
+                        foundGroup = group; foundG = g; foundT = t; break
+                    }
+                }
+                if (foundGroup != null) break
+            }
+            if (foundGroup == null) {
+                EngineLogger.log("player", "exo: audio track not found at apply time trackId=$trackId lang=$lang")
+                return@post
+            }
+            val fmt = foundGroup.getFormat(foundT)
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                .setOverrideForType(TrackSelectionOverride(foundGroup, listOf(foundT)))
+                .setPreferredAudioLanguage(fmt.language)
+                .build()
+            lastAudio = fmt.language
+            EngineLogger.log("player", "exo: audio track set id=a:$foundG:$foundT lang=${fmt.language}")
+        }
+        return true
+    }
+
+    fun setSubtitleTrack(trackId: String?, lang: String?): Boolean {
+        if (trackKnown(trackId, lang, false) == false) {
+            EngineLogger.log("player", "exo: subtitle track not in inventory trackId=$trackId lang=$lang")
+            return false
+        }
+        val wantId = trackId?.takeIf { it.isNotBlank() }
+        val wantLang = lang?.takeIf { it.isNotBlank() }
+        mainHandler.post {
+            val p = player ?: return@post
+            val tracks = p.currentTracks
+            var foundGroup: Tracks.Group? = null
+            var foundG = -1
+            var foundT = -1
+            for (g in 0 until tracks.groups.size) {
+                val group = tracks.groups[g]
+                if (group.type != C.TRACK_TYPE_TEXT) continue
+                for (t in 0 until group.length) {
+                    val f = group.getFormat(t)
+                    if ((wantId != null && "s:$g:$t" == wantId) || (wantId == null && wantLang != null && f.language == wantLang)) {
+                        foundGroup = group; foundG = g; foundT = t; break
+                    }
+                }
+                if (foundGroup != null) break
+            }
+            if (foundGroup == null) {
+                EngineLogger.log("player", "exo: subtitle track not found at apply time trackId=$trackId lang=$lang")
+                return@post
+            }
+            val fmt = foundGroup.getFormat(foundT)
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setOverrideForType(TrackSelectionOverride(foundGroup, listOf(foundT)))
+                .setPreferredTextLanguage(fmt.language)
+                .build()
+            currentSubtitleLang = fmt.language
+            EngineLogger.log("player", "exo: subtitle track set id=s:$foundG:$foundT lang=${fmt.language}")
+        }
+        return true
+    }
+
+    /** (v1.0.22 B) Attach a provider subtitle URL to the current item, keeping position (mirror of setSubtitleText). */
+    fun setSubtitleUrl(url: String?, lang: String?) {
+        mainHandler.post {
+            val p = player ?: return@post
+            val link = currentLink ?: return@post
+            currentSubtitleText = null
+            currentSubtitleUrl = url
+            currentSubtitleLang = lang
+            val pos = p.currentPosition
+            val wasPlaying = p.isPlaying
+            val item = buildMediaItem(link, mimeOf(link), null, lang, url)
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
+            p.setMediaItem(item)
+            p.seekTo(pos)
+            p.prepare()
+            if (wasPlaying) p.play()
+        }
+    }
+
+    /** (v1.0.22 B) Off: clear any attached external subtitle AND disable the manifest's embedded text tracks, so nothing can re-appear. */
+    fun setSubtitleOff() {
+        mainHandler.post {
+            val p = player ?: return@post
+            val hadExternal = currentSubtitleText != null || currentSubtitleUrl != null
+            currentSubtitleText = null
+            currentSubtitleUrl = null
+            currentSubtitleLang = null
+            onEvent("subtitleCues", JSONObject().put("text", ""))
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            if (hadExternal) {
+                val link = currentLink ?: return@post
+                val pos = p.currentPosition
+                val wasPlaying = p.isPlaying
+                p.setMediaItem(buildMediaItem(link, mimeOf(link), null, null, null))
+                p.seekTo(pos)
+                p.prepare()
+                if (wasPlaying) p.play()
+            }
+        }
+    }
+
     /** Attach downloaded subtitle text to the current item, keeping position. */
     fun setSubtitleText(text: String?, lang: String?) {
         mainHandler.post {
             val p = player ?: return@post
             val link = currentLink ?: return@post
             currentSubtitleText = text
+            currentSubtitleUrl = null
             currentSubtitleLang = lang
+            p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
             val pos = p.currentPosition
             val wasPlaying = p.isPlaying
             val item = buildMediaItem(link, mimeOf(link), text, lang, null)
@@ -1005,6 +1301,13 @@ class ZaynPlayer(
             p.prepare()
             if (wasPlaying) p.play()
         }
+    }
+
+    /** (v1.0.22 ITEM 6) Height in pixels for a qualityLabel, 0 when unknown. */
+    private fun resolutionHeightFor(label: String): Int = when (label) {
+        "4K" -> 2160
+        "2K" -> 1440
+        else -> label.removeSuffix("p").toIntOrNull() ?: 0
     }
 
     private fun mimeOf(link: PlayLink): String? = when (link.type) {
@@ -1062,9 +1365,9 @@ class ZaynPlayer(
                 }
                 "volume" -> {
                     val v = (value ?: 1.0).toFloat().coerceIn(0f, 1f)
-                    lastVolume = v
-                    muted = v <= 0f
-                    p?.volume = v
+                    lastVolume = applySystemVolume(v)
+                    muted = lastVolume <= 0f
+                    p?.volume = 1f
                 }
                 "mute" -> {
                     // value >= 1 mutes, value 0 unmutes; null toggles (old behaviour).
@@ -1075,10 +1378,12 @@ class ZaynPlayer(
                     if (wantMute) {
                         if (!muted) preMuteVolume = lastVolume
                         muted = true
-                        p?.volume = 0f
+                        lastVolume = applySystemVolume(0f)
+                        p?.volume = 1f
                     } else {
                         muted = false
-                        p?.volume = preMuteVolume
+                        lastVolume = applySystemVolume(preMuteVolume)
+                        p?.volume = 1f
                     }
                 }
             }
@@ -1109,6 +1414,8 @@ class ZaynPlayer(
         .put("bufferedSec", (lastBufferedMs / 1000).toInt())
         .put("rate", lastRate.toDouble())
         .put("volume", lastVolume.toDouble())
+        .put("videoW", lastVideoW)
+        .put("videoH", lastVideoH)
         .put("muted", muted)
         .put("qualityLabel", lastQuality)
         .put("source", lastSource)
@@ -1140,9 +1447,9 @@ class ZaynPlayer(
             pendingVolume?.let { v ->
                 pendingVolume = null
                 volumeOnly = pendingSeekSec == null
-                lastVolume = v
-                muted = v <= 0f
-                p?.volume = v
+                lastVolume = applySystemVolume(v)
+                muted = lastVolume <= 0f
+                p?.volume = 1f
             }
             pendingSeekSec?.let { sec ->
                 pendingSeekSec = null
