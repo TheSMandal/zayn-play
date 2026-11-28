@@ -20,7 +20,17 @@
       @media (prefers-color-scheme: dark){
         :root{ --bg:#07080b; --panel:#10131a; --ink:#eef1f6; --ink-2:#a7b0bf; --line:#232936; }
       }
-      *{ box-sizing:border-box; }
+      /* (v1.0.25 E) Long-press text selection OFF everywhere: default WebView
+         long-press selects text and opens the Copy/Select-all ActionMode.
+         This global rule is the primary layer; the native backstop in
+         MainActivity (setOnLongClickListener + onActionModeStarted) is
+         defence in depth. It does NOT touch pointer events, so the
+         timer-based holds (provider pin 550ms, volume hold 500ms, hold-2x
+         350ms) and the long-press menus (CW / content cards) keep firing. */
+      *{ box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+      /* (v1.0.25 E) Carve-out: text fields keep selection so typing, caret
+         placement and paste keep working. */
+      input, textarea, select, [contenteditable]{ -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }
       html,body{ margin:0; padding:0; }
       body{
         background:
@@ -1034,6 +1044,9 @@ body.native-video #phone{ background:transparent; }
       }
       .glass-sheet::-webkit-scrollbar{ display:none; }
       .glass-sheet.open{ display:block; }
+      /* (v1.0.25 G) Long-press menu rows reuse .gs-row; only the danger colour + title truncation are new. */
+      #lp-menu-sheet .lp-opt.danger{ color:#ff9d9d; }
+      #lp-menu-sheet .gs-head b{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .gs-head{ display:flex; align-items:center; justify-content:space-between; padding:2px 8px 6px; }
       .gs-head b{ font-size:14.5px; font-family:"Sora",sans-serif; }
       .gs-x{
@@ -1996,7 +2009,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.24</p>
+                  <p class="splash-ver">Zayn Play v1.0.25</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2386,7 +2399,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   </div>
                   <div class="quality-menu" id="ratio-menu" role="menu" aria-label="Aspect ratio">
                     <button data-set="ratio" data-val="Fit" data-short="Fit"><span>Fit</span><small>Whole video</small></button>
-                    <button data-set="ratio" data-val="Fill" data-short="Fill" class="on"><span>Fill</span><small>Fill screen</small></button>
+                    <button data-set="ratio" data-val="Fill" data-short="Fill" class="on"><span>Fill</span><small>Stretch to fill</small></button>
+                    <button data-set="ratio" data-val="Zoom" data-short="Zoom"><span>Zoom</span><small>Crop to fill</small></button>
                     <button data-set="ratio" data-val="16:9" data-short="16:9"><span>16:9</span><small>Widescreen</small></button>
                     <button data-set="ratio" data-val="4:3" data-short="4:3"><span>4:3</span><small>Classic</small></button>
                   </div>
@@ -2514,6 +2528,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                 <h4 id="zp-eppick-title">Choose episode to download</h4>
                 <div class="zp-list" id="zp-eppick-list"></div>
                 <div class="zp-row"><button id="zp-eppick-cancel">Cancel</button></div>
+              </div>
+              <!-- (v1.0.25 G) Long-press menu for content cards (CW + general): same glass-sheet component as the Source sheet (#srv-sheet). Phone-level so it opens from any screen. -->
+              <div class="glass-sheet" id="lp-menu-sheet" role="dialog" aria-label="Options">
+                <div class="gs-head"><b id="lp-menu-title">Options</b><button class="gs-x" id="lp-menu-close" aria-label="Close options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+                <div id="lp-menu-list"></div>
               </div>
       </div>
     </div>
@@ -4486,7 +4505,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           more.style.display = 'none';
         }
       }
-      function openPlayer(title, startAt, id){
+      function openPlayer(title, startAt, id, forceManual){
         /* (v1.0.12 §7) Duplicate-play guard: a second open for the SAME title
            while its play is still in flight (double-tap on Play) is ignored
            — the in-flight play owns the player. A different title proceeds
@@ -4510,7 +4529,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
            called from playFromServer / the Manual branch below). */
         showSrvLoadScreen(title, id);
         populatePlayer(title, id);
-        startStream(title, id);
+        startStream(title, id, forceManual);
       }
 
       var playing = true;
@@ -5565,7 +5584,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         var _t = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null;
         engineCall('progressSet', { title: title, posSec: finished ? Math.round(dur) : (keep ? Math.round(pos) : 0), durSec: (isFinite(dur) && dur > 0) ? Math.round(dur) : 0, url: (_t && _t.url) || '', providerName: (_t && _t.prov) || '', poster: (_t && _t.poster) || '', ep: curEpKey || '', syn: (_t && _t.syn) || '' }).catch(function(){});
       }
-      function clearProgress(title, id){ if (!title) return; delete PROGRESS[progKey(title, id)]; delete PROGRESS[progKeyEp(title, id)]; var _t2 = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null; engineCall('progressSet', { title: title, posSec: 0, durSec: 0, url: (_t2 && _t2.url) || '', providerName: (_t2 && _t2.prov) || '', ep: curEpKey || '' }).catch(function(){}); }
+      /* (v1.0.25 G) Ep-aware clear + awaitable: ep defaults to curEpKey (play-time behaviour, unchanged) but CW-menu callers pass the item's own episode — never the global key from Home. Returns the bridge promise so Start-from-beginning can await the native delete before playing. Also drops the content-keyed in-memory entry, not just the session key. */
+      function clearProgress(title, id, ep){ if (!title) return Promise.resolve(); var _ep = (typeof ep === 'string') ? ep : (curEpKey || ''); delete PROGRESS[progKey(title, id)]; delete PROGRESS[progKeyEp(title, id, _ep)]; var _ck = contentKeyFor(title, id, _ep); if (_ck) delete PROGRESS[_ck]; var _t2 = (typeof titleEntryFor === 'function') ? titleEntryFor(title, id) : null; return engineCall('progressSet', { title: title, posSec: 0, durSec: 0, url: (_t2 && _t2.url) || '', providerName: (_t2 && _t2.prov) || '', ep: _ep }).catch(function(){}); }
       function resumePos(title, id, ep){
         /* (v1.0.18 P17-05) The resume setting is authoritative on the JS
            path too: with resume OFF, no saved position is ever returned,
@@ -5849,6 +5869,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 
       /* global click delegation */
       document.addEventListener('click', function(e){
+        /* (v1.0.25 G) A long-press fires a synthetic click on release — swallow it so the card's tap action does not also run under the menu. Same consume-once pattern as provLP. */
+        if (typeof lpSuppressClick !== 'undefined' && lpSuppressClick){ lpSuppressClick = false; return; }
         var sp = e.target.closest('[data-splash]');
         if (sp){ playSplash(); return; }
         var srp = e.target.closest('[data-setup-replay]');
@@ -6109,27 +6131,32 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       var qualityBtnEl = document.getElementById('quality-btn');
       if (qualityBtnEl) qualityBtnEl.addEventListener('click', function(){ openResolutionPopup(); });
       /* Aspect ratio: tap the Aspect button to cycle directly — Fit → Fill →
-         16:9 → 4:3 → Fit … No menu opens for aspect ratio (tap only the
-         aspect control and it changes at once). */
+         Zoom → 16:9 → 4:3 → Fit … No menu opens for aspect ratio (tap only
+         the aspect control and it changes at once). */
       var RATIO_OPTS = [
         { ratio:'fit', val:'Fit', short:'Fit' },
         { ratio:'fill', val:'Fill', short:'Fill' },
+        { ratio:'zoom', val:'Zoom', short:'Zoom' },
         { ratio:'169', val:'16:9', short:'16:9' },
         { ratio:'43', val:'4:3', short:'4:3' }
       ];
       var curRatioIdx = 1; /* default Fill — matches the pill label + no stage class */
       /* (v1.0.22 C ITEM 7) Live video size, from playerState (videoW/videoH):
          the Fit frame needs the video's own aspect; unknown (0) falls back
-         to 16:9. Written by onEnginePlayerState. */
+         to 16:9. Written by onEnginePlayerState.
+         (v1.0.25 D) Cleared to 0 on every new play (playFromServer) so a
+         stale aspect never frames the next video. */
       var curVideoW = 0, curVideoH = 0;
       /* Frame of the video inside the stage (CSS px, relative to the stage's
-         top-left) for the current ratio mode: Fill is the whole stage; Fit
-         is the video's own aspect; 16:9 / 4:3 force that aspect. The native
+         top-left) for the current ratio mode: Fill / Zoom are the whole
+         stage (Zoom's crop is the native cover transform, not a smaller
+         frame); Fit is the video's own aspect; 16:9 / 4:3 force that aspect.
+         (v1.0.25 D) The native
          TextureView is sized to this rect by reportStageRect, so the ratio
          change really changes the video frame — not just the poster img. */
       function ratioFrameRect(sw, sh){
         var mode = (typeof RATIO_OPTS !== 'undefined' && RATIO_OPTS[curRatioIdx]) ? RATIO_OPTS[curRatioIdx].ratio : 'fill';
-        if (mode === 'fill' || sw <= 0 || sh <= 0) return { x: 0, y: 0, w: sw, h: sh };
+        if (mode === 'fill' || mode === 'zoom' || sw <= 0 || sh <= 0) return { x: 0, y: 0, w: sw, h: sh };
         var ar = 16 / 9;
         if (mode === 'fit') ar = (curVideoW > 0 && curVideoH > 0) ? (curVideoW / curVideoH) : 16 / 9;
         else if (mode === '169') ar = 16 / 9;
@@ -6141,6 +6168,10 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       function applyRatioOpt(opt, silent){
         var stg = document.querySelector('#scr-player .stage-video');
+        /* (v1.0.25 D) No 'r-zoom' class: Zoom's poster is object-fit:cover,
+           which the base .stage-video img rule already sets (same as Fill,
+           which also adds no class) — a r-zoom rule would be a dead
+           duplicate. The real Zoom crop is the native TextureView matrix. */
         stg.classList.remove('r-fit'); stg.classList.remove('r-169'); stg.classList.remove('r-43');
         if (opt.ratio === 'fit') stg.classList.add('r-fit');
         else if (opt.ratio === '169') stg.classList.add('r-169');
@@ -6157,8 +6188,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         try { if (typeof reportStageRect === 'function') reportStageRect(); } catch (e) {}
       }
       /* (v1.0.24 B ITEM 2) Aspect ratio is a DIRECT CYCLE — tap the Aspect
-         button and the ratio changes at once, no pop-up: Fill → 16:9 → 4:3
-         → Fit → Fill … (RATIO_OPTS order, the same order #ratio-menu
+         button and the ratio changes at once, no pop-up: Fit → Fill → Zoom
+         → 16:9 → 4:3 → Fit … (RATIO_OPTS order, the same order #ratio-menu
          listed). ratio-btn is wired here, NOT in the subs/audio button
          loop above, so neither #ratio-menu nor the shared #playerPopup
          can open from it. applyRatioOpt does the real work (stage class
@@ -7656,6 +7687,12 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (playFromServer._inFlight && playFromServer._inFlightTitle === curTitle && playFromServer._inFlightIdx === idx && !force) return;
         var _playToken = (playFromServer._token = (playFromServer._token || 0) + 1);
         playFromServer._inFlight = true; playFromServer._inFlightTitle = curTitle; playFromServer._inFlightIdx = idx;
+        /* (v1.0.25 D) New play / server switch: drop the previous video's
+           size at once — ratioFrameRect (and the per-play ratio re-assert
+           below) must never frame the new video at the old aspect. The real
+           size returns via onEnginePlayerState (videoW/videoH); until then
+           Fit falls back to 16:9 by design, never to a stale aspect. */
+        if (typeof curVideoW !== 'undefined'){ curVideoW = 0; curVideoH = 0; }
         var t = curTitleEntry();
         var params = playParamsFor(curTitle, t);
         if (idx >= 0){
@@ -7727,7 +7764,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         } catch (e) { hideServerLoading(); hideSrvLoadScreen(); toast(engineErrText(e)); }
         if (playFromServer._token === _playToken) playFromServer._inFlight = false;
       }
-      async function startStream(title, id){
+      async function startStream(title, id, forceManual){
         var _gen = (typeof srvLoadGen === 'number') ? srvLoadGen : -1; /* (v1.0.21 ITEM 4) the load generation this start belongs to: cancelSrvLoad bumps srvLoadGen, so the guards below can tell an abandoned load from a live one. typeof guard: partial-extraction harnesses eval startStream without the top-level var — the guards are inert there and the load proceeds as before. */
         curTitle = title;
         curServers = [];
@@ -7744,7 +7781,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
             if (d0 && d0.launched){ hideSrvLoadScreen(); toast(PB.extApp + ' দিয়ে খুলছে'); return; }
           } catch (e) { if (typeof srvLoadGen === 'number' && _gen !== srvLoadGen) return; toast(engineErrText(e)); /* fall through to the internal player */ }
         }
-        if (PB.mode === 'manual'){
+        if (PB.mode === 'manual' || forceManual === true){ /* (v1.0.25 G) one-shot manual play from the long-press menu */
           /* (v1.0.4) Manual: the loading animation stays up while the
              links load; then the FULL server list is shown in front of
              him and he picks — never auto-play. */
@@ -8927,6 +8964,231 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       }
       provLongPress(document.getElementById('prov-row'), '[data-provider]');
       provLongPress(document.getElementById('pk-list'), '[data-pick]');
+      /* (v1.0.25 G) Long-press menus for content cards — CW + general.
+         Samim (2026-11-28 ~17:19-17:21): long-pressing a Continue Watching
+         item (and any content card) must open options, and every option
+         must work. Standing caution (2026-11-28 ~17:25): "Guliye felona
+         ebong agekar structure noshto korona. Eta kheyal rakhbe." — don't
+         mix things up and don't ruin the earlier structure. So: pointerdown
+         TIMER only (550ms, the provLongPress timing), never a context-menu
+         event (the selection-disable item suppresses it) and never a
+         preventDefault on pointerdown (that would kill the pin/volume/2x
+         holds). CSS user-select:none cannot block touch, so the menu and
+         the selection fix coexist. Card taps, navigation, the player, the
+         Library and the existing holds are untouched: this block only adds
+         the menu + one click-suppression flag, and reuses openDetails /
+         openPlayer / startStream / clearProgress / librarySet / zpConfirm.
+         Scope (Samim 2026-11-28 ~17:33): "Ekhane ami content bolte giyechi.
+         Jekono content click korle orokom bhabe option gulo asbe." — ANY
+         content card, everywhere. The handler is delegated on document for
+         every .card, so it covers all 12 card render sites (fillRail home
+         rails / BYW / recommendations, fillGrid + appendGrid See All,
+         renderDetailsBody, populatePlayer More Like This, the four search
+         grids, buildLibrary, buildHistory, buildCW) — Library included.
+         Trigger stays LONG-PRESS ("tipe dhorle"); his word "click" here is
+         his loose word for pressing a card, NOT a tap trigger. */
+      var lpSuppressClick = false; /* (v1.0.25 G) Set when a long-press fires; the global click delegation consumes it once (see H3) so the synthetic click after the hold does not also run the card's tap action. A 1s timeout clears it as a backstop so a missing synthetic click can never swallow a later real tap. */
+      var lpTimer = null, lpStartX = 0, lpStartY = 0, lpPointerId = null;
+      var lpMenuItem = null; /* (v1.0.25 G) { ctx:'cw'|'gen', key, title, base, ep } — set by openLpMenu, cleared by closeLpMenu. */
+      function lpClearTimer(){ if (lpTimer != null){ clearTimeout(lpTimer); lpTimer = null; } }
+      function lpMenuItems(ctx, key){
+        if (ctx === 'cw') return [
+          { id: 'details', label: 'Go to details' },
+          { id: 'manual', label: 'Play manually' },
+          { id: 'beginning', label: 'Start from beginning' },
+          { id: 'watched', label: 'Mark as watched' },
+          { id: 'remove', label: 'Remove', danger: true }
+        ];
+        var inLib = !!(typeof LIB_IDS !== 'undefined' && key && LIB_IDS[key]);
+        return [
+          { id: 'details', label: 'Go to details' },
+          { id: 'play', label: 'Play' },
+          { id: 'manual', label: 'Play manually' },
+          { id: 'library', label: inLib ? 'Remove from library' : 'Add to library' },
+          { id: 'watched', label: 'Mark as watched' }
+        ];
+      }
+      function openLpMenu(ctx, item){
+        lpMenuItem = item;
+        var sheet = document.getElementById('lp-menu-sheet');
+        var list = document.getElementById('lp-menu-list');
+        var titleEl = document.getElementById('lp-menu-title');
+        if (!sheet || !list) return;
+        if (titleEl) titleEl.textContent = item.title || 'Options';
+        list.innerHTML = lpMenuItems(ctx, item.key).map(function(o){
+          return '<button class="gs-row lp-opt' + (o.danger ? ' danger' : '') + '" data-lp-opt="' + o.id + '"><span>' + o.label + '</span></button>';
+        }).join('');
+        sheet.classList.add('open');
+      }
+      function closeLpMenu(){
+        var sheet = document.getElementById('lp-menu-sheet');
+        if (sheet) sheet.classList.remove('open');
+        lpMenuItem = null;
+      }
+      /* (v1.0.25 G) Delete EVERY native progress row for one CW item — the bare base row plus every '#ep:<n>' row — via the native clearProgress route (edit_1_0_25_G.py). Deleting by the item's own base/ep, never by the global curEpKey: that is what keeps a series row from resurrecting the entry on the next buildCW()/restart. The Library is deliberately UNTOUCHED (coordinator decision): a title in Plan to Watch / Watching stays there. No rebuild here — callers rebuild. */
+      async function deleteCWProgressRows(item){
+        var prog = {};
+        try { prog = await engineCall('progressAll', {}) || {}; } catch (e) { prog = {}; }
+        var base = item.base || '';
+        var eps = [];
+        var ident = {}; /* ep -> { url, providerName } from the stored rows themselves */
+        Object.keys(prog).forEach(function(k){
+          var ep = null;
+          if (base && k === base) ep = '';
+          else if (base && k.indexOf(base + '#ep:') === 0) ep = k.slice((base + '#ep:').length);
+          if (ep === null) return;
+          eps.push(ep);
+          var _p = prog[k] || {};
+          ident[ep] = { url: _p.url || '', providerName: _p.providerName || '' };
+        });
+        if (!eps.length) eps = [item.ep || ''];
+        for (var i = 0; i < eps.length; i++){
+          var _id = ident[eps[i]] || {};
+          var _t = TITLES[item.key] || null;
+          try { await engineCall('clearProgress', { title: item.title, url: _id.url || (_t && _t.url) || '', providerName: _id.providerName || (_t && _t.prov) || '', ep: eps[i] }); } catch (e) {}
+        }
+        /* In-memory cache: drop the session keys too, so resumePos cannot return a stale position before the next buildCW. */
+        var _k = item.key || '';
+        if (_k){
+          delete PROGRESS[_k]; delete PROGRESS['lib:' + _k];
+          eps.forEach(function(e2){
+            delete PROGRESS[_k + '#ep:' + e2];
+            var _ck2 = null; try { _ck2 = contentKeyFor(item.title, _k, e2); } catch (e3) {}
+            if (_ck2) delete PROGRESS[_ck2];
+          });
+        }
+      }
+      /* (v1.0.25 G) Mark as watched for a CW item: Library -> Completed (librarySet creates the entry when play never added it) + a completed progress marker per unfinished row, so CW hides it while Watch History keeps it (trace §3.4). Without a known duration no marker can be written (a fabricated duration is forbidden), so the rows are deleted instead — CW still hides it, History loses it. */
+      async function markWatchedCW(item){
+        var key = item.key || '';
+        var t = TITLES[key] || { title: item.title, url: '', prov: '', poster: '', type: 'movie', year: '', syn: '' };
+        var d = null;
+        try { d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'completed', title: item.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '', syn: t.syn || '' }); } catch (e) { toast(engineErrText(e)); return; }
+        if (!d || !d.status){ toast('Library-তে যোগ করা যায়নি'); return; }
+        var prog = {};
+        try { prog = await engineCall('progressAll', {}) || {}; } catch (e) { prog = {}; }
+        var rows = [];
+        Object.keys(prog).forEach(function(k){
+          if (!item.base) return;
+          var ep2 = null;
+          if (k === item.base) ep2 = '';
+          else if (k.indexOf(item.base + '#ep:') === 0) ep2 = k.slice((item.base + '#ep:').length);
+          if (ep2 === null) return;
+          var _p2 = prog[k] || {};
+          if ((_p2.posSec || 0) > 0) rows.push({ ep: _p2.ep || ep2, dur: _p2.durSec || 0 });
+        });
+        if (rows.length && rows.every(function(r){ return r.dur > 0; })){
+          for (var j = 0; j < rows.length; j++){
+            var _r = rows[j];
+            try { await engineCall('progressSet', { title: item.title, posSec: _r.dur, durSec: _r.dur, url: t.url || '', providerName: t.prov || '', poster: t.poster || '', ep: _r.ep, syn: t.syn || '' }); } catch (e) {}
+            PROGRESS[progKeyEp(item.title, key, _r.ep)] = { t: _r.dur, d: _r.dur, completed: true };
+            var _ckj = null; try { _ckj = contentKeyFor(item.title, key, _r.ep); } catch (e4) {}
+            if (_ckj) PROGRESS[_ckj] = { t: _r.dur, d: _r.dur, completed: true };
+          }
+        } else if (rows.length){
+          await deleteCWProgressRows(item);
+        }
+        toast('Completed-এ যোগ হয়েছে ✓');
+        if (typeof buildCW === 'function') buildCW();
+        if (typeof buildLibrary === 'function') buildLibrary();
+      }
+      /* (v1.0.25 G) Mark as watched for a general card (no progress row exists): Library -> Completed only. It must NOT appear in Continue Watching — no progress row is created. */
+      async function markWatchedGeneral(item){
+        var t = TITLES[item.key] || null;
+        if (!t || !t.url){ toast('Library-তে যোগ করা যায়নি'); return; }
+        var d = null;
+        try { d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'completed', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '', syn: t.syn || '' }); } catch (e) { toast(engineErrText(e)); return; }
+        if (!d || !d.status){ toast('Library-তে যোগ করা যায়নি'); return; }
+        toast('Completed-এ যোগ হয়েছে ✓');
+        if (typeof buildLibrary === 'function') buildLibrary();
+      }
+      /* (v1.0.25 G) Remove for a CW item: ask FIRST via the reusable zpConfirm (Downloads-Delete precedent), then delete the progress rows persistently. Library untouched by decision. */
+      async function lpRemoveCW(item){
+        var ok = false;
+        try { ok = await zpConfirm('Remove from Continue Watching?', '"' + item.title + '" will be removed from Continue Watching and Watch History. Your Library entry stays.'); } catch (e) { ok = false; }
+        if (!ok) return;
+        await deleteCWProgressRows(item);
+        if (typeof buildCW === 'function') buildCW();
+        if (typeof buildHistory === 'function') buildHistory();
+        toast('Continue Watching থেকে সরানো হয়েছে');
+      }
+      async function lpMenuAction(optId){
+        var it = lpMenuItem;
+        if (!it) return;
+        closeLpMenu();
+        if (optId === 'details'){ openDetails(it.key); return; }
+        if (optId === 'play' || optId === 'manual'){
+          /* Same play path as a card tap (pendingEpKey + resumePos with the card's own episode), plus the one-shot force-manual flag for 'manual'. */
+          pendingEpKey = it.ep || '';
+          openPlayer(it.title, resumePos(it.title, it.key, it.ep || undefined), it.key, optId === 'manual' ? true : undefined);
+          return;
+        }
+        if (optId === 'beginning'){
+          /* Await the ep-aware clear before playing, or a stale native row could still be read by the engine's content-keyed fallback. */
+          pendingEpKey = it.ep || '';
+          try { await clearProgress(it.title, it.key, it.ep || ''); } catch (e) {}
+          openPlayer(it.title, 0, it.key);
+          return;
+        }
+        if (optId === 'library'){
+          /* Reuse toggleLibrary exactly (same add-as-Plan-to-Watch / remove branches, same toasts): mylistEntryFor resolves a [data-open] button by closest(), which includes the element itself, so a detached button carrying the card's key is enough. */
+          var _fb = document.createElement('button');
+          _fb.setAttribute('data-open', it.key);
+          toggleLibrary(_fb);
+          return;
+        }
+        if (optId === 'watched'){
+          if (it.ctx === 'cw') markWatchedCW(it);
+          else markWatchedGeneral(it);
+          return;
+        }
+        if (optId === 'remove'){ lpRemoveCW(it); return; }
+      }
+      /* (v1.0.25 G) The gesture itself: delegated pointerdown + 550ms timer, the provLongPress pattern. Delegation (not per-card listeners) because rails re-render. No context-menu listener, no preventDefault on pointerdown — either would fight the selection fix or the existing holds. */
+      document.addEventListener('pointerdown', function(e){
+        if (!e.target || !e.target.closest) return;
+        if (typeof e.button === 'number' && e.button !== 0) return; /* primary press only — right-click never opens the menu */
+        var card = e.target.closest('.card');
+        if (!card) return;
+        if (card.closest('.glass-sheet, .zp-sheet')) return; /* no cards live in sheets — defensive */
+        lpClearTimer();
+        lpStartX = (typeof e.clientX === 'number') ? e.clientX : 0;
+        lpStartY = (typeof e.clientY === 'number') ? e.clientY : 0;
+        lpPointerId = (e.pointerId == null) ? null : e.pointerId;
+        lpTimer = setTimeout(function(){
+          lpTimer = null;
+          /* Synthetic-click suppression (see lpSuppressClick): set BEFORE opening the menu — the click that follows pointerup must not run the card's tap action. */
+          lpSuppressClick = true;
+          setTimeout(function(){ lpSuppressClick = false; }, 1000);
+          if (card.closest('.card.cw')){
+            var _key = card.getAttribute('data-open-id') || '';
+            openLpMenu('cw', { ctx: 'cw', key: _key, title: card.getAttribute('data-open-player') || '', base: (_key.indexOf('cw-') === 0) ? _key.slice(3) : '', ep: card.getAttribute('data-ep-n') || '' });
+          } else {
+            var _gk = card.getAttribute('data-open') || '';
+            openLpMenu('gen', { ctx: 'gen', key: _gk, title: (TITLES[_gk] && TITLES[_gk].title) || '', base: '', ep: '' });
+          }
+        }, 550);
+      });
+      ['pointerup', 'pointercancel'].forEach(function(ev){
+        document.addEventListener(ev, function(){ lpClearTimer(); });
+      });
+      document.addEventListener('pointermove', function(e){
+        if (lpTimer == null) return;
+        if (lpPointerId !== null && e.pointerId !== lpPointerId) return;
+        var dx = ((typeof e.clientX === 'number') ? e.clientX : lpStartX) - lpStartX;
+        var dy = ((typeof e.clientY === 'number') ? e.clientY : lpStartY) - lpStartY;
+        if (dx * dx + dy * dy > 100) lpClearTimer(); /* >10px drag = scroll, not a hold (same 9-10px scale as hold-2x) */
+      });
+      (function(){
+        var _close = document.getElementById('lp-menu-close');
+        if (_close) _close.addEventListener('click', function(){ closeLpMenu(); });
+        var _list = document.getElementById('lp-menu-list');
+        if (_list) _list.addEventListener('click', function(e){
+          var _opt = e.target && e.target.closest ? e.target.closest('[data-lp-opt]') : null;
+          if (_opt) lpMenuAction(_opt.getAttribute('data-lp-opt'));
+        });
+      })();
+      /* (v1.0.25 G) end long-press menus */
       document.addEventListener('input', function(e){
         if (!e.target.closest || !e.target.closest('#phone')) return;
         if (e.target.hasAttribute && e.target.hasAttribute('data-repo-q')){
@@ -11541,6 +11803,9 @@ if (window.ZP_setAppLang && !window.ZP_setAppLang.__v31){
         if (sh && sh.classList.contains('open')) { sh.classList.remove('open'); return true; }
         var sb = document.getElementById('srv-sheet');
         if (sb && sb.classList.contains('open')) { sb.classList.remove('open'); return true; }
+        /* (v1.0.25 G) Back closes the long-press menu (same pattern as the sheets above). */
+        var lpm = document.getElementById('lp-menu-sheet');
+        if (lpm && lpm.classList.contains('open')) { lpm.classList.remove('open'); return true; }
         /* (v1.0.22 B) Back while a player pop-up is open hides it (no navigation, no exit). DOM-only on purpose: the pop-up's own close runs its onClose; the visibility check in renderSrvSheet stops a stale srvPopupOpen from resurrecting it. */
         var pp = document.getElementById('player-popup');
         /* (v1.0.22 B) hidden === false, not !hidden: a stub/unknown element
