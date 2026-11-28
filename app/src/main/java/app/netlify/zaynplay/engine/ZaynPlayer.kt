@@ -109,9 +109,13 @@ class ZaynPlayer(
     // (v1.0.22 C ITEM 7) Live video size (from onVideoSizeChanged) + the
     // aspect mode the page picked (default Fill, matching the page's
     // curRatioIdx default). The TextureView transform is owned here, not
-    // by Media3's default: Fit preserves aspect, Fill crops to cover,
-    // 16:9/4:3 stretch the frame to the view (which the page already sized
-    // to that aspect), so the ratio change really changes the frame.
+    // by Media3's default: Fit preserves aspect (contain), Fill stretches
+    // to the view (aspect ignored, no crop), Zoom crops to cover, 16:9/4:3
+    // stretch the frame to the view (which the page already sized to that
+    // aspect), so the ratio change really changes the frame.
+    // (v1.0.25 D) Fill is a stretch; Zoom owns the cover scale Fill used
+    // to compute. lastVideoW/H are reset on every play() so no transform
+    // ever computes against the previous video's size.
     @Volatile private var lastVideoW = 0
     @Volatile private var lastVideoH = 0
     @Volatile private var aspectMode = "fill"
@@ -684,7 +688,7 @@ class ZaynPlayer(
     // (v1.0.22 C ITEM 7) Aspect ratio on the live ExoPlayer frame.
     fun setAspectRatio(mode: String): Boolean {
         val m = mode.lowercase()
-        if (m != "fit" && m != "fill" && m != "169" && m != "43") {
+        if (m != "fit" && m != "fill" && m != "zoom" && m != "169" && m != "43") {
             EngineLogger.log("player", "setAspectRatio rejected unknown mode=$mode")
             return false
         }
@@ -699,9 +703,12 @@ class ZaynPlayer(
     // (its default is aspect-preserving fit), so this posts the write:
     // the posted runnable runs after the in-flight listener dispatch and
     // reads the CURRENT view/video sizes, so ours is the transform that
-    // stays. Fit = preserve aspect inside the view; Fill = scale to cover
-    // (crop); 16:9/4:3 = stretch to the view, which the page already
-    // sized to that aspect.
+    // stays. Fit = preserve aspect inside the view (uniform contain);
+    // Fill = stretch to the view (non-uniform, aspect ignored, no crop);
+    // Zoom = scale to cover (uniform, excess cropped); 16:9/4:3 = stretch
+    // to the view, which the page already sized to that aspect.
+    // (v1.0.25 D) Unknown video size writes the defined identity transform
+    // (logged) — never a stale one.
     private fun applyAspectTransform() {
         mainHandler.post {
             val tv = textureView ?: return@post
@@ -709,19 +716,50 @@ class ZaynPlayer(
             val vh = tv.height.toFloat()
             val cw = lastVideoW.toFloat()
             val ch = lastVideoH.toFloat()
-            if (vw <= 0f || vh <= 0f || cw <= 0f || ch <= 0f) return@post
+            if (vw <= 0f || vh <= 0f) return@post
+            // (v1.0.25 D) Unknown video size: never leave a stale transform
+            // standing — write the defined identity transform (video
+            // stretched to the view) and log it. onVideoSizeChanged
+            // re-applies the real transform as soon as the size lands.
+            if (cw <= 0f || ch <= 0f) {
+                tv.setTransform(Matrix())
+                EngineLogger.log("player", "aspect mode=$aspectMode unknown-size fallback identity view=${vw.toInt()}x${vh.toInt()}")
+                return@post
+            }
             val matrix = Matrix()
+            // (v1.0.25 D) Fill is a non-uniform STRETCH (aspect ignored, no
+            // crop); Zoom owns the uniform cover scale Fill used to compute.
+            var sx = 1f
+            var sy = 1f
             when (aspectMode) {
                 "fill" -> {
+                    sx = vw / cw
+                    sy = vh / ch
+                    matrix.setScale(sx, sy, vw / 2f, vh / 2f)
+                }
+                "zoom" -> {
                     val s = maxOf(vw / cw, vh / ch)
+                    sx = s
+                    sy = s
                     matrix.setScale(s, s, vw / 2f, vh / 2f)
                 }
-                "169", "43" -> matrix.setScale(vw / cw, vh / ch, vw / 2f, vh / 2f)
+                "169", "43" -> {
+                    sx = vw / cw
+                    sy = vh / ch
+                    matrix.setScale(sx, sy, vw / 2f, vh / 2f)
+                }
                 else -> {
                     val s = minOf(vw / cw, vh / ch)
+                    sx = s
+                    sy = s
                     matrix.setScale(s, s, vw / 2f, vh / 2f)
                 }
             }
+            val frameW = cw * sx
+            val frameH = ch * sy
+            val cropX = maxOf(0f, frameW - vw)
+            val cropY = maxOf(0f, frameH - vh)
+            EngineLogger.log("player", "aspect transform mode=$aspectMode video=${lastVideoW}x${lastVideoH} view=${vw.toInt()}x${vh.toInt()} sx=$sx sy=$sy frame=${frameW.toInt()}x${frameH.toInt()} crop=${cropX.toInt()}x${cropY.toInt()}")
             tv.setTransform(matrix)
         }
     }
@@ -869,6 +907,14 @@ class ZaynPlayer(
             diagVisibleLogged = false
             surfaceAvailableEmitted = false
             surfaceRecoveriesThisPlay = 0
+            // (v1.0.25 D) A new play / server switch must not compute any
+            // aspect transform against the previous video's size: clear it
+            // now. onVideoSizeChanged restores the real size when it lands;
+            // until then applyAspectTransform writes the defined identity
+            // transform, never the stale one.
+            lastVideoW = 0
+            lastVideoH = 0
+            applyAspectTransform()
             ensurePlayer(cacheSizeBytes)
             // (v1.0.9) NO raw-Surface attach here: setVideoSurface calls
             // removeSurfaceCallbacks(), which would remove Media3's
