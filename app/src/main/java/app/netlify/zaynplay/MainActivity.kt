@@ -11,6 +11,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
@@ -83,6 +84,17 @@ class MainActivity : AppCompatActivity() {
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val engineJobs = ConcurrentHashMap<String, Job>()
 
+    // (v1.0.20 P20-B5) Queued engine events: pushEngineEvent used to
+    // evaluateJavascript("window.__zaynEvent && ...") with no queue —
+    // if the page's JS had not defined __zaynEvent yet, the event was
+    // silently dropped. The pluginsChanged{ready:true} boot trigger is
+    // the only 'boot' update-check caller, so one dropped event meant
+    // no update check that day. Events now queue until the page is
+    // ready (onPageFinished, or a readiness probe), then flush in
+    // order. Queue is capped (oldest non-pluginsChanged dropped first).
+    private val pendingEngineEvents = ArrayDeque<Pair<String, JSONObject>>()
+    private var pageJsReady = false
+
     // Phase C player (P0 overlay, engine-design.md §5.5/§7.2): a
     // chrome-less TextureView ExoPlayer renders into, positioned over the
     // WebView's player stage from the rect the page reports. No native
@@ -145,6 +157,9 @@ class MainActivity : AppCompatActivity() {
     private var bioPromptShowing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // (v1.0.20 P21-B4) Cold-start anchor: first-feed paint (JS
+        // perfFirstPaint bridge call) measures against this.
+        EngineLogger.coldStartT0Ms = SystemClock.elapsedRealtime()
         // FIX 5: follow the STORED app theme choice (System/Dark/Light);
         // FOLLOW_SYSTEM only when nothing is stored yet. The WebView's
         // prefers-color-scheme then matches the app theme, and the in-app
@@ -206,6 +221,14 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
         webView.webViewClient = object : WebViewClient() {
+            // (v1.0.20 P20-B5) The page's scripts have run by now, so
+            // window.__zaynEvent exists — flush any engine events queued
+            // while the page was still loading.
+            override fun onPageFinished(view: WebView?, url: String?) {
+                pageJsReady = true
+                flushPendingEngineEvents()
+            }
+
             // Sample links inside the UI (provider sites, repo pages) open
             // in the browser; the app UI itself stays in the WebView.
             // The zaynplay://auth redirect is the OAuth capture path
@@ -435,6 +458,9 @@ class MainActivity : AppCompatActivity() {
         // pushed into the page's __zaynEvent handler.
         val playerEventCallback: (String, JSONObject) -> Unit = { type, data ->
             if (type == "playerFirstFrame") {
+                // (v1.0.20 P21-B3) First-frame timing: the engine logs
+                // request -> first frame for the current play session.
+                if (::zaynEngine.isInitialized) zaynEngine.noteFirstFrame()
                 runOnUiThread {
                     if (::webView.isInitialized) {
                         webView.evaluateJavascript(
@@ -492,12 +518,14 @@ class MainActivity : AppCompatActivity() {
                 zaynEngine.markReady()
                 pushEngineEvent("pluginsChanged", JSONObject().put("ready", true))
             }
-            // (v0.2.11) C-11: NO boot auto-update check any more — it
-            // fetched every repo manifest and downloaded updates over the
-            // same slow link while the first home feed was loading, and
-            // could race the user's first toggle/test. Updates now run
-            // only when the user opens Settings -> Extensions (which
-            // already triggers a check) or taps update manually.
+            // (v1.0.20 P20-B7) C-11 is stale: the boot plugin check was
+            // restored in v1.0.4 (F5) and lives in the page's JS now
+            // (scheduleBootPluginCheck — throttled to once a day, 15 s
+            // after the first home feed settles, cached manifests via
+            // the native 15-min TTL). It no longer races the first feed
+            // from native, so no native boot check runs here. Updates
+            // still run only on the JS schedule, or when the user opens
+            // Settings -> Extensions, or taps update manually.
         }
         webView.addJavascriptInterface(object {
             @JavascriptInterface
@@ -695,18 +723,58 @@ class MainActivity : AppCompatActivity() {
     private fun engineError(code: String, message: String): JSONObject =
         JSONObject().put("ok", false).put("code", code).put("message", message)
 
-    /** Push a one-way engine event into the page (window.__zaynEvent). */
+    /** Push a one-way engine event into the page (window.__zaynEvent).
+     * (v1.0.20 P20-B5) Events queue until the page signals readiness:
+     * every event is enqueued first, then delivered in order as soon
+     * as __zaynEvent exists — so a pluginsChanged fired before the
+     * page's JS loads can no longer vanish silently. A readiness probe
+     * re-attempts delivery on every push while the page is not ready;
+     * onPageFinished flushes the queue. */
     private fun pushEngineEvent(name: String, data: JSONObject) {
         // (v1.0.14 P4 rank 5) Stamp the bridge version on every event so
         // the page can ignore events from a mismatched bridge.
         if (!data.has("v")) data.put("v", 1)
         runOnUiThread {
-            if (::webView.isInitialized) {
-                webView.evaluateJavascript(
-                    "window.__zaynEvent && window.__zaynEvent(${JSONObject.quote(name)}, $data)",
-                    null
-                )
+            if (!::webView.isInitialized) return@runOnUiThread
+            enqueueEngineEvent(name, data)
+            if (pageJsReady) {
+                flushPendingEngineEvents()
+                return@runOnUiThread
             }
+            webView.evaluateJavascript("typeof window.__zaynEvent === 'function' ? '1' : '0'") { result ->
+                runOnUiThread {
+                    if (!::webView.isInitialized) return@runOnUiThread
+                    if (result?.trim('"') == "1") {
+                        pageJsReady = true
+                        flushPendingEngineEvents()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun deliverEngineEvent(name: String, data: JSONObject) {
+        webView.evaluateJavascript(
+            "window.__zaynEvent && window.__zaynEvent(${JSONObject.quote(name)}, $data)",
+            null,
+        )
+    }
+
+    private fun enqueueEngineEvent(name: String, data: JSONObject) {
+        if (pendingEngineEvents.size >= 64) {
+            // Drop the oldest droppable event first; pluginsChanged is
+            // the boot trigger and is never dropped for a newer event.
+            val idx = pendingEngineEvents.indexOfFirst { it.first != "pluginsChanged" }
+            if (idx >= 0) pendingEngineEvents.removeAt(idx) else pendingEngineEvents.removeFirst()
+        }
+        pendingEngineEvents.addLast(name to data)
+    }
+
+    private fun flushPendingEngineEvents() {
+        if (!::webView.isInitialized) return
+        while (pendingEngineEvents.isNotEmpty()) {
+            val (name, data) = pendingEngineEvents.removeFirst()
+            deliverEngineEvent(name, data)
         }
     }
 
