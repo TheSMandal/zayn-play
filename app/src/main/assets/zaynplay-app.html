@@ -1047,6 +1047,23 @@ body.native-video #phone{ background:transparent; }
       /* (v1.0.25 G) Long-press menu rows reuse .gs-row; only the danger colour + title truncation are new. */
       #lp-menu-sheet .lp-opt.danger{ color:#ff9d9d; }
       #lp-menu-sheet .gs-head b{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      /* (v1.0.26) Long-press menu placement: centred compact pop-up in the
+         #player-popup small-pocket style (trace §7.1), NOT a bottom sheet.
+         The old bottom-anchored sheet (bottom:12px, z-index:9) put rows
+         4-5 behind the dock. This override turns the sheet itself into the
+         full-screen flex overlay (inset:0, z-index:60 above the dock's 50)
+         and the glass card lives inside it, centred, so all 5 rows + head
+         are visible at once with nothing behind the dock or off-screen.
+         Card max-height is calc(100% - 32px) (NOT the ppop 70vh) so the
+         258px card (38 head + 10 list padding + 5x42 rows) still fits
+         whole, with no scrolling, in a short landscape viewport (~360px
+         tall); the list stays internally scrollable as a safety net. */
+      #lp-menu-sheet{ position:absolute; inset:0; left:0; right:0; top:0; bottom:0; transform:none; width:auto; max-height:none; display:none; align-items:center; justify-content:center; padding:16px; background:none; border:0; border-radius:0; box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none; z-index:60; overflow:visible; }
+      #lp-menu-sheet.open{ display:flex; }
+      #lp-menu-backdrop{ position:absolute; inset:0; background:rgba(5,8,14,.45); }
+      #lp-menu-card{ position:relative; width:min(340px, calc(100% - 32px)); max-height:calc(100% - 32px); display:flex; flex-direction:column; overflow:hidden; background:rgba(16,20,28,.72); border:1px solid rgba(255,255,255,.22); border-radius:18px; backdrop-filter:blur(20px) saturate(1.5); -webkit-backdrop-filter:blur(20px) saturate(1.5); box-shadow:inset 0 1px 0 rgba(255,255,255,.18), 0 22px 40px -14px rgba(0,0,0,.7); }
+      #lp-menu-list{ flex:1; min-height:0; overflow-y:auto; padding:2px 6px 8px; scrollbar-width:none; }
+      #lp-menu-list::-webkit-scrollbar{ display:none; }
       .gs-head{ display:flex; align-items:center; justify-content:space-between; padding:2px 8px 6px; }
       .gs-head b{ font-size:14.5px; font-family:"Sora",sans-serif; }
       .gs-x{
@@ -1689,6 +1706,21 @@ body.native-video #phone{ background:transparent; }
     .buf-ring svg, .buf-ring .buf-pct{ display:none !important; }
     .buf-txt{ display:none !important; }
     @keyframes loadSpin{ to{ transform:rotate(360deg); } }
+    /* (v1.0.26 PTR) Pull-to-refresh indicator on Home — own classes copying
+       the player glass-ring tokens (L1569-1575: glass ring, conic sweep,
+       #ff5147 red arc, bufSpin 2.2s, bufPulse 1.7s), scaled to 56px. NOT
+       .buf-ring: the later unscoped override (L1681-1691) turns .buf-ring
+       into a 44px thin WHITE spinner with the arc hidden. */
+    .ptr-ind{position:absolute;top:0;left:50%;z-index:30;transform:translate(-50%,-76px);opacity:0;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px;transition:opacity .18s ease}
+    .ptr-ind.show{transform:translate(-50%,10px);opacity:1}
+    .ptr-ring{position:relative;width:56px;height:56px;border-radius:50%;background:linear-gradient(155deg, rgba(255,255,255,.30), rgba(255,255,255,.07) 52%, rgba(255,255,255,.16));border:1px solid rgba(255,255,255,.5);backdrop-filter:blur(18px) saturate(1.7);-webkit-backdrop-filter:blur(18px) saturate(1.7);box-shadow:inset 0 1px 0 rgba(255,255,255,.65), inset 0 -16px 26px rgba(255,255,255,.07), 0 24px 44px -14px rgba(0,0,0,.55);display:grid;place-items:center;animation:bufPulse 1.7s ease-in-out infinite}
+    .ptr-ring::before{content:"";position:absolute;inset:-1px;border-radius:50%;background:conic-gradient(from 0deg, transparent 0 68%, rgba(255,255,255,.45) 86%, transparent 100%);animation:bufSpin 2.2s linear infinite;pointer-events:none}
+    .ptr-ring svg{position:absolute;inset:5px;width:46px;height:46px;transform:rotate(-90deg)}
+    .ptr-ring circle{fill:none;stroke-width:4;stroke-linecap:round}
+    .ptr-track{stroke:rgba(255,255,255,.30)}
+    .ptr-arc{stroke:#ff5147;stroke-dasharray:132;stroke-dashoffset:33;filter:drop-shadow(0 0 5px rgba(255,81,71,.65))}
+    .ptr-txt{font-size:11.5px;font-weight:700;letter-spacing:.04em;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.55);background:rgba(13,17,24,.34);border:1px solid rgba(255,255,255,.22);border-radius:99px;padding:4px 10px;backdrop-filter:blur(16px) saturate(1.6);-webkit-backdrop-filter:blur(16px) saturate(1.6)}
+    @media (prefers-reduced-motion: reduce){ .ptr-ring,.ptr-ring::before{animation:none} .ptr-ind{transition:none} }
     @media (prefers-reduced-motion: reduce){
       .stage-video img.zoom-pulse, .stage-video video.zoom-pulse{ animation:none; }
       .buf-ring{ animation-duration:1.6s; }
@@ -2009,7 +2041,7 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                   <div class="splash-wm">ZAYN <span>PLAY</span></div>
                   <p class="splash-tag">ONE APPS EVERY UNIVERSE</p>
                   <div class="splash-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                  <p class="splash-ver">Zayn Play v1.0.25</p>
+                  <p class="splash-ver">Zayn Play v1.0.26</p>
                 </div>
                 <div class="splash-credit"><span class="cr-txt">DESIGN BY<b>SAMIM MANDAL</b></span></div>
               </div>
@@ -2169,7 +2201,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
                       }catch(e){}
                     })();
                   </script>
-                  <div class="appbar">
+                                    <!-- (v1.0.26 PTR) Pull-to-refresh indicator: the beautiful
+                       app-styled animation shown FIRST on pull, while the
+                       home feed rebuilds; hidden when the rebuilt feed lands. -->
+                  <div class="ptr-ind" id="ptr-ind" aria-hidden="true"><div class="ptr-ring"><svg viewBox="0 0 50 50" aria-hidden="true"><circle class="ptr-track" cx="25" cy="25" r="21"></circle><circle class="ptr-arc" cx="25" cy="25" r="21"></circle></svg></div><div class="ptr-txt">Refreshing…</div></div>
+<div class="appbar">
                     <div class="brand">
                       <span class="logo-mark" role="img" aria-label="Zayn Play logo"><svg viewBox="0 0 64 64"><defs><linearGradient id="lg-head" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5147"/><stop offset="1" stop-color="#b3000c"/></linearGradient></defs><rect x="4" y="4" width="56" height="56" rx="15" fill="url(#lg-head)"/><g fill="#fff"><polygon points="19,13 47,13 31,41 49,41 49,53 17,53 33,25 19,25"/></g><polygon points="28.5,27.5 40,33 28.5,38.5" fill="#c4000b"/></svg></span>
                       <b>ZAYN <span>PLAY</span></b>
@@ -2531,8 +2567,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
               </div>
               <!-- (v1.0.25 G) Long-press menu for content cards (CW + general): same glass-sheet component as the Source sheet (#srv-sheet). Phone-level so it opens from any screen. -->
               <div class="glass-sheet" id="lp-menu-sheet" role="dialog" aria-label="Options">
-                <div class="gs-head"><b id="lp-menu-title">Options</b><button class="gs-x" id="lp-menu-close" aria-label="Close options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
-                <div id="lp-menu-list"></div>
+                <div class="lp-menu-backdrop" id="lp-menu-backdrop"></div>
+                <div id="lp-menu-card">
+                  <div class="gs-head"><b id="lp-menu-title">Options</b><button class="gs-x" id="lp-menu-close" aria-label="Close options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+                  <div id="lp-menu-list"></div>
+                </div>
               </div>
       </div>
     </div>
@@ -3054,6 +3093,75 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (d){ pid = null; showHero(heroIdx + d); startHeroTimer(); }
         });
         heroEl.addEventListener('pointercancel', function(){ pid = null; });
+      })();
+            /* (v1.0.26 PTR) Pull-to-refresh on Home — Samim 2026-11-28 ~18:15 (Roman
+         Bengali, verbatim): "Arakta jinish, ami home screen e upor theke nich
+         pane swipe korle ba upor theke nich pane tene swipe korle tahole puro
+         home screen refresh hoye jaoar kotha. Sheta kintu hochhe na." +
+         "Ekta sundar animation ashbe, then refresh hobe." The feature never
+         existed (no handler, no indicator): this adds ONLY a pointer gesture
+         on #scr-home + the .ptr-ind animation + a call to the existing
+         renderProviderProgressive(currentProvider) — feed-only, NOT the
+         heavier rebuildCatalog(). No preventDefault on pointerdown (same
+         reason as the long-press code); the long-press 550ms timers cancel
+         on >10px movement, so a pull never opens a menu; the hero diagonal
+         gate rejects vertical pulls, so the hero never changes slides. */
+      var ptrToken = 0, ptrRefreshing = false;
+      var PTR_TRIGGER_PX = 64, PTR_MAX_PULL_PX = 110;
+      function ptrIsVerticalPull(dx, dy){ return dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.2; }
+      function ptrShow(){ var el = document.getElementById('ptr-ind'); if (!el) return; el.style.transform = ''; el.style.opacity = ''; el.classList.add('show'); }
+      function ptrHide(tok){ if (tok !== undefined && tok !== ptrToken) return; var el = document.getElementById('ptr-ind'); if (!el) return; el.classList.remove('show'); el.style.transform = ''; el.style.opacity = ''; }
+      function ptrRunRefresh(){
+        var tok = ++ptrToken;
+        ptrRefreshing = true;
+        ptrShow();
+        var key = currentProvider, p = PROVIDERS[key];
+        if (!p){ ptrRefreshing = false; ptrHide(tok); return; }
+        /* Do not re-show the stale feed under the animation: clear the
+           in-memory cached feed and (temporarily) the persisted last-good
+           feed, so renderProviderProgressive paints skeletonRails() instead
+           (now L3861-3863 / L3556-3561). The persisted entry is restored on
+           settle if the refresh did not save a fresh one; a successful
+           refresh saves the fresh feed itself (now L3627 / L3773). */
+        p.cachedFeed = null;
+        var _stash = null, _hadCache = false;
+        try { _stash = localStorage.getItem(feedCacheKey(key)); _hadCache = _stash !== null; if (_hadCache) localStorage.removeItem(feedCacheKey(key)); } catch (e) {}
+        try { skeletonRails(); } catch (e) {}
+        var done;
+        try { done = renderProviderProgressive(key); } catch (e) { done = Promise.reject(e); }
+        function _ptrSettle(){
+          if (_hadCache){ try { if (!localStorage.getItem(feedCacheKey(key))) localStorage.setItem(feedCacheKey(key), _stash); } catch (e) {} }
+          if (tok === ptrToken){ ptrRefreshing = false; ptrHide(tok); }
+        }
+        Promise.resolve(done).then(_ptrSettle, _ptrSettle);
+      }
+      (function initPtrRefresh(){
+        var scr = document.getElementById('scr-home'); if (!scr) return;
+        var sx = 0, sy = 0, pid = null, armed = false, fired = false;
+        scr.addEventListener('pointerdown', function(e){
+          if (e.button !== undefined && e.button !== 0) return;
+          if (!scr.classList.contains('on')) return;
+          if (scr.scrollTop !== 0) return;
+          sx = e.clientX; sy = e.clientY; pid = e.pointerId; armed = true; fired = false;
+        });
+        scr.addEventListener('pointermove', function(e){
+          if (!armed || pid === null || e.pointerId !== pid) return;
+          var dx = e.clientX - sx, dy = e.clientY - sy;
+          if (scr.scrollTop !== 0){ armed = false; return; }
+          if (!ptrIsVerticalPull(dx, dy)){ if (Math.abs(dx) > 10 || dy < -10) armed = false; return; }
+          if (fired) return;
+          var ind = document.getElementById('ptr-ind');
+          if (ind){ var pull = Math.min(dy, PTR_MAX_PULL_PX); ind.style.transform = 'translate(-50%, ' + (pull - 76) + 'px)'; ind.style.opacity = String(Math.min(1, dy / PTR_TRIGGER_PX)); }
+          if (dy >= PTR_TRIGGER_PX){ fired = true; armed = false; if (ind){ ind.style.transform = ''; ind.style.opacity = ''; } ptrRunRefresh(); }
+        });
+        function _ptrEnd(e){
+          if (pid === null || (e && e.pointerId !== pid)) return;
+          pid = null; armed = false;
+          if (!fired){ var ind = document.getElementById('ptr-ind'); if (ind && !ptrRefreshing){ ind.classList.remove('show'); ind.style.transform = ''; ind.style.opacity = ''; } }
+          fired = false;
+        }
+        scr.addEventListener('pointerup', _ptrEnd);
+        scr.addEventListener('pointercancel', _ptrEnd);
       })();
       /* (v1.0.4) F3: See All list — one grid screen for every section, filled from the already-loaded feed (no new bridge call). */
       function fillGrid(el, keys){
@@ -4309,12 +4417,18 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         return null;
       }
       /* (v1.0.16 P11-02) Reflect stored library state on every
-         [data-mylist] button: .added only when the bridge says so. */
+         [data-mylist] button: .added only when the bridge says so.
+         (v1.0.26 PTW) .added IFF the entry's status is exactly
+         'plantowatch' — generic library membership (watching /
+         completed / onhold / dropped) must never paint the button red.
+         The status already lives in LIBRARY['lib-' + id], populated by
+         buildLibrary on the same line that fills LIB_IDS. */
       function syncMylistButtons(){
         var btns = document.querySelectorAll('[data-mylist]');
         for (var i = 0; i < btns.length; i++){
           var ent = mylistEntryFor(btns[i]);
-          var added = !!(ent && typeof LIB_IDS !== 'undefined' && LIB_IDS[ent.key]);
+          var libId = (ent && typeof LIB_IDS !== 'undefined') ? LIB_IDS[ent.key] : null;
+          var added = !!(libId && typeof LIBRARY !== 'undefined' && LIBRARY['lib-' + libId] === 'plantowatch');
           btns[i].classList.toggle('added', added);
         }
       }
@@ -4352,17 +4466,33 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           if (typeof syncMylistButtons === 'function') syncMylistButtons();
         } catch (e) { /* auto-add is best-effort: a failed write must never block playback */ }
       }
+      /* (v1.0.26 PTW) "Plan to Watch" toggle — decided semantics: the
+         button is active IFF status is 'plantowatch'. Tap on a
+         plantowatch entry REMOVES it; tap on any other entry (watching /
+         completed / onhold / dropped) MOVES it to plantowatch — the old
+         remove branch deleted the whole entry whatever its status, so a
+         tap on a watched title wiped its Watching/Completed record. */
       async function toggleLibrary(btn){
         var ent = mylistEntryFor(btn);
         if (!ent || !ent.t) return;
         var t = ent.t;
         var libId = (typeof LIB_IDS !== 'undefined') ? LIB_IDS[ent.key] : null;
+        var curStatus = (libId && typeof LIBRARY !== 'undefined') ? LIBRARY['lib-' + libId] : undefined;
         try {
-          if (libId){
+          if (libId && curStatus === 'plantowatch'){
             await engineCall('librarySet', { id: libId, status: 'remove' });
             if (typeof LIB_IDS !== 'undefined') delete LIB_IDS[ent.key];
             if (typeof LIBRARY !== 'undefined') delete LIBRARY['lib-' + libId];
             toast('Library থেকে সরানো হয়েছে');
+          } else if (libId){
+            var m = await engineCall('librarySet', { id: libId, status: 'plantowatch' });
+            if (m && m.status){
+              if (typeof LIBRARY !== 'undefined') LIBRARY['lib-' + libId] = 'plantowatch';
+              await buildLibrary();
+              toast('Plan to Watch-এ যোগ হয়েছে ✓');
+            } else {
+              toast('Library-তে যোগ করা যায়নি');
+            }
           } else {
             var d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'plantowatch', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '', syn: t.syn || '' });
             if (d && d.status){
@@ -9112,6 +9242,30 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
         if (typeof buildHistory === 'function') buildHistory();
         toast('Continue Watching থেকে সরানো হয়েছে');
       }
+      /* (v1.0.26 LP-LIB) Long-press menu library option: its OWN membership toggle, independent of the Plan to Watch toggle (toggleLibrary). Title NOT in the library -> add as plantowatch (same add path as toggleLibrary's add branch); title in the library under ANY status (watching/completed/plantowatch/onhold/dropped) -> REMOVE the entry entirely via the pre-item-3 remove call (librarySet by id, status 'remove') — never move it to plantowatch. The remove call and the local LIB_IDS/LIBRARY deletions mirror toggleLibrary's old remove branch exactly. The label in lpMenuItems already switches on membership, so it keeps working with this toggle. */
+      async function toggleLibraryMembership(it){
+        var key = (it && it.key) || '';
+        var t = (key && TITLES[key]) || null;
+        if (!t) return;
+        var libId = (typeof LIB_IDS !== 'undefined' && key) ? LIB_IDS[key] : null;
+        try {
+          if (libId){
+            await engineCall('librarySet', { id: libId, status: 'remove' });
+            if (typeof LIB_IDS !== 'undefined') delete LIB_IDS[key];
+            if (typeof LIBRARY !== 'undefined') delete LIBRARY['lib-' + libId];
+            toast('Library থেকে সরানো হয়েছে');
+          } else {
+            var d = await engineCall('librarySet', { url: t.url || '', providerName: t.prov || '', status: 'plantowatch', title: t.title, type: t.type || 'movie', poster: t.poster || '', year: t.year || '', syn: t.syn || '' });
+            if (d && d.status){
+              await buildLibrary();
+              toast('Plan to Watch-এ যোগ হয়েছে ✓');
+            } else {
+              toast('Library-তে যোগ করা যায়নি');
+            }
+          }
+        } catch (e){ toast(engineErrText(e)); }
+        syncMylistButtons();
+      }
       async function lpMenuAction(optId){
         var it = lpMenuItem;
         if (!it) return;
@@ -9131,10 +9285,8 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
           return;
         }
         if (optId === 'library'){
-          /* Reuse toggleLibrary exactly (same add-as-Plan-to-Watch / remove branches, same toasts): mylistEntryFor resolves a [data-open] button by closest(), which includes the element itself, so a detached button carrying the card's key is enough. */
-          var _fb = document.createElement('button');
-          _fb.setAttribute('data-open', it.key);
-          toggleLibrary(_fb);
+          /* (v1.0.26 LP-LIB) Membership toggle, NOT toggleLibrary: the Plan to Watch toggle moves a Watching/Completed entry to plantowatch, but this menu option is "Add to library" / "Remove from library" — in the library under any status it must REMOVE the entry entirely. */
+          toggleLibraryMembership(it);
           return;
         }
         if (optId === 'watched'){
@@ -9182,6 +9334,11 @@ body.form-tablet .toast{ bottom: calc(110px + env(safe-area-inset-bottom, 0px));
       (function(){
         var _close = document.getElementById('lp-menu-close');
         if (_close) _close.addEventListener('click', function(){ closeLpMenu(); });
+        /* (v1.0.26) Backdrop tap dismisses (player-popup pattern) — and the
+           full-screen backdrop intercepts taps on cards behind the open
+           menu, so they can no longer open details/player underneath it. */
+        var _bd = document.getElementById('lp-menu-backdrop');
+        if (_bd) _bd.addEventListener('click', function(){ closeLpMenu(); });
         var _list = document.getElementById('lp-menu-list');
         if (_list) _list.addEventListener('click', function(e){
           var _opt = e.target && e.target.closest ? e.target.closest('[data-lp-opt]') : null;
