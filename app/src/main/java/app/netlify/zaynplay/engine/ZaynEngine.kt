@@ -884,7 +884,7 @@ class ZaynEngine(
     // ---- E1 ----
 
     private fun engineStatus(): JSONObject = JSONObject()
-        .put("version", "1.0.25")
+        .put("version", "1.0.26")
         // (v1.0.24 L ITEM 4 P0-1) Installed versionCode for the JS
         // banner gate: stored.versionCode > installed, evaluated at
         // paint time. Existing "version" string untouched.
