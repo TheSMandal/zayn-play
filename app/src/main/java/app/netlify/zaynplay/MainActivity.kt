@@ -11,10 +11,12 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -23,7 +25,12 @@ import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -31,8 +38,10 @@ import androidx.core.view.WindowInsetsControllerCompat
 import app.netlify.zaynplay.engine.EngineApp
 import app.netlify.zaynplay.engine.EngineLogger
 import app.netlify.zaynplay.engine.EngineStore
+import app.netlify.zaynplay.engine.ZaynBackupScheduler
 import app.netlify.zaynplay.engine.ZaynDownloads
 import app.netlify.zaynplay.engine.ZaynEngine
+import app.netlify.zaynplay.engine.ZaynPrefsStore
 import app.netlify.zaynplay.engine.ZaynPlayer
 import app.netlify.zaynplay.engine.ZaynMpvPlayer
 import com.lagradost.api.setContext
@@ -125,6 +134,15 @@ class MainActivity : AppCompatActivity() {
     // re-applied after every rotation / focus change / resume, because the
     // window re-layout on configuration change drops the hidden bars.
     private var isPlayerFullscreen = false
+    // (v1.0.18 P16-04) Restore-file picker: the WebView file input
+    // (backup restore) has no DownloadListener/file chooser without
+    // onShowFileChooser + an ActivityResultLauncher.
+    private var fileChooserCallback: ValueCallback<Array<android.net.Uri>>? = null
+    private lateinit var fileChooserLauncher: ActivityResultLauncher<String>
+    // (v1.0.18 P17-17) Fingerprint lock session state: unlocked once
+    // per process after a successful biometric/device-credential auth.
+    private var bioUnlocked = false
+    private var bioPromptShowing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // FIX 5: follow the STORED app theme choice (System/Dark/Light);
@@ -133,6 +151,12 @@ class MainActivity : AppCompatActivity() {
         // theme setting switches the UI live.
         ThemePrefs.applyStoredNightMode(this)
         super.onCreate(savedInstanceState)
+        // (v1.0.18 P16-04) Register before the WebView can open a file
+        // input (registerForActivityResult must run before STARTED).
+        fileChooserLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            fileChooserCallback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
+            fileChooserCallback = null
+        }
         // Edge-to-edge for the whole app (v0.1.5): the page lays out behind
         // the status bar on every screen — content starts at the very top
         // edge and the status icons float over it. The theme already makes
@@ -217,6 +241,24 @@ class MainActivity : AppCompatActivity() {
                 message?.let { Log.d("ZaynPlay", "${it.sourceId()}:${it.lineNumber()} ${it.message()}") }
                 return true
             }
+
+            // (v1.0.18 P16-04) Without this, the backup-restore file
+            // input does nothing when tapped (no chooser ever opens).
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<android.net.Uri>>?,
+                fileChooserParams: FileChooserParams?,
+            ): Boolean {
+                fileChooserCallback?.onReceiveValue(null)
+                fileChooserCallback = filePathCallback
+                return try {
+                    fileChooserLauncher.launch("*/*")
+                    true
+                } catch (e: Exception) {
+                    fileChooserCallback = null
+                    false
+                }
+            }
         }
 
         // True fullscreen for the player: the page rotates the activity to
@@ -296,6 +338,38 @@ class MainActivity : AppCompatActivity() {
                         AppCompatDelegate.setDefaultNightMode(ThemePrefs.modeFor(pref))
                     }
                 }
+            }
+
+            @JavascriptInterface
+            fun reloadApp() {
+                // (v1.0.18 P17-13) The layout pick (phone/tablet/tv) only
+                // takes effect on a fresh load: reload() would keep the
+                // old ?form= query, so re-load with the current form.
+                runOnUiThread {
+                    val form = formFactor()
+                    webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0&form=$form")
+                }
+            }
+
+            @JavascriptInterface
+            fun openBatterySettings() {
+                // (v1.0.18 P17-21) The Battery row used to toast and do
+                // nothing. This opens the system Battery-optimization
+                // list, where the user finds Zayn Play and sets
+                // "Don't optimize".
+                try {
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                } catch (e: Exception) {
+                    EngineLogger.log("settings", "openBatterySettings failed: ${e.message}")
+                }
+            }
+
+            @JavascriptInterface
+            fun exitApp() {
+                // (v1.0.18 P17-09) Confirm-exit: the in-app confirm sheet
+                // (zpConfirm) cannot return a value to the synchronous
+                // back-press path, so a confirmed exit finishes here.
+                runOnUiThread { finish() }
             }
 
             @JavascriptInterface
@@ -379,9 +453,16 @@ class MainActivity : AppCompatActivity() {
         zaynMpvPlayer = ZaynMpvPlayer(this, playerEventCallback)
         zaynMpvPlayer.setTextureView(playerSurface)
         zaynDownloads = ZaynDownloads(this, engineStore) { type, data -> pushEngineEvent(type, data) }
-        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynMpvPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }) { rect ->
+        zaynEngine = ZaynEngine(this, engineStore, zaynPlayer, zaynMpvPlayer, zaynDownloads, engineScope, { type, data -> pushEngineEvent(type, data) }, { rect ->
             onPlayerStageRect(rect)
-        }
+        }, clearWebViewCache = {
+            // (v1.0.18 P16-06) WebView.clearCache must run on the UI
+            // thread; the engine invokes this from cacheClear.
+            runOnUiThread { webView.clearCache(true) }
+        })
+        // (v1.0.18 P17-20) (Re-)schedule the auto-backup once per
+        // launch from the stored backupFreq/backupFolder.
+        ZaynBackupScheduler.schedule(this)
         engineScope.launch {
             // (v1.0.14 P5-9) Track whether the initial plugin load threw:
             // before this, markReady() + pluginsChanged{ready:true} fired
@@ -464,6 +545,10 @@ class MainActivity : AppCompatActivity() {
         // The native splash already showed (?bootsplash=0 skips the
         // in-WebView splash so the user is not shown it twice).
         webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0&form=$form")
+
+        // (v1.0.18 P17-17) Fingerprint lock: the WebView stays hidden
+        // until the biometric/device-credential prompt succeeds.
+        checkBioLock()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -550,6 +635,9 @@ class MainActivity : AppCompatActivity() {
         // return from Recents showed black until the WebView redrew.
         webView.onResume()
         webView.resumeTimers()
+        // (v1.0.18 P17-17) A cancelled lock prompt re-appears on return
+        // from background — cancelling must never unlock the app.
+        checkBioLock()
         // Returning to the activity (e.g. after the transient bars were
         // swiped in, or after another app) must not leave the status bar
         // visible over fullscreen video.
@@ -1052,8 +1140,89 @@ class MainActivity : AppCompatActivity() {
      * "phone" otherwise.
      */
     private fun formFactor(): String {
+        // (v1.0.18 P17-13) The layout setting overrides detection:
+        // "phone"/"tablet"/"tv" is the user's word; "auto" (default)
+        // keeps the old detection. Read straight from the DataStore
+        // (this runs before EngineStore exists in onCreate).
+        val layout = try {
+            val raw = ZaynPrefsStore.get(this).getWrapper("zayn/settings/layout")
+            if (raw != null) JSONObject(raw).optString("v", "auto") else "auto"
+        } catch (e: Exception) {
+            "auto"
+        }
+        if (layout == "phone" || layout == "tablet" || layout == "tv") return layout
         val uiMode = (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType
         if (uiMode == Configuration.UI_MODE_TYPE_TELEVISION) return "tv"
         return if (resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
+    }
+
+    /**
+     * (v1.0.18 P17-17) Fingerprint lock (BiometricPrompt, Samim's
+     * Accounts & Security request). Cold start AND every return from
+     * background while locked: the WebView stays INVISIBLE until auth
+     * succeeds. No biometric/credential enrolled -> the lock is
+     * skipped (and logged) rather than bricking the app. An error or
+     * cancel NEVER unlocks; the next onResume re-prompts.
+     */
+    private fun checkBioLock() {
+        if (bioUnlocked || !::engineStore.isInitialized || !::webView.isInitialized) return
+        val locked = try {
+            engineStore.getSettingBoolean("bioLock", false)
+        } catch (e: Exception) {
+            false
+        }
+        if (!locked) {
+            bioUnlocked = true
+            return
+        }
+        webView.visibility = View.INVISIBLE
+        showBioPrompt()
+    }
+
+    private fun showBioPrompt() {
+        if (bioPromptShowing) return
+        val canAuth = BiometricManager.from(this).canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+        )
+        if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
+            EngineLogger.log("accounts", "bioLock on but no biometric/credential enrolled ($canAuth) — lock skipped")
+            bioUnlocked = true
+            runOnUiThread { webView.visibility = View.VISIBLE }
+            return
+        }
+        val executor = ContextCompat.getMainExecutor(this)
+        val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                bioPromptShowing = false
+                bioUnlocked = true
+                runOnUiThread { webView.visibility = View.VISIBLE }
+                EngineLogger.log("accounts", "bioLock unlocked")
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                bioPromptShowing = false
+                EngineLogger.log("accounts", "bioLock auth error $errorCode: $errString")
+            }
+
+            override fun onAuthenticationFailed() {
+                // A bad fingerprint: the prompt stays up for another try.
+            }
+        })
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Unlock Zayn Play")
+            .setSubtitle("Use your fingerprint or device PIN to open the app")
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+            )
+            .build()
+        bioPromptShowing = true
+        try {
+            prompt.authenticate(info)
+        } catch (e: Exception) {
+            bioPromptShowing = false
+            EngineLogger.log("accounts", "bioLock prompt failed: ${e.message}")
+        }
     }
 }
