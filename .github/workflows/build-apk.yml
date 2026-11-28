@@ -41,12 +41,16 @@ jobs:
             -PrequireFixedSigning=true
       - name: APK size and contents
         run: |
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          echo "APK: $APK"
-          ls -l "$APK"
-          unzip -l "$APK"
-          AAPT2=$(find "${ANDROID_HOME:-$HOME/Android}" -name aapt2 -type f 2>/dev/null | head -1)
-          if [ -n "$AAPT2" ]; then "$AAPT2" dump badging "$APK" | grep -E "package:|launchable-activity" || true; else echo "aapt2 not found under ANDROID_HOME"; fi
+          # (v1.0.25 F) ABI splits: five outputs (4 per-ABI +
+          # universal). Inspect EVERY one -- the old single-APK
+          # `head -1` form would silently ignore the other four.
+          for APK in app/build/outputs/apk/release/*.apk; do
+            echo "APK: $APK"
+            ls -l "$APK"
+            unzip -l "$APK"
+            AAPT2=$(find "${ANDROID_HOME:-$HOME/Android}" -name aapt2 -type f 2>/dev/null | head -1)
+            if [ -n "$AAPT2" ]; then "$AAPT2" dump badging "$APK" | grep -E "package:|launchable-activity" || true; else echo "aapt2 not found under ANDROID_HOME"; fi
+          done
       - name: Catalogue URLs return 200
         # (v0.2.2) The native CATALOGUE_REPOS map went stale in v0.2.1
         # (404 / malformed URLs) with nothing catching it. Every URL in
@@ -83,6 +87,10 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: zayn-play-1.0.24
-          path: app/build/outputs/apk/release/app-release.apk
+          name: zayn-play-1.0.25
+          # (v1.0.25 F) ABI splits: five outputs (4 per-ABI +
+          # universal). The old single-file path
+          # app-release.apk no longer exists once splits are on
+          # (the universal build is app-universal-release.apk).
+          path: app/build/outputs/apk/release/*.apk
           retention-days: 30
