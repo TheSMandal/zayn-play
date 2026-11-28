@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/TheSMandal/zayn-play/actions/workflows/build-apk.yml"><img src="https://github.com/TheSMandal/zayn-play/actions/workflows/build-apk.yml/badge.svg" alt="Build status" /></a>
-  <img src="https://img.shields.io/badge/version-1.0.17-E8261C.svg" alt="Version 1.0.17" />
+  <img src="https://img.shields.io/badge/version-1.0.18-E8261C.svg" alt="Version 1.0.18" />
   <a href="https://www.gnu.org/licenses/gpl-3.0"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3" /></a>
   <img src="https://img.shields.io/badge/platform-Android%206.0%2B-green.svg" alt="Android 6.0+" />
 </p>
@@ -64,10 +64,10 @@ Zayn Play is an extension-based streaming app. **The app itself provides no vide
 
 ### Step 1 — Download the APK
 1. Open the [**Releases page**](https://github.com/TheSMandal/zayn-play/releases).
-2. Open the latest release (for example `v1.0.17`).
-3. Download the APK file (for example `ZaynPlay-1.0.17.apk`).
+2. Open the latest release (for example `v1.0.18`).
+3. Download the APK file (for example `ZaynPlay-1.0.18.apk`).
 
-> You can also get the APK from the latest successful **Actions** run ("Build Zayn Play APK" → the `zayn-play-1.0.17` artifact).
+> You can also get the APK from the latest successful **Actions** run ("Build Zayn Play APK" → the `zayn-play-1.0.18` artifact).
 
 ### Step 2 — Install it
 1. Open the downloaded APK file.
