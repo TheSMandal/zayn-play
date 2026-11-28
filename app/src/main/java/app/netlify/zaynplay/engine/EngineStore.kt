@@ -97,6 +97,9 @@ class EngineStore(private val context: Context) {
             "resume" to true,
             "mode" to "auto",
             "res" to "Auto",
+            // (v1.0.24 G ITEM 2 refinement) Saved aspect ratio:
+            // the ratio Samim sets once stays set across restarts.
+            "aspectRatio" to "fill",
             "audio1" to "English",
             "audio2" to "বাংলা",
             // (v1.0.19 REQ1) Third audio language. Default "none": no
@@ -147,11 +150,12 @@ class EngineStore(private val context: Context) {
             // Download / Zayn Play folder.
             "dlQuality" to "Auto",
             "wifiOnly" to false,
-            // (v0.2.2) Upstream CloudStream defaults DNS to system (0).
-            // Our old default was Cloudflare DoH with no fallback, so a
-            // DoH failure on the phone's network broke all downloads.
-            // (DoH resolvers now fall back to system DNS too.)
-            "dns" to "system",
+            // (v1.0.24 ITEM 9) Default is Cloudflare DoH, per Samim
+            // (2026-11-28): "Eta ke by default Cloudflare kore rakhbe."
+            // DoH resolvers fall back to system DNS (FallbackDns), so a
+            // DoH failure no longer breaks downloads — the v0.2.2
+            // reason for the old system default no longer applies.
+            "dns" to "cloudflare",
             // (v1.0.18 P17-25) Setup profile, persisted (was in-memory).
             "profileName" to "Zayn",
             "profileBg" to "linear-gradient(135deg,#ff5147,#b3000c)",
@@ -207,6 +211,7 @@ class EngineStore(private val context: Context) {
             "resume" to { v -> isBool(v) },
             "mode" to { v -> isPick(v, "auto", "manual") },
             "res" to { v -> isPick(v, "Auto", "4K", "2K", "1080p", "720p", "480p", "360p") },
+            "aspectRatio" to { v -> isPick(v, "fit", "fill", "169", "43") },
             "audio1" to { v -> v is String && v in LANG_NATIVES_11 },
             "audio2" to { v -> v is String && (v in LANG_NATIVES_11 || v == "none") },
             "audio3" to { v -> v is String && (v in LANG_NATIVES_11 || v == "none") },
