@@ -94,6 +94,10 @@ class EngineStore(private val context: Context) {
             "res" to "Auto",
             "audio1" to "English",
             "audio2" to "বাংলা",
+            // (v1.0.19 REQ1) Third audio language. Default "none": no
+            // third preference until the user picks one, so ranking
+            // with only audio1/audio2 set is byte-identical to before.
+            "audio3" to "none",
             "timeout" to "30s",
             "reuse" to true,
             "reuseDur" to "24h",
@@ -128,7 +132,6 @@ class EngineStore(private val context: Context) {
             // rejected it as unknown_setting and it never persisted.
             "confirmExit" to false,
             "appLang" to "English",
-            "provLang" to listOf("English", "Bengali", "Hindi"),
             "media" to listOf("Movie", "AnimeMovie", "TvSeries", "Cartoon", "Anime", "OVA", "Torrent", "Documentary", "AsianDrama", "Live", "Others", "Music", "AudioBook", "CustomMedia", "Audio", "Podcast", "Video"),
             "bioLock" to false,
             "updNotify" to true,
@@ -169,7 +172,7 @@ class EngineStore(private val context: Context) {
 
         /**
          * (v1.0.18 P16-11) Per-key validation. `setSetting` used to
-         * validate only appLang/provLang — every other key accepted ANY
+         * validate only appLang — every other key accepted ANY
          * JSON (`theme: 123`, `buffer: "banana"`). Every key now has a
          * validator against its option list (or its type/range for
          * sliders and free strings). Values arrive as org.json types
@@ -203,6 +206,7 @@ class EngineStore(private val context: Context) {
             "res" to { v -> isPick(v, "Auto", "4K", "2K", "1080p", "720p", "480p", "360p") },
             "audio1" to { v -> v is String && v in LANG_NATIVES_11 },
             "audio2" to { v -> v is String && (v in LANG_NATIVES_11 || v == "none") },
+            "audio3" to { v -> v is String && (v in LANG_NATIVES_11 || v == "none") },
             "timeout" to { v -> isPick(v, "Instant", "5s", "10s", "15s", "30s", "Unlimited") },
             "reuse" to { v -> isBool(v) },
             "reuseDur" to { v -> isPick(v, "1h", "6h", "24h", "7d") },
@@ -233,7 +237,6 @@ class EngineStore(private val context: Context) {
             "rowCW" to { v -> isBool(v) },
             "confirmExit" to { v -> isBool(v) },
             "appLang" to { v -> v is String && v in APP_LANGS_11 },
-            "provLang" to { v -> isStringList(v, APP_LANGS_11.toSet() + "ALL") },
             "media" to { v -> isStringList(v, MEDIA_TYPES) },
             "bioLock" to { v -> isBool(v) },
             "updNotify" to { v -> isBool(v) },
