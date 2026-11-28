@@ -86,6 +86,13 @@ class ZaynUpdater(
         private const val MAX_EXTRACTED_BYTES = 250L * 1024 * 1024
     }
 
+    /** Installed versionCode for the JS banner gate (v1.0.24 L ITEM 4):
+     * engineStatus() exposes it so renderUpdBanner can hide a stored
+     * record whose versionCode is already installed. Read fresh from
+     * PackageManager on every call — never cached. Verification /
+     * checkUpdate untouched. */
+    fun installedVersionCode(): Long = installedVersion().first
+
     private fun installedVersion(): Pair<Long, String> {
         val info: PackageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.packageManager.getPackageInfo(
