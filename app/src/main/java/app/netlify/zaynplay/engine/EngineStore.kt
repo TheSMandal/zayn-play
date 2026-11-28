@@ -79,6 +79,12 @@ class EngineStore(private val context: Context) {
          * list only), prefProvider, apkInstaller, plugRepos (no reader,
          * no row). A V1.0.17 backup carrying them restores fine — the
          * importer skips unknown keys and counts them (P16-03).
+         * (v1.0.23) engine REMOVED too: the player-choice setting is gone
+         * entirely (user decision 2026-11-28 — ExoPlayer is the only
+         * player). A phone with the removed player stored as its engine
+         * falls back silently: the key is no longer in the schema, so
+         * settingsSet rejects it as unknown_setting, settingsSnapshot
+         * never reports it, and no code reads it — no migration needed.
          * ADDED keys: profileName, profileBg (setup profile, P17-25),
          * primaryColor (was localStorage-only, P16-09), lastBackup +
          * benene (were in-memory only, F-7/F-8).
@@ -86,7 +92,6 @@ class EngineStore(private val context: Context) {
         val SETTING_DEFAULTS: Map<String, Any?> = mapOf(
             "player" to "internal",
             "extApp" to "VLC",
-            "engine" to "exoplayer",
             "titleChars" to "50",
             "showInfo" to true,
             "resume" to true,
@@ -197,7 +202,6 @@ class EngineStore(private val context: Context) {
         private val SETTING_VALIDATORS: Map<String, (Any?) -> Boolean> = mapOf(
             "player" to { v -> isPick(v, "internal", "external") },
             "extApp" to { v -> isPick(v, "VLC", "MX Player", "JustPlayer") },
-            "engine" to { v -> isPick(v, "exoplayer", "libmpv") },
             "titleChars" to { v -> isPick(v, "30", "50", "80", "120", "0") },
             "showInfo" to { v -> isBool(v) },
             "resume" to { v -> isBool(v) },
