@@ -57,15 +57,18 @@ object CommonActivity {
             // DonationManager.waitForActivityAndShow, both safe-cast
             // + retry loops that give up silently on null), so
             // starving load() alone cannot stop them. This gate
-            // returns null when a `donation` class is anywhere on
+            // returns null when a `donat` class is anywhere on
             // the calling stack — the ONLY per-caller channel the
             // plugin API offers — while every other caller (the
             // Cloudflare solver's waitForActivity poll, CfWebView
             // dialogs, showToast, getAppContext helpers) keeps
             // getting the live Activity unchanged. A future donation
             // manager that fetched the Activity from a helper with
-            // no `donation` in its class name would slip past this;
-            // that is the known limit, documented, not silent.
+            // no `donat` in its class name would slip past this gate;
+            // the v1.0.22 MainActivity fragment backstop (dismisses
+            // donation fragments on attach) closes that limit — the
+            // gate stays as the first layer, the backstop as the
+            // second.
             if (isDonationCaller()) return null
             return _activity?.get()
         }
@@ -74,7 +77,7 @@ object CommonActivity {
         }
 
     /**
-     * (v1.0.21) True when a class with `donation` in its name is on
+     * (v1.0.21, widened v1.0.22 D) True when a class with `donat` in its name is on
      * the current call stack — i.e. the getActivity() caller is
      * plugin donation code showing (or about to show) its modal.
      * The check runs on every getActivity() call; callers are
@@ -83,7 +86,7 @@ object CommonActivity {
      */
     private fun isDonationCaller(): Boolean {
         return Thread.currentThread().stackTrace.any { frame ->
-            frame.className.contains("donation", ignoreCase = true)
+            frame.className.contains("donat", ignoreCase = true)
         }
     }
 
