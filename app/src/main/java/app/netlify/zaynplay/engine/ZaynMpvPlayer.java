@@ -643,6 +643,31 @@ public class ZaynMpvPlayer {
             long cacheSizeBytes,
             String bufferLevel,
             String preferredAudioLang) {
+        play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl,
+                cacheSizeBytes, bufferLevel, preferredAudioLang, null);
+    }
+
+    /**
+     * (v1.0.18 P17-02) Subtitle styling, from the Settings values
+     * (subColor/subStyle/subPosV/subPosH/subSize) as a JSON object.
+     * mpv renders subtitles itself, so the style lands here as real
+     * mpv options: sub-color / sub-border-style / sub-font-size /
+     * sub-pos / sub-align-x. Colour names are the Bengali picker
+     * values; sizes are mpv font-size points; positions are mpv
+     * sub-pos percents (5 top, 50 middle, 95 bottom). mpv has no
+     * raised/depressed border style — both map to "outline" (documented
+     * approximation); "none" sets border-size 0.
+     */
+    public void play(
+            ZaynPlayer.PlayLink link,
+            long startAtMs,
+            String subtitleText,
+            String subtitleLang,
+            String subtitleUrl,
+            long cacheSizeBytes,
+            String bufferLevel,
+            String preferredAudioLang,
+            String subtitleStyleJson) {
         mainHandler.post(() -> {
             if (!ensureCreated()) return;
             MPVLib m = mpv;
@@ -697,6 +722,7 @@ public class ZaynMpvPlayer {
                     m.setOptionString("demuxer-max-bytes", String.valueOf(cacheSizeBytes));
                 } catch (Exception ignored) {
                 }
+                applySubtitleStyle(m, subtitleStyleJson);
             } catch (Exception e) {
                 EngineLogger.INSTANCE.log("player", "mpv: option failed " + e.getMessage());
             }
@@ -771,7 +797,39 @@ public class ZaynMpvPlayer {
             String subtitleUrl,
             long cacheSizeBytes) {
         play(link, startAtMs, subtitleText, subtitleLang, subtitleUrl,
-                cacheSizeBytes, "normal", null);
+                cacheSizeBytes, "normal", null, null);
+    }
+
+    /** Apply the Settings subtitle style as mpv options (P17-02). */
+    private void applySubtitleStyle(MPVLib m, String subtitleStyleJson) {
+        if (m == null || subtitleStyleJson == null) return;
+        try {
+            JSONObject st = new JSONObject(subtitleStyleJson);
+            String color = st.optString("subColor", "সাদা");
+            String hex;
+            if ("হলুদ".equals(color)) hex = "#FFFF00";
+            else if ("সবুজ".equals(color)) hex = "#4ADE80";
+            else if ("আকাশি".equals(color)) hex = "#7DD3FC";
+            else if ("গোলাপি".equals(color)) hex = "#F472B6";
+            else hex = "#FFFFFF";
+            String style = st.optString("subStyle", "outline");
+            String borderStyle = "shadow".equals(style) ? "shadow" : "outline";
+            String size = st.optString("subSize", "medium");
+            String fontSize = "small".equals(size) ? "36" : "large".equals(size) ? "60" : "xlarge".equals(size) ? "72" : "48";
+            String posV = st.optString("subPosV", "bottom");
+            String pos = "top".equals(posV) ? "5" : "middle".equals(posV) ? "50" : "95";
+            String alignX = st.optString("subPosH", "center");
+            if (!"left".equals(alignX) && !"right".equals(alignX)) alignX = "center";
+            try { m.setOptionString("sub-color", hex); } catch (Exception ignored) {}
+            try { m.setOptionString("sub-border-style", borderStyle); } catch (Exception ignored) {}
+            try { m.setOptionString("sub-border-size", "none".equals(style) ? "0" : "3"); } catch (Exception ignored) {}
+            try { m.setOptionString("sub-font-size", fontSize); } catch (Exception ignored) {}
+            try { m.setOptionString("sub-pos", pos); } catch (Exception ignored) {}
+            try { m.setOptionString("sub-align-x", alignX); } catch (Exception ignored) {}
+            EngineLogger.INSTANCE.log("player", "mpv: subtitle style applied color=" + hex + " style=" + borderStyle + " size=" + fontSize + " pos=" + pos + " align=" + alignX);
+        } catch (JSONException e) {
+            EngineLogger.INSTANCE.log("player", "mpv: subtitle style parse failed");
+        }
     }
 
     private void onVideoReconfig() {
