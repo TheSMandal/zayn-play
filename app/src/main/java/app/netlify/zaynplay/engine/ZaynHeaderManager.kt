@@ -6,14 +6,12 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
  * (v1.0.13 P3-C) Header manager — the ONE place that builds request
  * headers per provider/link. Every request shape that talks to a
  * provider's CDN goes through here, so the probe/validator and the
- * ExoPlayer MediaSource path (and libmpv) can never drift apart:
+ * ExoPlayer MediaSource path can never drift apart:
  *
  *  - probe/validator: [headersFor] (ZaynEngine probePlayable /
  *    validateManifestLink / measureTtfb)
  *  - ExoPlayer: [headersForPlayLink] (ZaynPlayer.play, applied as
  *    setDefaultRequestProperties on the per-link OkHttpDataSource)
- *  - libmpv: [httpHeaderFieldsForPlayLink] (ZaynMpvPlayer.play,
- *    http-header-fields option)
  *
  * Per-provider isolation is STRUCTURAL: a header map is built ONLY from
  * the link it belongs to (its own Referer + its own link headers via
@@ -58,8 +56,7 @@ object ZaynHeaderManager {
     /** Headers for a PlayLink (the snapshot ExoPlayer plays): the
      * link's Referer first, then the snapshot headers, deduped
      * case-insensitively on "referer" (the snapshot already contains the
-     * Referer via getAllHeaders(), so a naive merge would send it twice
-     * — the old libmpv code did exactly that). */
+     * Referer via getAllHeaders(), so a naive merge would send it twice). */
     fun headersForPlayLink(link: ZaynPlayer.PlayLink): Map<String, String> {
         val out = LinkedHashMap<String, String>()
         if (link.referer.isNotBlank()) out["referer"] = link.referer
@@ -69,12 +66,6 @@ object ZaynHeaderManager {
         }
         return out
     }
-
-    /** libmpv `http-header-fields` value for a PlayLink: the same
-     * per-link headers as [headersForPlayLink], as "Key: value" pairs
-     * joined with "," (the format mpv expects). */
-    fun httpHeaderFieldsForPlayLink(link: ZaynPlayer.PlayLink): String =
-        headersForPlayLink(link).entries.joinToString(",") { (k, v) -> "$k: $v" }
 
     /** (v1.0.13 P4-A) Re-attach the top-level URL's query (the signed
      * token) to a resolved child URL that carries none. RFC 3986 drops
