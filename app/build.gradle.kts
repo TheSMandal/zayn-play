@@ -39,8 +39,30 @@ android {
         // build MUST use versionCode >= 1000, so it can update-install
         // over every review build without an uninstall (Android refuses
         // a downgrade in versionCode even with the same signature).
-        versionCode = 1024
-        versionName = "1.0.24"
+        versionCode = 1025
+        versionName = "1.0.25"
+    }
+
+    // (v1.0.25 F) ABI splits: :app:assembleRelease now produces
+    // FIVE signed APKs -- one per ABI plus the universal APK --
+    // all with the SAME versionCode and the SAME fixed-keystore
+    // signing above, so every one update-installs over any older
+    // release. No versionCodeOverride: AGP gives every split the
+    // defaultConfig versionCode. Outputs (Gradle default names;
+    // the assembly coordinator renames them to the release
+    // assets ZaynPlay-1.0.25-<abi>.apk / -universal.apk):
+    // app-arm64-v8a-release.apk, app-armeabi-v7a-release.apk,
+    // app-x86-release.apk, app-x86_64-release.apk,
+    // app-universal-release.apk (the universal build is the same
+    // build as today's single app-release.apk -- only Gradle's
+    // output filename changes once splits are on).
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     // FIXED SIGNING (v0.2.10): every build — debug AND release — must be
