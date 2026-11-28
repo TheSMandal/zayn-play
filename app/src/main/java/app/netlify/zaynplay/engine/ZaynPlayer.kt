@@ -699,14 +699,24 @@ class ZaynPlayer(
     }
 
     // (v1.0.22 C ITEM 7) Own the TextureView transform for the current
-    // aspect mode. Media3 also writes a transform on video-size changes
-    // (its default is aspect-preserving fit), so this posts the write:
-    // the posted runnable runs after the in-flight listener dispatch and
-    // reads the CURRENT view/video sizes, so ours is the transform that
-    // stays. Fit = preserve aspect inside the view (uniform contain);
-    // Fill = stretch to the view (non-uniform, aspect ignored, no crop);
-    // Zoom = scale to cover (uniform, excess cropped); 16:9/4:3 = stretch
-    // to the view, which the page already sized to that aspect.
+    // aspect mode. This posts the write: the posted runnable runs after
+    // the in-flight listener dispatch and reads the CURRENT view/video
+    // sizes, so ours is the transform that stays.
+    // (v1.0.26) TRUE TextureView model (Android codelab
+    // android-camera2-preview): the identity transform ALREADY stretches
+    // the content to fill the view in both dimensions, and setTransform
+    // scales that already-stretched content — displayed frame is
+    // (vw*sx, vh*sy), NOT (cw*sx, ch*sy). V1.0.25 assumed the false
+    // model and wrote (vw/cw, vh/ch) for Fill, doubling the default
+    // stretch: 294 px/side cropped on 16:9, 791 px/side on 4:3, proven
+    // on Samim's phone (2026-11-28). So every matrix below is the
+    // wanted frame DIVIDED BY the view (the codelab's 1/scale *
+    // finalScale pattern): Fill / 16:9 / 4:3 = identity (the default
+    // stretch already fills the view, which the page sized to the
+    // wanted aspect); Fit k=min(vw/cw, vh/ch), Zoom k=max(vw/cw,
+    // vh/ch), both with sx=cw*k/vw, sy=ch*k/vh. This reproduces
+    // CloudStream's native frames exactly (AspectRatioFrameLayout +
+    // default stretch, no matrix of its own).
     // (v1.0.25 D) Unknown video size writes the defined identity transform
     // (logged) — never a stale one.
     private fun applyAspectTransform() {
@@ -727,36 +737,40 @@ class ZaynPlayer(
                 return@post
             }
             val matrix = Matrix()
-            // (v1.0.25 D) Fill is a non-uniform STRETCH (aspect ignored, no
-            // crop); Zoom owns the uniform cover scale Fill used to compute.
+            // (v1.0.26) Fill is the IDENTITY — the default stretch already fills
+            // the view with 0 crop; Zoom owns the uniform cover scale,
+            // divided back by the default stretch (sx=cw*k/vw).
             var sx = 1f
             var sy = 1f
             when (aspectMode) {
-                "fill" -> {
-                    sx = vw / cw
-                    sy = vh / ch
+                "fill", "169", "43" -> {
+                    // (v1.0.26) Identity: the view is already the wanted
+                    // aspect (page sized it) and the default stretch
+                    // fills it — writing (vw/cw, vh/ch) here doubled
+                    // the stretch and cropped the sides.
+                    sx = 1f
+                    sy = 1f
                     matrix.setScale(sx, sy, vw / 2f, vh / 2f)
                 }
                 "zoom" -> {
-                    val s = maxOf(vw / cw, vh / ch)
-                    sx = s
-                    sy = s
-                    matrix.setScale(s, s, vw / 2f, vh / 2f)
-                }
-                "169", "43" -> {
-                    sx = vw / cw
-                    sy = vh / ch
+                    // (v1.0.26) Cover, divided by the default stretch:
+                    // frame = (cw*k, ch*k), k = max(vw/cw, vh/ch).
+                    val k = maxOf(vw / cw, vh / ch)
+                    sx = cw * k / vw
+                    sy = ch * k / vh
                     matrix.setScale(sx, sy, vw / 2f, vh / 2f)
                 }
                 else -> {
-                    val s = minOf(vw / cw, vh / ch)
-                    sx = s
-                    sy = s
-                    matrix.setScale(s, s, vw / 2f, vh / 2f)
+                    // (v1.0.26) Fit, divided by the default stretch:
+                    // frame = (cw*k, ch*k), k = min(vw/cw, vh/ch).
+                    val k = minOf(vw / cw, vh / ch)
+                    sx = cw * k / vw
+                    sy = ch * k / vh
+                    matrix.setScale(sx, sy, vw / 2f, vh / 2f)
                 }
             }
-            val frameW = cw * sx
-            val frameH = ch * sy
+            val frameW = vw * sx
+            val frameH = vh * sy
             val cropX = maxOf(0f, frameW - vw)
             val cropY = maxOf(0f, frameH - vh)
             EngineLogger.log("player", "aspect transform mode=$aspectMode video=${lastVideoW}x${lastVideoH} view=${vw.toInt()}x${vh.toInt()} sx=$sx sy=$sy frame=${frameW.toInt()}x${frameH.toInt()} crop=${cropX.toInt()}x${cropY.toInt()}")
