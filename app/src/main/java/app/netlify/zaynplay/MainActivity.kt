@@ -368,8 +368,17 @@ class MainActivity : AppCompatActivity() {
                 // (v1.0.18 P17-13) The layout pick (phone/tablet/tv) only
                 // takes effect on a fresh load: reload() would keep the
                 // old ?form= query, so re-load with the current form.
+                // (v1.0.21) A layout pick must also switch ORIENTATION:
+                // a Tablet (or TV) pick on a phone forces landscape,
+                // a Phone pick forces portrait — the same rule onCreate
+                // applies. Without this the page would reload into the
+                // tablet CSS while the Activity stayed portrait.
+                // configChanges includes orientation, so this rotates
+                // the existing activity instead of recreating it.
                 runOnUiThread {
                     val form = formFactor()
+                    requestedOrientation = if (form == "phone") ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                     webView.loadUrl("file:///android_asset/zaynplay-app.html?bootsplash=0&form=$form")
                 }
             }
